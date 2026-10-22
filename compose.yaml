@@ -1,0 +1,25 @@
+services:
+  codex-repo-updater:
+    build: .
+    restart: unless-stopped
+    init: true
+    user: "${CODEX_UID:?Set CODEX_UID}:${CODEX_GID:?Set CODEX_GID}"
+    environment:
+      GPG_KEY: ${GPG_KEY:?Set GPG_KEY in .env}
+      GNUPGHOME: /gnupg
+      CHECK_INTERVAL: '21600'
+      ARCHES: 'amd64 arm64'
+      CODENAME: trixie
+    volumes:
+      - /srv/apt/codex/repo:/repo
+      - /srv/apt/codex/gnupg:/gnupg
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    mem_limit: 256m
+    logging:
+      options:
+        max-size: '10m'
+        max-file: '3'
