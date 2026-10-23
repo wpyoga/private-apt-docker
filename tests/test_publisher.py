@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -69,6 +70,11 @@ class PublisherTests(unittest.TestCase):
             stub = self.base / "bin" / command
             stub.write_text(STUB)
             stub.chmod(0o755)
+        self.publisher = self.base / "publisher"
+        self.publisher.mkdir()
+        for name in ("update.sh", "Dockerfile"):
+            shutil.copyfile(ROOT / name, self.publisher / name)
+        shutil.copytree(ROOT / "lib", self.publisher / "lib", ignore=shutil.ignore_patterns("__pycache__"))
         self.env = {
             **os.environ,
             "PATH": f"{self.base / 'bin'}:{os.environ['PATH']}",
@@ -113,7 +119,7 @@ dpkg-deb --build --root-owner-group "$1/build-$3" "$4"
 
     def run_update(self, expected=0):
         result = subprocess.run(
-            ["bash", str(ROOT / "update.sh")], env=self.env, text=True, capture_output=True
+            ["bash", str(self.publisher / "update.sh")], env=self.env, text=True, capture_output=True
         )
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         self.assertEqual(list((self.base / "tmp").iterdir()), [], "Workspace leaked")
@@ -227,10 +233,13 @@ dpkg-deb --build --root-owner-group "$1/build-$3" "$4"
         self.assertIn("Update already running", result.stdout)
         self.assertEqual(self.published(), [])
 
-    def codex_fixture(self, *, wrapped=False, metadata_version="1.2.3", corrupt_digest=False):
-        self.env["PACKAGES_DIR"] = str(ROOT / "packages")
+    def codex_fixture(self, *, wrapped=False, metadata_version=None, corrupt_digest=False, version="1.2.3"):
+        adapter = self.base / "adapters/codex"
+        if not adapter.exists():
+            shutil.copytree(ROOT / "packages/codex", adapter, ignore=shutil.ignore_patterns("__pycache__"))
         self.env["PACKAGES"] = "codex"
-        self.env["DEB_REVISION"] = "3"
+        if metadata_version is None:
+            metadata_version = version
         assets = []
         for target in ("x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"):
             name = f"codex-package-{target}.tar.gz"
@@ -258,14 +267,14 @@ dpkg-deb --build --root-owner-group "$1/build-$3" "$4"
                 "browser_download_url": "https://fixtures.invalid/" + name,
             })
         (self.base / "downloads/release.json").write_text(json.dumps({
-            "tag_name": "rust-v1.2.3", "draft": False, "prerelease": False, "assets": assets
+            "tag_name": f"rust-v{version}", "draft": False, "prerelease": False, "assets": assets
         }))
 
     def test_codex_build_layout_metadata_and_system_tools(self):
         self.codex_fixture()
         self.run_update()
         self.assertEqual(len(self.published()), 2)
-        artifact = self.base / "artifacts/codex-cli_1.2.3-3_amd64.deb"
+        artifact = self.base / "artifacts/codex-cli_1.2.3-1_amd64.deb"
         control = subprocess.check_output(["dpkg-deb", "-f", str(artifact)], text=True)
         self.assertIn("Depends: bubblewrap, ripgrep", control)
         self.assertIn("Recommends: git", control)
@@ -310,6 +319,159 @@ dpkg-deb --build --root-owner-group "$1/build-$3" "$4"
         path.write_text(json.dumps(release))
         self.run_update(expected=1)
         self.assertEqual(self.published(), [])
+
+    def revision_state(self):
+        path = self.base / "repo/.state/revisions/trixie/codex-cli.json"
+        return json.loads(path.read_text())["releases"]
+
+    def published_versions(self):
+        return {package["arch"]: package["version"] for package in self.published()}
+
+    def test_automatic_revision_stable_across_polls_and_timestamps(self):
+        self.codex_fixture()
+        self.run_update()
+        self.assertEqual(self.published_versions(), {"amd64": "1.2.3-1", "arm64": "1.2.3-1"})
+        adapter = self.base / "adapters/codex"
+        for path in adapter.iterdir():
+            path.touch()
+        (adapter / "__pycache__").mkdir()
+        (adapter / "__pycache__/ignored.pyc").write_bytes(b"cache")
+        self.run_update()
+        self.assertEqual((self.base / "events").read_text().splitlines().count("includedeb"), 2)
+        record = self.revision_state()["1.2.3"]
+        self.assertEqual(record["revision"], 1)
+        self.assertEqual(record["published"], ["amd64", "arm64"])
+
+    def test_packaging_change_increments_revision_for_both_architectures(self):
+        self.codex_fixture()
+        self.run_update()
+        path = self.base / "adapters/codex/build"
+        original = path.read_text()
+        path.write_text(original + "\n# Changed packaging recipe\n")
+        self.run_update()
+        self.assertEqual(self.published_versions(), {"amd64": "1.2.3-2", "arm64": "1.2.3-2"})
+        self.run_update()
+        self.assertEqual(self.revision_state()["1.2.3"]["revision"], 2)
+        # Reverting a recipe still needs a newer Debian version.
+        path.write_text(original)
+        self.run_update()
+        self.assertEqual(self.revision_state()["1.2.3"]["revision"], 3)
+
+    def test_automatic_revisions_are_isolated_between_packages(self):
+        for name in ("first", "second"):
+            directory = self.adapter(name, query="printf '1.2.3\\tamd64\\n' > \"$1/targets.tsv\"\n")
+            (directory / "revision-policy").write_text("automatic\n")
+        self.env["PACKAGES"] = "first second"
+        self.run_update()
+        path = self.base / "adapters/first/build"
+        path.write_text(path.read_text() + "\n# Changed first package\n")
+        self.run_update()
+        versions = {package["name"]: package["version"] for package in self.published()}
+        self.assertEqual(versions, {"first-cli": "1.2.3-2", "second-cli": "1.2.3-1"})
+
+    def test_executable_permission_change_increments_revision(self):
+        self.codex_fixture()
+        self.run_update()
+        path = self.base / "adapters/codex/archive.py"
+        path.chmod(0o755)
+        self.run_update()
+        self.assertEqual(self.revision_state()["1.2.3"]["revision"], 2)
+
+    def test_build_environment_and_declared_configuration_changes_increment_revision(self):
+        self.codex_fixture()
+        (self.base / "adapters/codex/revision-env").write_text("TEST_BUILD_OPTION\n")
+        self.env["TEST_BUILD_OPTION"] = "one"
+        self.run_update()
+        self.env["TEST_BUILD_OPTION"] = "two"
+        self.run_update()
+        self.assertEqual(self.revision_state()["1.2.3"]["revision"], 2)
+        dockerfile = self.publisher / "Dockerfile"
+        dockerfile.write_text(dockerfile.read_text() + "\n# Changed environment\n")
+        self.run_update()
+        self.assertEqual(self.revision_state()["1.2.3"]["revision"], 3)
+
+    def test_new_upstream_release_resets_revision(self):
+        self.codex_fixture()
+        self.run_update()
+        path = self.base / "adapters/codex/build"
+        path.write_text(path.read_text() + "\n# Packaging change\n")
+        self.run_update()
+        self.codex_fixture(version="1.2.4")
+        self.run_update()
+        self.assertEqual(self.published_versions(), {"amd64": "1.2.4-1", "arm64": "1.2.4-1"})
+        self.assertEqual(self.revision_state()["1.2.3"]["revision"], 2)
+        self.assertEqual(self.revision_state()["1.2.4"]["revision"], 1)
+
+    def test_migration_uses_highest_published_revision_across_architectures(self):
+        self.codex_fixture()
+        (self.base / "state.json").write_text(json.dumps([
+            {"name": "codex-cli", "version": "1.2.3-2", "arch": "amd64"},
+            {"name": "codex-cli", "version": "1.2.3-3", "arch": "arm64"},
+        ]))
+        # Legacy environment settings no longer override automatic revisions.
+        self.env["DEB_REVISION"] = "3"
+        self.run_update()
+        self.assertEqual(self.published_versions(), {"amd64": "1.2.3-4", "arm64": "1.2.3-4"})
+        self.run_update()
+        self.assertEqual(self.revision_state()["1.2.3"]["revision"], 4)
+
+    def test_failed_build_reuses_reserved_revision(self):
+        self.codex_fixture(corrupt_digest=True)
+        self.run_update(expected=1)
+        reserved = self.revision_state()["1.2.3"]
+        self.assertEqual(reserved["revision"], 1)
+        self.assertEqual(reserved["published"], [])
+        self.run_update(expected=1)
+        self.assertEqual(self.revision_state()["1.2.3"], reserved)
+        self.codex_fixture()
+        self.run_update()
+        self.assertEqual(self.revision_state()["1.2.3"]["revision"], 1)
+        self.assertEqual(len(self.published()), 2)
+
+    def test_partial_publication_resumes_same_revision(self):
+        self.codex_fixture()
+        path = self.base / "adapters/codex/build"
+        path.write_text(path.read_text().replace(
+            'output=$4',
+            'output=$4\nif [[ "$arch" == arm64 && "${TEST_FAIL_ARM64:-}" == 1 ]]; then exit 7; fi'
+        ))
+        self.env["TEST_FAIL_ARM64"] = "1"
+        self.run_update(expected=1)
+        self.assertEqual(self.published_versions(), {"amd64": "1.2.3-1"})
+        self.assertEqual(self.revision_state()["1.2.3"]["published"], ["amd64"])
+        self.env["TEST_FAIL_ARM64"] = "0"
+        self.run_update()
+        self.assertEqual(self.published_versions(), {"amd64": "1.2.3-1", "arm64": "1.2.3-1"})
+        self.assertEqual((self.base / "events").read_text().splitlines().count("includedeb"), 2)
+
+    def test_new_architecture_reuses_existing_revision(self):
+        self.codex_fixture()
+        self.env["ARCHES"] = "amd64"
+        self.run_update()
+        configuration = self.base / "repo/conf/distributions"
+        configuration.write_text(configuration.read_text().replace("Architectures: amd64", "Architectures: amd64 arm64"))
+        self.env["ARCHES"] = "amd64 arm64"
+        self.run_update()
+        self.assertEqual(self.published_versions(), {"amd64": "1.2.3-1", "arm64": "1.2.3-1"})
+
+    def test_missing_publication_record_is_recovered_from_repository(self):
+        self.codex_fixture()
+        self.run_update()
+        path = self.base / "repo/.state/revisions/trixie/codex-cli.json"
+        state = json.loads(path.read_text())
+        state["releases"]["1.2.3"]["published"] = []
+        path.write_text(json.dumps(state))
+        self.run_update()
+        self.assertEqual(self.revision_state()["1.2.3"]["published"], ["amd64", "arm64"])
+        self.assertEqual((self.base / "events").read_text().splitlines().count("includedeb"), 2)
+
+    def test_corrupt_revision_state_fails_without_republishing(self):
+        self.codex_fixture()
+        self.run_update()
+        path = self.base / "repo/.state/revisions/trixie/codex-cli.json"
+        path.write_text('{"schema": 999, "releases": {}}')
+        self.run_update(expected=1)
+        self.assertEqual((self.base / "events").read_text().splitlines().count("includedeb"), 2)
 
     def test_archive_path_traversal_is_rejected(self):
         path = self.base / "unsafe.tar.gz"

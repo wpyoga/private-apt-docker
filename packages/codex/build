@@ -14,18 +14,18 @@ import sys
 
 with open(sys.argv[1]) as source:
     asset = json.load(source)[sys.argv[2]]
-for key in ("version", "package_version", "name", "url", "sha256"):
+for key in ("version", "name", "url", "sha256"):
     print(asset[key])
 PY
 )
-[[ ${#asset[@]} == 5 && "${asset[1]}" == "$package_version" ]] || {
+[[ ${#asset[@]} == 4 && "${asset[0]}" == "${package_version%-*}" ]] || {
     echo 'Missing or inconsistent Codex build metadata' >&2
     exit 1
 }
 version=${asset[0]}
-name=${asset[2]}
-url=${asset[3]}
-sha=${asset[4]}
+name=${asset[1]}
+url=${asset[2]}
+sha=${asset[3]}
 archive="$workspace/$name"
 
 curl -fLsS --retry 3 "$url" -o "$archive"

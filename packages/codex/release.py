@@ -23,7 +23,6 @@ def main():
         raise SystemExit(f"Unexpected release tag: {tag}")
 
     version = tag.removeprefix("rust-v")
-    package_version = f"{version}-{sys.argv[3]}"
     assets = {asset["name"]: asset for asset in release["assets"]}
     selected = {}
     for architecture in sys.argv[2].split():
@@ -40,7 +39,6 @@ def main():
             raise SystemExit(f"Invalid asset URL: {name}")
         selected[architecture] = {
             "version": version,
-            "package_version": package_version,
             "name": name,
             "url": url,
             "sha256": asset["digest"][7:],
@@ -48,7 +46,7 @@ def main():
 
     (workspace / "assets.json").write_text(json.dumps(selected, indent=4) + "\n")
     (workspace / "targets.tsv").write_text(
-        "".join(f"{package_version}\t{architecture}\n" for architecture in selected)
+        "".join(f"{version}\t{architecture}\n" for architecture in selected)
     )
 
 

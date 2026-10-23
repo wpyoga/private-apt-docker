@@ -18,12 +18,22 @@ publish_package() {
     local adapter=$1 workspace=$2
     local package version arch extra output listing
     local actual_name actual_version actual_arch
+    local automatic_revisions=false
     package=$(cat "$PACKAGES_DIR/$adapter/package-name")
     mkdir -p "$workspace"
 
     echo "[$adapter] Querying updates"
     "$PACKAGES_DIR/$adapter/query" "$workspace"
     python3 "$script_dir/lib/validate-targets.py" "$workspace/targets.tsv" "$ARCHES"
+    if [[ -f "$PACKAGES_DIR/$adapter/revision-policy" ]]; then
+        if [[ "$(cat "$PACKAGES_DIR/$adapter/revision-policy")" != automatic ]]; then
+            echo "[$adapter] Unknown revision policy" >&2
+            return 1
+        fi
+        automatic_revisions=true
+        python3 "$script_dir/lib/revisions.py" resolve "$PACKAGES_DIR/$adapter" "$workspace/targets.tsv"
+        python3 "$script_dir/lib/validate-targets.py" "$workspace/targets.tsv" "$ARCHES"
+    fi
 
     while IFS=$'\t' read -r version arch extra; do
         listing=$(reprepro -b "$REPO_DIR" list "$CODENAME" "$package")
@@ -31,6 +41,9 @@ publish_package() {
             $1 ~ ("\\|" arch ":$") && $2 == package && $3 == version { found = 1 }
             END { exit !found }
         ' <<< "$listing"; then
+            if "$automatic_revisions"; then
+                python3 "$script_dir/lib/revisions.py" published "$PACKAGES_DIR/$adapter" "$version" "$arch"
+            fi
             echo "[$adapter] Already published: $package $version ($arch)"
             continue
         fi
@@ -46,6 +59,9 @@ publish_package() {
         fi
 
         reprepro -b "$REPO_DIR" includedeb "$CODENAME" "$output"
+        if "$automatic_revisions"; then
+            python3 "$script_dir/lib/revisions.py" published "$PACKAGES_DIR/$adapter" "$version" "$arch"
+        fi
         echo "[$adapter] Published: $package $version ($arch)"
     done < "$workspace/targets.tsv"
 }

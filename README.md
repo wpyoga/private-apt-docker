@@ -23,6 +23,12 @@ key, and Debian client configuration remain compatible. Existing `CODEX_UID` and
 `CODEX_GID` settings still work; `REPO_UID` and `REPO_GID` take precedence if set.
 Existing repository identity is preserved. Do not rerun setup just to upgrade.
 
+Codex revisions are now automatic; remove any old `DEB_REVISION` setting from
+`.env` (it is no longer used). The first update establishes a recipe fingerprint
+and rebuilds the current upstream version once at the next published revision.
+For example, an existing `1.2.3-3` becomes `1.2.3-4`. A fresh upstream version
+starts at revision `1`.
+
 ## First-time setup
 
 Install Docker Compose, GnuPG, Python 3, and sudo on the host. Run:
@@ -61,7 +67,6 @@ Set these values in `.env` as needed:
 | `CODENAME` | `trixie` | APT distribution |
 | `CHECK_INTERVAL` | `21600` | Seconds between cycles; minimum 3600 |
 | `REPO_DATA_DIR` | `/srv/apt/codex` | Host parent of `repo/` and `gnupg/` |
-| `DEB_REVISION` | `3` | Codex adapter's Debian packaging revision |
 | `REPO_ORIGIN`, `REPO_LABEL` | `Private APT Repository` | Identity for a new repository |
 | `REPO_DESCRIPTION` | `Privately packaged Debian software` | Description for a new repository |
 
@@ -83,6 +88,12 @@ packages/example/
     build           # Executable .deb creation hook
 ```
 
+By default, adapters provide complete Debian versions. To opt into automatic
+revision assignment, add a `revision-policy` file containing `automatic`. In this
+mode, the query provides upstream versions without a packaging revision, and the
+runner passes the assigned full Debian version to the build hook. The Codex
+adapter uses this mode.
+
 The hook interface is:
 
 ```sh
@@ -90,9 +101,10 @@ query WORKDIR
 build WORKDIR VERSION ARCH OUTPUT
 ```
 
-`query` writes `WORKDIR/targets.tsv`: one complete Debian version and architecture
-per row, separated by a tab and ending with a newline. An empty file means there
-are no eligible updates. For example:
+`query` writes `WORKDIR/targets.tsv`: one version and architecture per row,
+separated by a tab and ending with a newline. Versions are complete Debian
+versions by default, or upstream versions with the automatic revision policy. An
+empty file means there are no eligible updates. For example:
 
 ```text
 1.2.3-1	amd64
@@ -134,6 +146,41 @@ with remaining adapters. Successful publications remain available; the overall
 cycle reports failure and retries at the next interval. Repository export is
 attempted even after an adapter fails. Shared configuration failures stop the
 cycle before package processing. The repository lock prevents overlapping runs.
+
+## Automatic packaging revisions
+
+The shared runner fingerprints adapter file paths, contents, and executable
+permissions, along with the Dockerfile and revision-assignment helper. It excludes
+caches and generated `build/` directories. File timestamps, polling, container
+restarts, and architecture selection do not change the fingerprint. Changes to
+any included file, even comments, conservatively count as recipe changes.
+
+| Situation | Result |
+| --- | --- |
+| New upstream version | Start at revision `1` |
+| Same upstream version and recipe | Reuse the revision; skip published architectures |
+| Same upstream version, changed recipe | Increment the revision for all architectures |
+| Existing packages without fingerprint state | Use the highest published revision plus `1` |
+
+State lives in `repo/.state/revisions/CODENAME/PACKAGE.json`. The runner reserves a
+revision atomically before building and records successful publication separately
+for each architecture. Failed builds retry the same revision while the recipe is
+unchanged. A partial publication resumes the missing architectures; a process
+interrupted after publication can recover from reprepro's package listing. Recipe
+reverts also receive a new revision. Keep `.state/` with the repository when moving
+or backing it up; losing it causes a conservative rebuild at a higher revision.
+
+If configuration affects package output, an adapter can add `revision-env` with
+one environment-variable name per line. Those values enter the fingerprint;
+pass them through Compose's `environment` mapping. Do not include variables such
+as `ARCHES` unless changing them should rebuild already published architectures.
+Invalid state or unrecognized existing Debian revision formats fail rather than
+silently resetting the revision.
+
+This detects declared recipe inputs. An unchanged Dockerfile can still resolve
+a different base image or different dependency versions during a rebuild. Those
+resolved inputs are not fingerprinted automatically; pin them in the Dockerfile
+when reproducible revision tracking is needed.
 
 ## Local testing
 

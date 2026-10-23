@@ -18,7 +18,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/apt-publisher
-COPY entrypoint.sh update.sh ./
+# Keep the build recipe available for package fingerprints at runtime.
+COPY Dockerfile entrypoint.sh update.sh ./
 COPY lib/ ./lib/
 COPY packages/ ./packages/
 RUN chmod 755 entrypoint.sh update.sh packages/*/query packages/*/build
