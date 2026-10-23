@@ -150,8 +150,8 @@ cycle before package processing. The repository lock prevents overlapping runs.
 ## Automatic packaging revisions
 
 The shared runner fingerprints adapter file paths, contents, and executable
-permissions, along with the Dockerfile and revision-assignment helper. It excludes
-caches and generated `build/` directories. File timestamps, polling, container
+permissions, along with the Dockerfile. It excludes caches and generated
+`build/` directories. File timestamps, polling, container
 restarts, and architecture selection do not change the fingerprint. Changes to
 any included file, even comments, conservatively count as recipe changes.
 

@@ -42,7 +42,7 @@ def fingerprint(adapter):
             raise SystemExit(f"Recipe symlinks are unsupported: {path}")
         if path.is_file():
             inputs.append((f"adapter/{relative.as_posix()}", path))
-    inputs.extend((name, ROOT / name) for name in ("Dockerfile", "lib/revisions.py"))
+    inputs.append(("Dockerfile", ROOT / "Dockerfile"))
     records = [
         (name, path.stat().st_mode & 0o111, hashlib.sha256(path.read_bytes()).hexdigest())
         for name, path in inputs
