@@ -1,2 +1,4 @@
 *.asc
 .env
+__pycache__/
+build/

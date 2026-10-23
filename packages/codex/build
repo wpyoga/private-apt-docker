@@ -1,0 +1,67 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+adapter_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+workspace=$1
+package_version=$2
+arch=$3
+output=$4
+
+# Metadata stays private to this adapter; the shared runner only knows targets.tsv.
+mapfile -t asset < <(python3 - "$workspace/assets.json" "$arch" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1]) as source:
+    asset = json.load(source)[sys.argv[2]]
+for key in ("version", "package_version", "name", "url", "sha256"):
+    print(asset[key])
+PY
+)
+[[ ${#asset[@]} == 5 && "${asset[1]}" == "$package_version" ]] || {
+    echo 'Missing or inconsistent Codex build metadata' >&2
+    exit 1
+}
+version=${asset[0]}
+name=${asset[2]}
+url=${asset[3]}
+sha=${asset[4]}
+archive="$workspace/$name"
+
+curl -fLsS --retry 3 "$url" -o "$archive"
+printf '%s  %s\n' "$sha" "$archive" | sha256sum -c -
+mkdir -p "$workspace/extract-$arch"
+src=$(python3 "$adapter_dir/archive.py" "$archive" "$workspace/extract-$arch" "$version")
+
+pkg="$workspace/pkg-$arch"
+root="$pkg/usr/lib/openai-codex"
+mkdir -p "$root" "$pkg/usr/bin" "$pkg/DEBIAN"
+cp -a "$src/." "$root/"
+
+# Keep upstream relative paths while using distro-managed tools.
+rm -f "$root/codex-resources/bwrap" "$root/codex-path/rg"
+mkdir -p "$root/codex-resources" "$root/codex-path"
+printf '%s\n' '#!/bin/sh' 'exec /usr/bin/bwrap "$@"' > "$root/codex-resources/bwrap"
+printf '%s\n' '#!/bin/sh' 'exec /usr/bin/rg "$@"' > "$root/codex-path/rg"
+chmod 755 "$root/codex-resources/bwrap" "$root/codex-path/rg"
+chmod 755 "$root/bin/codex" "$root/bin/codex-code-mode-host"
+for binary in "$root"/bin/*; do
+    [[ -f "$binary" && -x "$binary" ]] || continue
+    binary_name=$(basename "$binary")
+    ln -s "../lib/openai-codex/bin/$binary_name" "$pkg/usr/bin/$binary_name"
+done
+
+cat > "$pkg/DEBIAN/control" <<CONTROL
+Package: codex-cli
+Version: $package_version
+Section: devel
+Priority: optional
+Architecture: $arch
+Maintainer: Private APT Repository <repo@localhost>
+Depends: bubblewrap, ripgrep
+Recommends: git
+Description: OpenAI Codex CLI (precompiled, Debian system tools)
+ Upstream Codex binaries and metadata with Debian bubblewrap and ripgrep.
+CONTROL
+
+dpkg-deb --build --root-owner-group -Zgzip "$pkg" "$output"

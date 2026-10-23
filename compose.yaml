@@ -3,16 +3,21 @@ services:
     build: .
     restart: unless-stopped
     init: true
-    user: "${CODEX_UID:?Set CODEX_UID}:${CODEX_GID:?Set CODEX_GID}"
+    user: "${REPO_UID:-${CODEX_UID:?Set REPO_UID or CODEX_UID}}:${REPO_GID:-${CODEX_GID:?Set REPO_GID or CODEX_GID}}"
     environment:
       GPG_KEY: ${GPG_KEY:?Set GPG_KEY in .env}
       GNUPGHOME: /gnupg
-      CHECK_INTERVAL: '21600'
-      ARCHES: 'amd64 arm64'
-      CODENAME: trixie
+      CHECK_INTERVAL: ${CHECK_INTERVAL:-21600}
+      ARCHES: ${ARCHES:-amd64 arm64}
+      CODENAME: ${CODENAME:-trixie}
+      PACKAGES: ${PACKAGES:-codex}
+      DEB_REVISION: ${DEB_REVISION:-3}
+      REPO_ORIGIN: ${REPO_ORIGIN:-Private APT Repository}
+      REPO_LABEL: ${REPO_LABEL:-Private APT Repository}
+      REPO_DESCRIPTION: ${REPO_DESCRIPTION:-Privately packaged Debian software}
     volumes:
-      - /srv/apt/codex/repo:/repo
-      - /srv/apt/codex/gnupg:/gnupg
+      - ${REPO_DATA_DIR:-/srv/apt/codex}/repo:/repo
+      - ${REPO_DATA_DIR:-/srv/apt/codex}/gnupg:/gnupg
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -21,5 +26,5 @@ services:
     mem_limit: 256m
     logging:
       options:
-        max-size: '10m'
-        max-file: '3'
+        max-size: "10m"
+        max-file: "3"

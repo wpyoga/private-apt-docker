@@ -1,0 +1,7 @@
+.git
+.env
+*.asc
+__pycache__/
+**/__pycache__/
+tests/
+build/

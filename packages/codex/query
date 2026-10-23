@@ -1,0 +1,18 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+adapter_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+workspace=$1
+: "${ARCHES:=amd64}"
+: "${DEB_REVISION:=3}"
+if [[ ! "$DEB_REVISION" =~ ^[1-9][0-9]*$ ]]; then
+    echo 'DEB_REVISION must be a positive integer' >&2
+    exit 1
+fi
+
+curl -fLsS --retry 3 \
+    -H 'Accept: application/vnd.github+json' \
+    -H 'User-Agent: private-apt-publisher' \
+    https://api.github.com/repos/openai/codex/releases/latest \
+    -o "$workspace/release.json"
+python3 "$adapter_dir/release.py" "$workspace" "$ARCHES" "$DEB_REVISION"

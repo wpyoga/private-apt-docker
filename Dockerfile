@@ -1,15 +1,34 @@
 FROM debian:trixie-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-  bash ca-certificates curl python3 reprepro gnupg dpkg-dev binutils file tar gzip coreutils \
-  && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        bash \
+        binutils \
+        ca-certificates \
+        coreutils \
+        curl \
+        dpkg-dev \
+        file \
+        gnupg \
+        gzip \
+        python3 \
+        reprepro \
+        tar \
+        util-linux \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY entrypoint.sh update.sh /usr/local/bin/
-RUN chmod 755 /usr/local/bin/entrypoint.sh /usr/local/bin/update.sh
+WORKDIR /opt/apt-publisher
+COPY entrypoint.sh update.sh ./
+COPY lib/ ./lib/
+COPY packages/ ./packages/
+RUN chmod 755 entrypoint.sh update.sh packages/*/query packages/*/build
 
-ENV REPO_DIR=/repo CHECK_INTERVAL=21600 ARCHES="amd64 arm64" CODENAME=trixie
+ENV REPO_DIR=/repo \
+    CHECK_INTERVAL=21600 \
+    ARCHES="amd64 arm64" \
+    CODENAME=trixie \
+    PACKAGES=codex
 
 VOLUME /repo
 
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-
+ENTRYPOINT ["/opt/apt-publisher/entrypoint.sh"]
