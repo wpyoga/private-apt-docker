@@ -47,7 +47,6 @@ create_stream() {
     chmod 755 "$stream_dir/query" "$stream_dir/build"
 
     printf '%s\n' gimp > "$stream_dir/package-name"
-    printf '%s\n' automatic > "$stream_dir/revision-policy"
     printf '%s\n' "$version" > "$stream_dir/upstream-version"
 }
 

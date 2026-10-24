@@ -111,7 +111,7 @@ def find_package(packages, version, architecture):
     return None
 
 
-def prepare_builds(adapter, targets, checksum, automatic):
+def prepare_builds(adapter, targets, checksum):
     package_name = (adapter / "package-name").read_text().strip()
     packages = list_packages(package_name)
     selected_versions = {}
@@ -122,11 +122,9 @@ def prepare_builds(adapter, targets, checksum, automatic):
             upstream_version, architecture = line.split("\t")
 
             if upstream_version not in selected_versions:
-                version = upstream_version
-                if automatic:
-                    version = choose_version(
-                        packages, upstream_version, adapter.name, checksum
-                    )
+                version = choose_version(
+                    packages, upstream_version, adapter.name, checksum
+                )
                 selected_versions[upstream_version] = version
 
             version = selected_versions[upstream_version]
@@ -134,26 +132,24 @@ def prepare_builds(adapter, targets, checksum, automatic):
             existing_path = ""
 
             if existing is not None:
-                if automatic:
-                    if existing.checksum != checksum or existing.stream != adapter.name:
-                        raise ValueError(f"Package belongs to another build: {existing.path}")
+                if existing.checksum != checksum or existing.stream != adapter.name:
+                    raise ValueError(f"Package belongs to another build: {existing.path}")
                 existing_path = str(existing.path)
 
             output.write(f"{version}\t{architecture}\t{existing_path}\n")
 
 
-def validate_build(package, name, version, architecture, stream, checksum, automatic):
+def validate_build(package, name, version, architecture, stream, checksum):
     if package.name != name:
         raise ValueError(f"Built package name must be {name}")
     if package.version != version:
         raise ValueError(f"Built package version must be {version}")
     if package.architecture != architecture:
         raise ValueError(f"Built package architecture must be {architecture}")
-    if automatic:
-        if package.stream != stream:
-            raise ValueError(f"Built package stream must be {stream}")
-        if package.checksum != checksum:
-            raise ValueError("Built package has an incorrect input checksum")
+    if package.stream != stream:
+        raise ValueError(f"Built package stream must be {stream}")
+    if package.checksum != checksum:
+        raise ValueError("Built package has an incorrect input checksum")
 
 
 def copy_package(source, destination):
@@ -175,11 +171,11 @@ def copy_package(source, destination):
         os.unlink(temporary)
 
 
-def store_package(adapter, version, architecture, checksum, source, automatic):
+def store_package(adapter, version, architecture, checksum, source):
     package_name = (adapter / "package-name").read_text().strip()
     package = read_package(source)
     validate_build(
-        package, package_name, version, architecture, adapter.name, checksum, automatic
+        package, package_name, version, architecture, adapter.name, checksum
     )
 
     existing = find_package(list_packages(package_name), version, architecture)
@@ -196,18 +192,17 @@ def store_package(adapter, version, architecture, checksum, source, automatic):
 def main():
     command = sys.argv[1]
     adapter = Path(sys.argv[2])
-    automatic = (adapter / "revision-policy").exists()
 
     if command == "resolve":
         targets = Path(sys.argv[3])
         checksum = sys.argv[4]
-        prepare_builds(adapter, targets, checksum, automatic)
+        prepare_builds(adapter, targets, checksum)
     elif command == "store":
         version = sys.argv[3]
         architecture = sys.argv[4]
         checksum = sys.argv[5]
         source = Path(sys.argv[6])
-        store_package(adapter, version, architecture, checksum, source, automatic)
+        store_package(adapter, version, architecture, checksum, source)
     else:
         raise ValueError(f"Unknown package-file operation: {command}")
 

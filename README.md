@@ -46,6 +46,10 @@ JSON files are left untouched and are no longer read.
 
 Remove obsolete `PACKAGES` and `DEB_REVISION` settings from `.env`. Directory
 listing now selects streams; package metadata now supplies revision history.
+Debian revisions are now always assigned automatically; the `revision-policy`
+file is no longer used. Removing it changes the recipe checksum, so an existing
+Codex version receives one new packaging revision on the next update.
+
 Existing artifacts without our metadata remain available. Their first automatic
 rebuild uses the next revision and establishes the metadata, for example `-3` to
 `-4`. No revision state or checksum sidecar files are created.
@@ -117,7 +121,6 @@ Each directory is independent and contains:
 package-name       Debian package name, such as gimp
 query              Executable upstream query script
 build              Executable packaging script
-revision-policy    Optional: automatic
 revision-env       Optional: build environment variable names, one per line
 stale-after-days   Optional: inactivity warning threshold
 ```
@@ -156,7 +159,7 @@ architecture, and a newline. Return at most one current version per requested
 architecture. Use `printf '%s\t%s\n' "$version" "$arch"` to produce actual tabs.
 An empty file means no eligible artifacts are available.
 
-With `revision-policy` set to `automatic`, query versions are upstream versions:
+Query versions are upstream versions; the runner always assigns Debian revisions:
 
 ```text
 1.2.3<TAB>amd64
@@ -164,8 +167,6 @@ With `revision-policy` set to `automatic`, query versions are upstream versions:
 ```
 
 The runner assigns a Debian revision, such as `1.2.3-2`, before calling `build`.
-Without that policy, query versions must already be complete Debian versions;
-the adapter owns their revisions.
 
 If an upstream release has only amd64 available, return that row. The runner
 publishes it, warns about arm64, retains any previous arm64 package, and checks
@@ -180,7 +181,7 @@ The build hook receives these environment variables:
 | `BUILD_INPUTS_SHA256` | Current packaging-input checksum |
 | `ARCHES` | Architectures selected for this cycle |
 
-For automatic revisions, include these fields in the binary package control file:
+Include these fields in the binary package control file:
 
 ```text
 X-Build-Inputs-SHA256: <value of BUILD_INPUTS_SHA256>
@@ -189,7 +190,7 @@ X-Publisher-Stream: <value of PUBLISHER_STREAM>
 
 The runner verifies these fields, name, version, and architecture before accepting
 the output. A build hook may repack binaries, compile source, or import an upstream
-`.deb`; an importer using automatic revisions must add the fields and assigned
+`.deb`; an importer must add the fields and assigned
 version to the control metadata before returning its output.
 
 Each stream has a temporary workspace shared by query and build. Store download

@@ -89,15 +89,12 @@ class PublisherTests(unittest.TestCase):
         version="1.2.3",
         query=None,
         build=None,
-        automatic=True,
     ):
         directory = self.base / "adapters" / name
         directory.mkdir()
         package_name = package or f"{name}-cli"
         (directory / "package-name").write_text(package_name + "\n")
         (directory / "upstream-version").write_text(version + "\n")
-        if automatic:
-            (directory / "revision-policy").write_text("automatic\n")
 
         for hook, custom_body in (("query", query), ("build", build)):
             if custom_body is None:
@@ -265,12 +262,13 @@ class PublisherTests(unittest.TestCase):
         self.assertIn("Refusing to overwrite", result.stderr)
         self.assertEqual(existing.read_bytes(), original_bytes)
 
-    def test_complete_version_policy_remains_supported(self):
-        self.adapter(version="2026.10-7", automatic=False)
+    def test_revisions_are_automatic_without_policy_file(self):
+        directory = self.adapter()
+        self.assertFalse((directory / "revision-policy").exists())
         self.run_update()
         self.run_update()
         self.assertEqual(len(self.artifacts()), 2)
-        self.assertIn("Version: 2026.10-7", self.index())
+        self.assertEqual(self.versions("first"), {"1.2.3-1"})
 
     def test_checksum_ignores_timestamps_caches_and_monitoring_settings(self):
         directory = self.adapter()

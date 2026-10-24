@@ -21,13 +21,6 @@ if [[ ! "$package" =~ ^[a-z0-9][a-z0-9+.-]+$ ]]; then
     echo "[$stream] Invalid Debian package name: $package" >&2
     exit 1
 fi
-if [[ -f "$adapter/revision-policy" ]]; then
-    policy=$(cat "$adapter/revision-policy")
-    if [[ "$policy" != automatic ]]; then
-        echo "[$stream] Unknown revision policy: $policy" >&2
-        exit 1
-    fi
-fi
 
 mkdir -p "$workspace"
 echo "[$stream] Querying upstream"
