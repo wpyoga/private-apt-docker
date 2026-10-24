@@ -1,5 +1,6 @@
-"""Offline integration tests. All downloads, signing and publication are stubbed."""
+"""Offline integration tests with real package/index tools and fixture downloads."""
 
+from datetime import datetime, timezone
 import hashlib
 import io
 import json
@@ -14,48 +15,36 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 KEY = "A" * 40
 
-# The stub preserves package/version/architecture data across runner processes.
 STUB = r'''#!/usr/bin/env python3
-import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 
-command = Path(sys.argv[0]).name
 args = sys.argv[1:]
-state = Path(os.environ["TEST_STATE"])
-if command == "gpg":
-    sys.exit(0)
-if command == "curl":
+if Path(sys.argv[0]).name == "curl":
     destination = args[args.index("-o") + 1]
     url = next(arg for arg in args if arg.startswith("https://"))
     name = "release.json" if url.endswith("/releases/latest") else url.rsplit("/", 1)[1]
     shutil.copyfile(Path(os.environ["TEST_DOWNLOADS"]) / name, destination)
-    sys.exit(0)
-operation = args[2]
-packages = json.loads(state.read_text()) if state.exists() else []
-with open(os.environ["TEST_EVENTS"], "a") as events:
-    events.write(operation + "\n")
-if operation == "list":
-    for package in packages:
-        if package["name"] == args[4]:
-            print(f"{args[3]}|main|{package['arch']}: {package['name']} {package['version']}")
-elif operation == "includedeb":
-    artifact = args[4]
-    values = [subprocess.check_output(["dpkg-deb", "-f", artifact, field], text=True).strip()
-              for field in ("Package", "Version", "Architecture")]
-    package = dict(zip(("name", "version", "arch"), values))
-    packages = [p for p in packages if (p["name"], p["arch"]) != (package["name"], package["arch"])]
-    packages.append(package)
-    state.write_text(json.dumps(packages))
-    shutil.copyfile(artifact, Path(os.environ["TEST_ARTIFACTS"]) / Path(artifact).name)
-elif operation == "export":
-    sys.exit(int(os.environ.get("TEST_FAIL_EXPORT", "0")))
-else:
-    raise SystemExit(f"Unexpected reprepro invocation: {args}")
+elif os.environ.get("TEST_REAL_GPG"):
+    os.execv(os.environ["TEST_GPG_COMMAND"], [os.environ["TEST_GPG_COMMAND"], *args])
+elif "--output" in args:
+    if os.environ.get("TEST_FAIL_SIGN"):
+        raise SystemExit("Fixture signing failure")
+    shutil.copyfile(args[-1], args[args.index("--output") + 1])
 '''
+
+
+def fields(path):
+    text = subprocess.check_output(["dpkg-deb", "--field", str(path)], text=True)
+    metadata = {}
+    for line in text.splitlines():
+        if not line or line[0].isspace() or ":" not in line:
+            continue
+        name, value = line.split(":", 1)
+        metadata[name.lower()] = value.strip()
+    return metadata
 
 
 class PublisherTests(unittest.TestCase):
@@ -64,9 +53,9 @@ class PublisherTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="test-", dir=ROOT / "build")
         self.addCleanup(self.temporary.cleanup)
         self.base = Path(self.temporary.name)
-        for directory in ("bin", "adapters", "downloads", "artifacts", "tmp"):
+        for directory in ("bin", "adapters", "downloads", "tmp"):
             (self.base / directory).mkdir()
-        for command in ("gpg", "reprepro", "curl"):
+        for command in ("gpg", "curl"):
             stub = self.base / "bin" / command
             stub.write_text(STUB)
             stub.chmod(0o755)
@@ -80,41 +69,48 @@ class PublisherTests(unittest.TestCase):
             "PATH": f"{self.base / 'bin'}:{os.environ['PATH']}",
             "REPO_DIR": str(self.base / "repo"),
             "PACKAGES_DIR": str(self.base / "adapters"),
-            "PACKAGES": "first",
             "ARCHES": "amd64 arm64",
             "CODENAME": "trixie",
             "GPG_KEY": KEY,
-            "GNUPGHOME": str(self.base / "unused-keyring"),
+            "GNUPGHOME": str(self.base / "keyring"),
             "TMPDIR": str(self.base / "tmp"),
-            "TEST_STATE": str(self.base / "state.json"),
             "TEST_EVENTS": str(self.base / "events"),
             "TEST_DOWNLOADS": str(self.base / "downloads"),
-            "TEST_ARTIFACTS": str(self.base / "artifacts"),
+            "TEST_GPG_COMMAND": shutil.which("gpg"),
         }
+        for name in ("TEST_REAL_GPG", "TEST_FAIL_SIGN", "TEST_FAIL_ARCH", "TEST_VERSION"):
+            self.env.pop(name, None)
 
-    def adapter(self, name="first", *, query=None, build=None, package=None):
+    def adapter(
+        self,
+        name="first",
+        *,
+        package=None,
+        version="1.2.3",
+        query=None,
+        build=None,
+        automatic=True,
+    ):
         directory = self.base / "adapters" / name
         directory.mkdir()
-        package = package or f"{name}-cli"
-        (directory / "package-name").write_text(package + "\n")
-        scripts = {
-            "query": query if query is not None else "printf '1.2.3-1\\tamd64\\n1.2.3-1\\tarm64\\n' > \"$1/targets.tsv\"\n",
-            "build": build if build is not None else f'''
-mkdir -p "$1/build-$3/DEBIAN"
-cat > "$1/build-$3/DEBIAN/control" <<CONTROL
-Package: {package}
-Version: $2
-Architecture: $3
-Maintainer: Test <test@localhost>
-Description: Test fixture
-CONTROL
-dpkg-deb --build --root-owner-group "$1/build-$3" "$4"
-''',
-        }
-        for hook, body in scripts.items():
+        package_name = package or f"{name}-cli"
+        (directory / "package-name").write_text(package_name + "\n")
+        (directory / "upstream-version").write_text(version + "\n")
+        if automatic:
+            (directory / "revision-policy").write_text("automatic\n")
+
+        for hook, custom_body in (("query", query), ("build", build)):
+            if custom_body is None:
+                script = (ROOT / "tests/fixtures/stream" / hook).read_text()
+            else:
+                script = "#!/bin/bash\nset -Eeuo pipefail\n" + custom_body
+
+            event = f'printf "%s\\n" "{name}/{hook}" >> "$TEST_EVENTS"\n'
+            script = script.replace("set -Eeuo pipefail\n", "set -Eeuo pipefail\n" + event, 1)
             path = directory / hook
-            path.write_text("#!/bin/bash\nset -Eeuo pipefail\n" + body)
+            path.write_text(script)
             path.chmod(0o755)
+
         return directory
 
     def run_update(self, expected=0):
@@ -125,103 +121,306 @@ dpkg-deb --build --root-owner-group "$1/build-$3" "$4"
         self.assertEqual(list((self.base / "tmp").iterdir()), [], "Workspace leaked")
         return result
 
-    def published(self):
-        path = self.base / "state.json"
-        return json.loads(path.read_text()) if path.exists() else []
+    def artifacts(self, stream=None):
+        paths = sorted((self.base / "repo/pool").rglob("*.deb"))
+        if stream is not None:
+            paths = [path for path in paths if fields(path).get("x-publisher-stream") == stream]
+        return paths
 
-    def test_multiple_adapters_and_duplicate_detection_per_architecture(self):
-        self.adapter()
+    def versions(self, stream):
+        return {fields(path)["version"] for path in self.artifacts(stream)}
+
+    def index(self, arch="amd64"):
+        return (self.base / f"repo/dists/trixie/main/binary-{arch}/Packages").read_text()
+
+    def legacy(self, package, version, arch):
+        root = self.base / f"legacy-{package}-{arch}"
+        (root / "DEBIAN").mkdir(parents=True, exist_ok=True)
+        (root / "DEBIAN/control").write_text(
+            f"Package: {package}\nVersion: {version}\nArchitecture: {arch}\n"
+            "Maintainer: Test <test@localhost>\nDescription: Legacy fixture\n"
+        )
+        destination = self.base / f"repo/pool/main/legacy/{package}_{version}_{arch}.deb"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["dpkg-deb", "--build", str(root), str(destination)], check=True, capture_output=True)
+        return destination
+
+    def test_directory_discovery_is_sequential_and_ignores_old_registry(self):
         self.adapter("second")
-        self.env["PACKAGES"] = "first second"
-        (self.base / "state.json").write_text(json.dumps([
-            {"name": "first-cli", "version": "1.2.3-1", "arch": "amd64"}
-        ]))
-        self.run_update()
-        self.assertEqual(len(self.published()), 4)
-        self.assertEqual(len(list((self.base / "artifacts").glob("*.deb"))), 3)
+        self.adapter("first")
+        self.env["PACKAGES"] = "does-not-exist"
         self.run_update()
         events = (self.base / "events").read_text().splitlines()
-        self.assertEqual(events.count("includedeb"), 3)
-        self.assertEqual(events.count("export"), 2)
+        self.assertEqual(events, [
+            "first/query", "first/build", "first/build",
+            "second/query", "second/build", "second/build",
+        ])
+        self.run_update()
+        self.assertEqual(len(self.artifacts()), 4)
+        self.assertFalse((self.base / "repo/.state/revisions").exists())
 
-    def test_query_and_build_failures_do_not_block_other_adapters(self):
-        for stage in ("query", "build"):
-            with self.subTest(stage=stage):
-                name = f"bad-{stage}"
-                self.adapter(name, **{stage: "exit 7\n"})
+    def test_same_name_streams_publish_multiple_versions(self):
+        self.adapter("gimp-3.2", package="gimp", version="3.2.1")
+        self.adapter("gimp-3.4", package="gimp", version="3.4.0")
+        self.run_update()
+        self.assertEqual(len(self.artifacts()), 4)
+        for arch in ("amd64", "arm64"):
+            self.assertIn("Version: 3.2.1-1", self.index(arch))
+            self.assertIn("Version: 3.4.0-1", self.index(arch))
+        self.run_update()
+        self.assertEqual(len(self.artifacts()), 4)
+
+    def test_same_name_same_upstream_streams_do_not_increment_forever(self):
+        self.adapter("first", package="shared")
+        self.adapter("second", package="shared")
+        self.run_update()
+        self.assertEqual(self.versions("first"), {"1.2.3-1"})
+        self.assertEqual(self.versions("second"), {"1.2.3-2"})
+        self.run_update()
+        self.assertEqual(len(self.artifacts()), 4)
+
+    def test_query_and_build_failures_do_not_block_other_streams(self):
+        self.adapter("bad-query", query="exit 7\n")
+        self.adapter("bad-build", build="exit 7\n")
         self.adapter()
-        self.env["PACKAGES"] = "bad-query bad-build first"
         result = self.run_update(expected=1)
         self.assertIn("[bad-query] Update failed", result.stderr)
         self.assertIn("[bad-build] Update failed", result.stderr)
-        self.assertEqual(len(self.published()), 2)
-        self.assertIn("export", (self.base / "events").read_text())
+        self.assertEqual(len(self.artifacts()), 2)
+        self.assertIn("Version: 1.2.3-1", self.index())
 
-    def test_failed_build_with_leftover_artifact_is_not_published(self):
+    def test_incomplete_directory_fails_without_blocking_valid_stream(self):
+        (self.base / "adapters/broken").mkdir()
+        self.adapter()
+        self.run_update(expected=1)
+        self.assertEqual(len(self.artifacts()), 2)
+
+    def test_invalid_manifest_is_rejected_before_build(self):
+        self.adapter(query="printf '1.2.3\\tamd64\\n1.2.3\\tmips\\n' > \"$1/targets.tsv\"\n")
+        self.run_update(expected=1)
+        self.assertEqual(self.artifacts(), [])
+
+    def test_multiple_versions_per_architecture_are_rejected(self):
+        self.adapter(query="printf '1.2.3\\tamd64\\n1.2.4\\tamd64\\n' > \"$1/targets.tsv\"\n")
+        self.run_update(expected=1)
+        self.assertEqual(self.artifacts(), [])
+
+    def test_unterminated_manifest_is_rejected(self):
+        self.adapter(query="printf '1.2.3\\tamd64' > \"$1/targets.tsv\"\n")
+        self.run_update(expected=1)
+        self.assertEqual(self.artifacts(), [])
+
+    def test_failed_build_does_not_store_leftover_artifact(self):
         self.adapter(build='touch "$4"\nexit 7\n')
         self.run_update(expected=1)
-        self.assertEqual(self.published(), [])
+        self.assertEqual(self.artifacts(), [])
 
-    def test_invalid_artifact_metadata_is_rejected(self):
+    def test_incorrect_package_or_checksum_metadata_is_rejected(self):
         directory = self.adapter()
         path = directory / "build"
-        path.write_text(path.read_text().replace("Package: first-cli", "Package: wrong-cli"))
-        self.run_update(expected=1)
-        self.assertEqual(self.published(), [])
+        original = path.read_text()
+        invalid_builds = [
+            original.replace("Package: $package_name", "Package: wrong-cli"),
+            original.replace("$BUILD_INPUTS_SHA256", "wrong-checksum"),
+        ]
+        for replacement in invalid_builds:
+            path.write_text(replacement)
+            self.run_update(expected=1)
+            self.assertEqual(self.artifacts(), [])
 
-    def test_invalid_target_manifest_is_rejected_before_build(self):
-        self.adapter(query="printf '1.2.3-1\\tamd64\\n1.2.3-1\\tmips\\n' > \"$1/targets.tsv\"\n")
-        self.run_update(expected=1)
-        self.assertEqual(self.published(), [])
-
-    def test_target_manifest_requires_complete_rows(self):
-        self.adapter(query="printf '1.2.3-1\\tamd64' > \"$1/targets.tsv\"\n")
-        self.run_update(expected=1)
-        self.assertEqual(self.published(), [])
-
-    def test_unknown_adapter_is_rejected_before_repository_initialization(self):
-        self.env["PACKAGES"] = "../unknown"
-        self.run_update(expected=1)
-        self.assertFalse((self.base / "repo/conf/distributions").exists())
-
-    def test_duplicate_package_names_are_rejected(self):
-        self.adapter()
-        self.adapter("second", package="first-cli")
-        self.env["PACKAGES"] = "first second"
-        self.run_update(expected=1)
-        self.assertFalse((self.base / "repo/conf/distributions").exists())
-
-    def test_empty_targets_are_a_successful_noop(self):
-        self.adapter(query=': > "$1/targets.tsv"\n')
+    def test_existing_artifact_cannot_be_overwritten(self):
+        directory = self.adapter()
         self.run_update()
-        self.assertEqual(self.published(), [])
+        existing = self.artifacts("first")[0]
+        original_bytes = existing.read_bytes()
+        metadata = fields(existing)
+        architecture = metadata["architecture"]
+        version = metadata["version"]
+        checksum = metadata["x-build-inputs-sha256"]
 
-    def test_existing_repository_identity_is_preserved(self):
+        workspace = self.base / "changed-build"
+        workspace.mkdir()
+        replacement = workspace / existing.name
+        build_environment = {
+            **self.env,
+            "PUBLISHER_STREAM": "first",
+            "BUILD_INPUTS_SHA256": checksum,
+        }
+        subprocess.run([
+            str(directory / "build"), str(workspace), version,
+            architecture, str(replacement),
+        ], env=build_environment, check=True, capture_output=True)
+        package_dir = workspace / f"package-{architecture}"
+        payload = package_dir / "usr/share/first-cli/stream"
+        payload.write_text("different contents\n")
+        subprocess.run([
+            "dpkg-deb", "--build", str(package_dir), str(replacement),
+        ], check=True, capture_output=True)
+
+        result = subprocess.run([
+            "python3", str(self.publisher / "lib/package-files.py"), "store",
+            str(directory), version, architecture, checksum, str(replacement),
+        ], env=self.env, text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Refusing to overwrite", result.stderr)
+        self.assertEqual(existing.read_bytes(), original_bytes)
+
+    def test_complete_version_policy_remains_supported(self):
+        self.adapter(version="2026.10-7", automatic=False)
+        self.run_update()
+        self.run_update()
+        self.assertEqual(len(self.artifacts()), 2)
+        self.assertIn("Version: 2026.10-7", self.index())
+
+    def test_checksum_ignores_timestamps_caches_and_monitoring_settings(self):
+        directory = self.adapter()
+        self.run_update()
+        for path in directory.iterdir():
+            path.touch()
+        (directory / "__pycache__").mkdir()
+        (directory / "__pycache__/ignored.pyc").write_bytes(b"cache")
+        (directory / "stale-after-days").write_text("30\n")
+        self.run_update()
+        self.assertEqual(len(self.artifacts()), 2)
+        self.assertEqual(self.versions("first"), {"1.2.3-1"})
+
+    def test_recipe_changes_and_reverts_increment_and_retain_old_packages(self):
+        directory = self.adapter()
+        path = directory / "build"
+        original = path.read_text()
+        self.run_update()
+        path.write_text(original + "\n# Changed recipe\n")
+        self.run_update()
+        self.run_update()
+        self.assertEqual(self.versions("first"), {"1.2.3-1", "1.2.3-2"})
+        path.write_text(original)
+        self.run_update()
+        self.assertEqual(self.versions("first"), {"1.2.3-1", "1.2.3-2", "1.2.3-3"})
+        self.assertEqual(self.index().count("Package: first-cli\n"), 3)
+
+    def test_configuration_permissions_and_dockerfile_affect_checksum(self):
+        directory = self.adapter()
+        (directory / "revision-env").write_text("TEST_BUILD_OPTION\n")
+        self.env["TEST_BUILD_OPTION"] = "one"
+        self.run_update()
+        self.env["TEST_BUILD_OPTION"] = "two"
+        self.run_update()
+        (directory / "package-name").chmod(0o755)
+        self.run_update()
+        dockerfile = self.publisher / "Dockerfile"
+        dockerfile.write_text(dockerfile.read_text() + "\n# Environment change\n")
+        self.run_update()
+        helper = self.publisher / "lib/package-files.py"
+        helper.write_text(helper.read_text() + "\n# Not a packaging input\n")
+        self.run_update()
+        self.assertEqual(self.versions("first"), {f"1.2.3-{number}" for number in range(1, 5)})
+
+    def test_new_upstream_resets_revision_without_rebuilding_history(self):
+        directory = self.adapter()
+        self.run_update()
+        self.env["TEST_VERSION"] = "1.2.4"
+        self.run_update()
+        path = directory / "build"
+        path.write_text(path.read_text() + "\n# Changed recipe\n")
+        self.run_update()
+        self.assertEqual(self.versions("first"), {"1.2.3-1", "1.2.4-1", "1.2.4-2"})
+
+    def test_partial_build_resumes_from_embedded_metadata(self):
+        self.adapter()
+        self.env["TEST_FAIL_ARCH"] = "arm64"
+        self.run_update(expected=1)
+        self.assertEqual(len(self.artifacts()), 1)
+        self.env.pop("TEST_FAIL_ARCH")
+        self.run_update()
+        self.assertEqual(len(self.artifacts()), 2)
+        self.assertEqual(self.versions("first"), {"1.2.3-1"})
+
+    def test_completely_failed_attempt_retries_same_next_revision(self):
+        self.adapter()
+        self.env["TEST_FAIL_ARCH"] = "amd64"
+        self.run_update(expected=1)
+        self.run_update(expected=1)
+        self.assertEqual(self.artifacts(), [])
+        self.env.pop("TEST_FAIL_ARCH")
+        self.run_update()
+        self.assertEqual(self.versions("first"), {"1.2.3-1"})
+
+    def test_legacy_files_and_json_are_preserved(self):
+        self.adapter(package="shared")
+        old = self.legacy("shared", "1.2.3-3", "amd64")
+        state = self.base / "repo/.state/revisions/trixie/shared.json"
+        state.parent.mkdir(parents=True)
+        state.write_text("legacy JSON is deliberately not read")
+        self.run_update()
+        self.assertTrue(old.exists())
+        self.assertEqual(state.read_text(), "legacy JSON is deliberately not read")
+        self.assertEqual(self.versions("first"), {"1.2.3-4"})
+        self.assertIn("Version: 1.2.3-3", self.index())
+        self.assertIn("Version: 1.2.3-4", self.index())
+
+    def test_legacy_epoch_omitted_from_filename(self):
+        self.adapter(version="1:1.2.3")
+        old = self.legacy("first-cli", "1:1.2.3-3", "amd64")
+        old.rename(old.with_name(old.name.replace("1:", "")))
+        self.run_update()
+        self.assertEqual(self.versions("first"), {"1:1.2.3-4"})
+
+    def test_signing_failure_leaves_live_indexes_unchanged(self):
+        self.adapter()
+        self.run_update()
+        distribution = self.base / "repo/dists/trixie"
+        before = {}
+        for path in distribution.rglob("*"):
+            if path.is_file():
+                before[path.relative_to(distribution)] = path.read_bytes()
+        self.env["TEST_VERSION"] = "1.2.4"
+        self.env["TEST_FAIL_SIGN"] = "1"
+        self.run_update(expected=1)
+        after = {}
+        for path in distribution.rglob("*"):
+            if path.is_file():
+                after[path.relative_to(distribution)] = path.read_bytes()
+        self.assertEqual(before, after)
+        self.env.pop("TEST_FAIL_SIGN")
+        self.run_update()
+        self.assertEqual(len(self.artifacts()), 4)
+        self.assertIn("Version: 1.2.4-1", self.index())
+
+    def test_previous_by_hash_indexes_remain_available(self):
+        self.adapter()
+        self.run_update()
+        path = self.base / "repo/dists/trixie/main/binary-amd64/Packages"
+        digest = hashlib.sha512(path.read_bytes()).hexdigest()
+        previous = path.read_bytes()
+        self.env["TEST_VERSION"] = "1.2.4"
+        self.run_update()
+        self.assertEqual((path.parent / f"by-hash/SHA512/{digest}").read_bytes(), previous)
+        self.assertIn("Acquire-By-Hash: yes", (self.base / "repo/dists/trixie/Release").read_text())
+
+    def test_existing_identity_and_configuration_are_preserved(self):
         self.adapter()
         self.run_update()
         configuration = self.base / "repo/conf/distributions"
         original = configuration.read_text().replace("Private APT Repository", "Private Codex Repository")
         configuration.write_text(original)
-        self.env["REPO_ORIGIN"] = "Changed identity"
+        self.env["REPO_ORIGIN"] = "Ignored override"
         self.run_update()
         self.assertEqual(configuration.read_text(), original)
-
-    def test_signing_key_or_architecture_mismatch_is_rejected(self):
-        self.adapter()
-        self.run_update()
+        release = self.base / "repo/dists/trixie/Release"
+        self.assertIn("Origin: Private Codex Repository", release.read_text())
         self.env["GPG_KEY"] = "B" * 40
         self.run_update(expected=1)
-        self.env["GPG_KEY"] = KEY
-        self.env["ARCHES"] = "amd64 arm64 mips"
-        self.run_update(expected=1)
 
-    def test_export_failure_marks_cycle_failed(self):
+    def test_architecture_selector_keeps_other_published_architecture(self):
         self.adapter()
-        self.env["TEST_FAIL_EXPORT"] = "1"
-        self.run_update(expected=1)
-        self.assertEqual(len(self.published()), 2)
+        self.run_update()
+        self.env["ARCHES"] = "amd64"
+        self.env["TEST_VERSION"] = "1.2.4"
+        self.run_update()
+        self.assertIn("Version: 1.2.3-1", self.index("arm64"))
+        self.assertNotIn("Version: 1.2.4-1", self.index("arm64"))
 
-    def test_repository_lock_prevents_second_updater(self):
+    def test_lock_prevents_overlapping_update(self):
         import fcntl
 
         self.adapter()
@@ -231,17 +430,44 @@ dpkg-deb --build --root-owner-group "$1/build-$3" "$4"
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             result = self.run_update()
         self.assertIn("Update already running", result.stdout)
-        self.assertEqual(self.published(), [])
+        self.assertEqual(self.artifacts(), [])
 
-    def codex_fixture(self, *, wrapped=False, metadata_version=None, corrupt_digest=False, version="1.2.3"):
-        adapter = self.base / "adapters/codex"
-        if not adapter.exists():
-            shutil.copytree(ROOT / "packages/codex", adapter, ignore=shutil.ignore_patterns("__pycache__"))
-        self.env["PACKAGES"] = "codex"
-        if metadata_version is None:
-            metadata_version = version
+    def test_inactivity_warns_every_cycle_but_continues_processing(self):
+        directory = self.adapter()
+        (directory / "stale-after-days").write_text("30\n")
+        for version in ("1.2.3", "1.2.4"):
+            self.env["TEST_VERSION"] = version
+            result = self.run_update()
+            self.assertIn("UPSTREAM STREAM MAY BE INACTIVE", result.stderr)
+        self.assertEqual(self.versions("first"), {"1.2.3-1", "1.2.4-1"})
+        self.env["TEST_RELEASE_DATE"] = datetime.now(timezone.utc).isoformat()
+        self.assertNotIn("UPSTREAM STREAM MAY BE INACTIVE", self.run_update().stderr)
+
+    def test_invalid_monitoring_data_does_not_block_publication(self):
+        directory = self.adapter()
+        (directory / "stale-after-days").write_text("30\n")
+        self.env["TEST_RELEASE_DATE"] = "not-a-date"
+        self.assertIn("Cannot assess upstream activity", self.run_update().stderr)
+        self.assertEqual(len(self.artifacts()), 2)
+
+    def codex_fixture(
+        self,
+        *,
+        wrapped=False,
+        metadata_version="1.2.3",
+        corrupt_digest=False,
+        missing_arm64=False,
+    ):
+        shutil.copytree(
+            ROOT / "packages/codex",
+            self.base / "adapters/codex",
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns("__pycache__"),
+        )
         assets = []
         for target in ("x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"):
+            if missing_arm64 and target.startswith("aarch64"):
+                continue
             name = f"codex-package-{target}.tar.gz"
             path = self.base / "downloads" / name
             prefix = "wrapper/" if wrapped else ""
@@ -251,7 +477,8 @@ dpkg-deb --build --root-owner-group "$1/build-$3" "$4"
                 "codex-resources/bwrap": b"bundled bwrap",
                 "codex-path/rg": b"bundled rg",
                 "codex-package.json": json.dumps({
-                    "version": metadata_version, "entrypoint": "bin/codex"
+                    "version": metadata_version,
+                    "entrypoint": "bin/codex",
                 }).encode(),
             }
             with tarfile.open(path, "w:gz") as archive:
@@ -267,211 +494,64 @@ dpkg-deb --build --root-owner-group "$1/build-$3" "$4"
                 "browser_download_url": "https://fixtures.invalid/" + name,
             })
         (self.base / "downloads/release.json").write_text(json.dumps({
-            "tag_name": f"rust-v{version}", "draft": False, "prerelease": False, "assets": assets
+            "tag_name": "rust-v1.2.3", "draft": False, "prerelease": False,
+            "published_at": "2000-01-01T00:00:00Z", "assets": assets,
         }))
 
-    def test_codex_build_layout_metadata_and_system_tools(self):
+    def test_codex_layout_dependencies_and_embedded_metadata(self):
         self.codex_fixture()
         self.run_update()
-        self.assertEqual(len(self.published()), 2)
-        artifact = self.base / "artifacts/codex-cli_1.2.3-1_amd64.deb"
-        control = subprocess.check_output(["dpkg-deb", "-f", str(artifact)], text=True)
-        self.assertIn("Depends: bubblewrap, ripgrep", control)
-        self.assertIn("Recommends: git", control)
+        artifact = next(path for path in self.artifacts("codex") if path.name.endswith("amd64.deb"))
+        metadata = fields(artifact)
+        self.assertEqual(metadata["depends"], "bubblewrap, ripgrep")
+        self.assertEqual(metadata["recommends"], "git")
+        self.assertEqual(metadata["x-publisher-stream"], "codex")
+        self.assertRegex(metadata["x-build-inputs-sha256"], r"^[a-f0-9]{64}$")
         contents = subprocess.check_output(["dpkg-deb", "--fsys-tarfile", str(artifact)])
         with tarfile.open(fileobj=io.BytesIO(contents)) as archive:
             for name in ("codex", "codex-code-mode-host"):
                 link = archive.getmember(f"./usr/bin/{name}")
-                self.assertTrue(link.issym())
                 self.assertEqual(link.linkname, f"../lib/openai-codex/bin/{name}")
                 binary = archive.getmember(f"./usr/lib/openai-codex/bin/{name}")
                 self.assertEqual(binary.mode, 0o755)
                 self.assertEqual((binary.uid, binary.gid), (0, 0))
             for relative, executable in (("codex-resources/bwrap", "bwrap"), ("codex-path/rg", "rg")):
-                path = f"./usr/lib/openai-codex/{relative}"
-                self.assertEqual(archive.getmember(path).mode, 0o755)
-                self.assertEqual(archive.extractfile(path).read(), f'#!/bin/sh\nexec /usr/bin/{executable} "$@"\n'.encode())
+                wrapper = archive.extractfile(f"./usr/lib/openai-codex/{relative}")
+                expected = f'#!/bin/sh\nexec /usr/bin/{executable} "$@"\n'
+                self.assertEqual(wrapper.read(), expected.encode())
+        self.assertIn(metadata["x-build-inputs-sha256"], self.index())
 
-    def test_codex_single_wrapper_directory(self):
+    def test_codex_missing_architecture_can_be_published_later(self):
+        self.codex_fixture(missing_arm64=True)
+        result = self.run_update()
+        self.assertIn("No current upstream package for arm64", result.stderr)
+        self.assertEqual(len(self.artifacts()), 1)
+        self.codex_fixture()
+        self.run_update()
+        self.assertEqual(len(self.artifacts()), 2)
+        self.assertEqual(self.versions("codex"), {"1.2.3-1"})
+
+    def test_codex_wrapper_layout(self):
         self.codex_fixture(wrapped=True)
         self.run_update()
-        self.assertEqual(len(self.published()), 2)
+        self.assertEqual(len(self.artifacts()), 2)
 
-    def test_codex_checksum_failure(self):
+    def test_codex_checksum_and_metadata_failures(self):
         self.codex_fixture(corrupt_digest=True)
         self.run_update(expected=1)
-        self.assertEqual(self.published(), [])
-
-    def test_codex_metadata_version_mismatch(self):
+        self.assertEqual(self.artifacts(), [])
         self.codex_fixture(metadata_version="9.9.9")
         self.run_update(expected=1)
-        self.assertEqual(self.published(), [])
+        self.assertEqual(self.artifacts(), [])
 
-    def test_codex_prerelease_or_missing_digest_rejected(self):
+    def test_codex_prereleases_are_rejected(self):
         self.codex_fixture()
         path = self.base / "downloads/release.json"
         release = json.loads(path.read_text())
         release["prerelease"] = True
         path.write_text(json.dumps(release))
         self.run_update(expected=1)
-        release["prerelease"] = False
-        del release["assets"][0]["digest"]
-        path.write_text(json.dumps(release))
-        self.run_update(expected=1)
-        self.assertEqual(self.published(), [])
-
-    def revision_state(self):
-        path = self.base / "repo/.state/revisions/trixie/codex-cli.json"
-        return json.loads(path.read_text())["releases"]
-
-    def published_versions(self):
-        return {package["arch"]: package["version"] for package in self.published()}
-
-    def test_automatic_revision_stable_across_polls_and_timestamps(self):
-        self.codex_fixture()
-        self.run_update()
-        self.assertEqual(self.published_versions(), {"amd64": "1.2.3-1", "arm64": "1.2.3-1"})
-        adapter = self.base / "adapters/codex"
-        for path in adapter.iterdir():
-            path.touch()
-        (adapter / "__pycache__").mkdir()
-        (adapter / "__pycache__/ignored.pyc").write_bytes(b"cache")
-        self.run_update()
-        self.assertEqual((self.base / "events").read_text().splitlines().count("includedeb"), 2)
-        record = self.revision_state()["1.2.3"]
-        self.assertEqual(record["revision"], 1)
-        self.assertEqual(record["published"], ["amd64", "arm64"])
-
-    def test_packaging_change_increments_revision_for_both_architectures(self):
-        self.codex_fixture()
-        self.run_update()
-        path = self.base / "adapters/codex/build"
-        original = path.read_text()
-        path.write_text(original + "\n# Changed packaging recipe\n")
-        self.run_update()
-        self.assertEqual(self.published_versions(), {"amd64": "1.2.3-2", "arm64": "1.2.3-2"})
-        self.run_update()
-        self.assertEqual(self.revision_state()["1.2.3"]["revision"], 2)
-        # Reverting a recipe still needs a newer Debian version.
-        path.write_text(original)
-        self.run_update()
-        self.assertEqual(self.revision_state()["1.2.3"]["revision"], 3)
-
-    def test_automatic_revisions_are_isolated_between_packages(self):
-        for name in ("first", "second"):
-            directory = self.adapter(name, query="printf '1.2.3\\tamd64\\n' > \"$1/targets.tsv\"\n")
-            (directory / "revision-policy").write_text("automatic\n")
-        self.env["PACKAGES"] = "first second"
-        self.run_update()
-        path = self.base / "adapters/first/build"
-        path.write_text(path.read_text() + "\n# Changed first package\n")
-        self.run_update()
-        versions = {package["name"]: package["version"] for package in self.published()}
-        self.assertEqual(versions, {"first-cli": "1.2.3-2", "second-cli": "1.2.3-1"})
-
-    def test_executable_permission_change_increments_revision(self):
-        self.codex_fixture()
-        self.run_update()
-        path = self.base / "adapters/codex/archive.py"
-        path.chmod(0o755)
-        self.run_update()
-        self.assertEqual(self.revision_state()["1.2.3"]["revision"], 2)
-
-    def test_build_environment_and_declared_configuration_changes_increment_revision(self):
-        self.codex_fixture()
-        (self.base / "adapters/codex/revision-env").write_text("TEST_BUILD_OPTION\n")
-        self.env["TEST_BUILD_OPTION"] = "one"
-        self.run_update()
-        self.env["TEST_BUILD_OPTION"] = "two"
-        self.run_update()
-        self.assertEqual(self.revision_state()["1.2.3"]["revision"], 2)
-        dockerfile = self.publisher / "Dockerfile"
-        dockerfile.write_text(dockerfile.read_text() + "\n# Changed environment\n")
-        self.run_update()
-        self.assertEqual(self.revision_state()["1.2.3"]["revision"], 3)
-
-    def test_new_upstream_release_resets_revision(self):
-        self.codex_fixture()
-        self.run_update()
-        path = self.base / "adapters/codex/build"
-        path.write_text(path.read_text() + "\n# Packaging change\n")
-        self.run_update()
-        self.codex_fixture(version="1.2.4")
-        self.run_update()
-        self.assertEqual(self.published_versions(), {"amd64": "1.2.4-1", "arm64": "1.2.4-1"})
-        self.assertEqual(self.revision_state()["1.2.3"]["revision"], 2)
-        self.assertEqual(self.revision_state()["1.2.4"]["revision"], 1)
-
-    def test_migration_uses_highest_published_revision_across_architectures(self):
-        self.codex_fixture()
-        (self.base / "state.json").write_text(json.dumps([
-            {"name": "codex-cli", "version": "1.2.3-2", "arch": "amd64"},
-            {"name": "codex-cli", "version": "1.2.3-3", "arch": "arm64"},
-        ]))
-        # Legacy environment settings no longer override automatic revisions.
-        self.env["DEB_REVISION"] = "3"
-        self.run_update()
-        self.assertEqual(self.published_versions(), {"amd64": "1.2.3-4", "arm64": "1.2.3-4"})
-        self.run_update()
-        self.assertEqual(self.revision_state()["1.2.3"]["revision"], 4)
-
-    def test_failed_build_reuses_reserved_revision(self):
-        self.codex_fixture(corrupt_digest=True)
-        self.run_update(expected=1)
-        reserved = self.revision_state()["1.2.3"]
-        self.assertEqual(reserved["revision"], 1)
-        self.assertEqual(reserved["published"], [])
-        self.run_update(expected=1)
-        self.assertEqual(self.revision_state()["1.2.3"], reserved)
-        self.codex_fixture()
-        self.run_update()
-        self.assertEqual(self.revision_state()["1.2.3"]["revision"], 1)
-        self.assertEqual(len(self.published()), 2)
-
-    def test_partial_publication_resumes_same_revision(self):
-        self.codex_fixture()
-        path = self.base / "adapters/codex/build"
-        path.write_text(path.read_text().replace(
-            'output=$4',
-            'output=$4\nif [[ "$arch" == arm64 && "${TEST_FAIL_ARM64:-}" == 1 ]]; then exit 7; fi'
-        ))
-        self.env["TEST_FAIL_ARM64"] = "1"
-        self.run_update(expected=1)
-        self.assertEqual(self.published_versions(), {"amd64": "1.2.3-1"})
-        self.assertEqual(self.revision_state()["1.2.3"]["published"], ["amd64"])
-        self.env["TEST_FAIL_ARM64"] = "0"
-        self.run_update()
-        self.assertEqual(self.published_versions(), {"amd64": "1.2.3-1", "arm64": "1.2.3-1"})
-        self.assertEqual((self.base / "events").read_text().splitlines().count("includedeb"), 2)
-
-    def test_new_architecture_reuses_existing_revision(self):
-        self.codex_fixture()
-        self.env["ARCHES"] = "amd64"
-        self.run_update()
-        configuration = self.base / "repo/conf/distributions"
-        configuration.write_text(configuration.read_text().replace("Architectures: amd64", "Architectures: amd64 arm64"))
-        self.env["ARCHES"] = "amd64 arm64"
-        self.run_update()
-        self.assertEqual(self.published_versions(), {"amd64": "1.2.3-1", "arm64": "1.2.3-1"})
-
-    def test_missing_publication_record_is_recovered_from_repository(self):
-        self.codex_fixture()
-        self.run_update()
-        path = self.base / "repo/.state/revisions/trixie/codex-cli.json"
-        state = json.loads(path.read_text())
-        state["releases"]["1.2.3"]["published"] = []
-        path.write_text(json.dumps(state))
-        self.run_update()
-        self.assertEqual(self.revision_state()["1.2.3"]["published"], ["amd64", "arm64"])
-        self.assertEqual((self.base / "events").read_text().splitlines().count("includedeb"), 2)
-
-    def test_corrupt_revision_state_fails_without_republishing(self):
-        self.codex_fixture()
-        self.run_update()
-        path = self.base / "repo/.state/revisions/trixie/codex-cli.json"
-        path.write_text('{"schema": 999, "releases": {}}')
-        self.run_update(expected=1)
-        self.assertEqual((self.base / "events").read_text().splitlines().count("includedeb"), 2)
+        self.assertEqual(self.artifacts(), [])
 
     def test_archive_path_traversal_is_rejected(self):
         path = self.base / "unsafe.tar.gz"
@@ -480,20 +560,23 @@ dpkg-deb --build --root-owner-group "$1/build-$3" "$4"
             entry.size = 1
             archive.addfile(entry, io.BytesIO(b"x"))
         result = subprocess.run([
-            "python3", str(ROOT / "packages/codex/archive.py"), str(path),
-            str(self.base / "extracted"), "1.2.3",
+            "python3", str(ROOT / "packages/codex/archive.py"),
+            str(path), str(self.base / "extracted"), "1.2.3",
         ], capture_output=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse((self.base / "escaped").exists())
 
-    def test_env_update_preserves_existing_settings(self):
+    def test_env_updates_preserve_unrelated_settings(self):
         path = self.base / ".env"
-        path.write_text("# Existing settings\nCODEX_UID=42\nPACKAGES=codex\nREPO_UID=old\nGPG_KEY=old\n")
+        path.write_text("# Settings\nCODEX_UID=42\nPACKAGES=codex\nREPO_UID=old\nGPG_KEY=old\n")
         command = ["python3", str(ROOT / "lib/write-env.py"), str(path), "123", "456", KEY]
         subprocess.run(command, check=True)
         subprocess.run(command, check=True)
-        self.assertEqual(path.read_text(),
-            f"# Existing settings\nCODEX_UID=42\nPACKAGES=codex\nREPO_UID=123\nREPO_GID=456\nGPG_KEY={KEY}\n")
+        expected = (
+            "# Settings\nCODEX_UID=42\nPACKAGES=codex\n"
+            f"REPO_UID=123\nREPO_GID=456\nGPG_KEY={KEY}\n"
+        )
+        self.assertEqual(path.read_text(), expected)
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
 

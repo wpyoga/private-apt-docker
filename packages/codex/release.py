@@ -30,7 +30,10 @@ def main():
             raise SystemExit(f"Unsupported architecture: {architecture}")
         name = f"codex-package-{TARGETS[architecture]}.tar.gz"
         asset = assets.get(name)
-        if not asset or not re.fullmatch(
+        if not asset:
+            print(f"WARNING: No upstream archive for {architecture}: {name}", file=sys.stderr)
+            continue
+        if not re.fullmatch(
             r"sha256:[0-9a-fA-F]{64}", asset.get("digest") or ""
         ):
             raise SystemExit(f"Missing archive or SHA256 digest in GitHub release: {name}")
@@ -44,6 +47,9 @@ def main():
             "sha256": asset["digest"][7:],
         }
 
+    published = release.get("published_at")
+    if published:
+        (workspace / "release-date").write_text(published + "\n")
     (workspace / "assets.json").write_text(json.dumps(selected, indent=4) + "\n")
     (workspace / "targets.tsv").write_text(
         "".join(f"{version}\t{architecture}\n" for architecture in selected)

@@ -1,16 +1,33 @@
 # Private APT publisher
 
-Build Debian packages from upstream releases and publish them to a signed APT
-repository. Each package owns its release query and packaging method. The shared
-runner handles scheduling, locking, artifact validation, and repository publishing.
+This container checks upstream releases, builds Debian packages, and publishes
+one signed APT repository. It includes an unofficial repackaging of the official
+OpenAI Codex executables as `codex-cli`.
 
-The included `codex` adapter repackages official OpenAI Codex release executables
-as `codex-cli`. This is an unofficial package. The container does not expose HTTP;
-serve the published directory with an existing Caddy instance.
+The container does not serve HTTP. Point an existing Caddy instance at `repo/`.
+
+## How an update works
+
+1. Take the repository lock so another updater cannot write at the same time.
+2. Read the stream directories under `packages/`, in alphabetical order.
+3. Finish one stream before starting the next: query, choose package revisions,
+   build missing architectures, and store the results.
+4. Generate and sign repository indexes containing all stored package versions.
+5. Wait six hours after the entire cycle finishes, then start again.
+
+The first cycle starts immediately. A twenty-minute cycle starting at 08:00 is
+followed by a six-hour wait, so the next starts at 14:20. There is no parallel
+package processing. A stream failure does not prevent other streams from running.
+Successful artifacts remain stored and index publication is still attempted.
+
+The lock uses `flock`, rather than testing whether a lock file exists. The
+operating system releases it when the processes holding it exit. The empty file
+may remain; it is not a stale lock. The lock protects against a second container
+or a manual invocation using the same storage.
 
 ## Existing deployments
 
-Run these commands from this directory:
+From this directory:
 
 ```sh
 docker compose build
@@ -18,20 +35,25 @@ docker compose up -d
 docker compose logs -f
 ```
 
-The Compose service name, default storage paths under `/srv/apt/codex`, signing
-key, and Debian client configuration remain compatible. Existing `CODEX_UID` and
-`CODEX_GID` settings still work; `REPO_UID` and `REPO_GID` take precedence if set.
-Existing repository identity is preserved. Do not rerun setup just to upgrade.
+Existing client source lists, public keys, storage paths, and the Compose service
+name remain valid. `CODEX_UID` and `CODEX_GID` still work; `REPO_UID` and `REPO_GID`
+take precedence when set. Do not rerun setup just to upgrade.
 
-Codex revisions are now automatic; remove any old `DEB_REVISION` setting from
-`.env` (it is no longer used). The first update establishes a recipe fingerprint
-and rebuilds the current upstream version once at the next published revision.
-For example, an existing `1.2.3-3` becomes `1.2.3-4`. A fresh upstream version
-starts at revision `1`.
+This implementation replaces reprepro with Debian's index-generation tools. It
+reuses the identity and signing configuration in `repo/conf/distributions` and
+indexes existing `.deb` files in `repo/pool/`. Old reprepro databases and revision
+JSON files are left untouched and are no longer read.
+
+Remove obsolete `PACKAGES` and `DEB_REVISION` settings from `.env`. Directory
+listing now selects streams; package metadata now supplies revision history.
+Existing artifacts without our metadata remain available. Their first automatic
+rebuild uses the next revision and establishes the metadata, for example `-3` to
+`-4`. No revision state or checksum sidecar files are created.
 
 ## First-time setup
 
-Install Docker Compose, GnuPG, Python 3, and sudo on the host. Run:
+The host needs Docker Compose, GnuPG, Python 3, sudo, and the usual core utilities.
+Run:
 
 ```sh
 ./codex-repo-setup.sh
@@ -39,20 +61,21 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-Setup creates the system user `codexrepo`, repository directories, and a dedicated
-signing key if none exists. It writes `REPO_UID`, `REPO_GID`, and the primary-key
-fingerprint to `.env` with mode 0600, preserving unrelated settings. It exports
-`repo-pubkey.asc` and prints the fingerprint. Setup does not start the container.
+Setup creates the `codexrepo` system user, storage directories, and a dedicated
+signing key if none exists. It writes `REPO_UID`, `REPO_GID`, and `GPG_KEY` to `.env`
+with mode 0600, preserving unrelated settings. It exports `repo-pubkey.asc` and
+prints the fingerprint. Setup does not start the container.
 
-An existing dedicated key may be imported into `/srv/apt/codex/gnupg` before setup.
-When multiple primary secret keys exist, select one explicitly:
+You may import an existing dedicated key into `/srv/apt/codex/gnupg` first. If that
+keyring has multiple primary secret keys, select one explicitly:
 
 ```sh
 GPG_KEY=YOUR_FULL_FINGERPRINT ./codex-repo-setup.sh
 ```
 
-The unattended publisher requires a signing key it can use without interactive
-passphrase entry. Protect the signing-key directory and Docker daemon.
+Signing must work without interactive passphrase entry. Protect the signing key
+and Docker daemon. Verify the public-key fingerprint out of band before using it
+on clients.
 
 ## Configuration
 
@@ -62,156 +85,196 @@ Set these values in `.env` as needed:
 | --- | --- | --- |
 | `REPO_UID`, `REPO_GID` | Required; legacy `CODEX_*` fallback | Container user |
 | `GPG_KEY` | Required | Full signing-key fingerprint |
-| `PACKAGES` | `codex` | Space-separated adapter directory names |
-| `ARCHES` | `amd64 arm64` | Requested Debian architectures |
+| `ARCHES` | `amd64 arm64` | Architectures to check and build |
 | `CODENAME` | `trixie` | APT distribution |
-| `CHECK_INTERVAL` | `21600` | Seconds between cycles; minimum 3600 |
+| `CHECK_INTERVAL` | `21600` | Seconds to wait after a cycle; minimum 3600 |
 | `REPO_DATA_DIR` | `/srv/apt/codex` | Host parent of `repo/` and `gnupg/` |
 | `REPO_ORIGIN`, `REPO_LABEL` | `Private APT Repository` | Identity for a new repository |
 | `REPO_DESCRIPTION` | `Privately packaged Debian software` | Description for a new repository |
 
-Repository settings initialize `repo/conf/distributions` only when absent.
-Existing signing-key, codename, or architecture mismatches fail with an error;
-update that file deliberately when changing the repository configuration.
+Existing repository configuration is preserved. Signing-key, codename, component,
+or architecture mismatches fail explicitly. The supported component is `main`.
+New repositories configure both amd64 and arm64. Selecting only amd64 for a cycle
+does not remove already published arm64 packages from the indexes.
 
-The runner also accepts `REPO_DIR`, `GNUPGHOME`, and `PACKAGES_DIR` when invoked
-directly. Compose supplies the container paths `/repo` and `/gnupg`.
+Direct invocations also accept `REPO_DIR`, `GNUPGHOME`, and `PACKAGES_DIR`.
+Compose supplies `/repo` and `/gnupg` inside the container.
 
-## Add a package
+## One directory per stream
 
-Create a directory under `packages/` with these files:
+A stream is an upstream release line that we choose to follow. For example:
 
 ```text
-packages/example/
-    package-name    # One Debian package name, such as example-cli
-    query           # Executable release-discovery hook
-    build           # Executable .deb creation hook
+packages/
+    codex/
+    gimp-3.2/
+    gimp-3.4/
 ```
 
-By default, adapters provide complete Debian versions. To opt into automatic
-revision assignment, add a `revision-policy` file containing `automatic`. In this
-mode, the query provides upstream versions without a packaging revision, and the
-runner passes the assigned full Debian version to the build hook. The Codex
-adapter uses this mode.
+Each directory is independent and contains:
 
-The hook interface is:
+```text
+package-name       Debian package name, such as gimp
+query              Executable upstream query script
+build              Executable packaging script
+revision-policy    Optional: automatic
+revision-env       Optional: build environment variable names, one per line
+stale-after-days   Optional: inactivity warning threshold
+```
+
+Directory names may contain lowercase letters, digits, dots, underscores, and
+hyphens, and must start with a letter or digit. Hidden directories are not selected.
+All other immediate directories are processed; an incomplete stream reports an
+error without stopping the others. There is no central package registry.
+
+Both `gimp-3.2` and `gimp-3.4` may declare `gimp` as their Debian package name. Their
+different versions are published in the same repository. APT applies its normal
+version and priority rules. Merely publishing both does not keep a client on the
+older stream; use client-side pinning when that is desired.
+
+The query script selects the latest eligible release in its own stream. It owns
+upstream-specific naming, channels, version conversion, and release ordering. The
+runner does not infer semantic versioning or switch streams automatically. Codex
+uses GitHub's latest stable release and supports amd64 and arm64.
+
+To add a stream, add its directory and rebuild the container image. To stop
+tracking one, remove its directory and rebuild. Its previously published packages
+remain available. No real GIMP adapters are included; those names illustrate the
+directory design.
+
+## Query and build hooks
+
+The interface remains:
 
 ```sh
 query WORKDIR
 build WORKDIR VERSION ARCH OUTPUT
 ```
 
-`query` writes `WORKDIR/targets.tsv`: one version and architecture per row,
-separated by a tab and ending with a newline. Versions are complete Debian
-versions by default, or upstream versions with the automatic revision policy. An
-empty file means there are no eligible updates. For example:
+`query` writes `WORKDIR/targets.tsv`. Each row contains a version, a tab, an
+architecture, and a newline. Return at most one current version per requested
+architecture. Use `printf '%s\t%s\n' "$version" "$arch"` to produce actual tabs.
+An empty file means no eligible artifacts are available.
+
+With `revision-policy` set to `automatic`, query versions are upstream versions:
 
 ```text
-1.2.3-1	amd64
-1.2.3-1	arm64
+1.2.3<TAB>amd64
+1.2.3<TAB>arm64
 ```
 
-The runner validates the whole manifest before building. Architectures must be
-requested by `ARCHES`; duplicate version/architecture pairs are rejected. Use
-`printf '%s\t%s\n' "$version" "$arch"` to write actual tabs.
+The runner assigns a Debian revision, such as `1.2.3-2`, before calling `build`.
+Without that policy, query versions must already be complete Debian versions;
+the adapter owns their revisions.
 
-`build` must create a `.deb` at `OUTPUT` with the declared package name and the
-requested version and architecture. Each adapter has an isolated temporary
-workspace shared between its query and builds. Store additional release metadata
-there in any format; the runner does not interpret it. Hooks inherit configuration
-such as `ARCHES` and may define package-specific environment settings.
+If an upstream release has only amd64 available, return that row. The runner
+publishes it, warns about arm64, retains any previous arm64 package, and checks
+again during the next cycle. Do not invent rows for missing downloads. Actual
+query errors should return a nonzero exit status.
 
-A minimal query hook could look like:
+The build hook receives these environment variables:
 
-```bash
-#!/bin/bash
-set -Eeuo pipefail
-workspace=$1
-version=1.2.3-1  # Replace with this package's upstream query.
-for arch in $ARCHES; do
-    printf '%s\t%s\n' "$version" "$arch"
-done > "$workspace/targets.tsv"
+| Variable | Meaning |
+| --- | --- |
+| `PUBLISHER_STREAM` | Stream directory name |
+| `BUILD_INPUTS_SHA256` | Current packaging-input checksum |
+| `ARCHES` | Architectures selected for this cycle |
+
+For automatic revisions, include these fields in the binary package control file:
+
+```text
+X-Build-Inputs-SHA256: <value of BUILD_INPUTS_SHA256>
+X-Publisher-Stream: <value of PUBLISHER_STREAM>
 ```
 
-The build hook can repack an archive, compile source, or download an upstream
-`.deb`. It owns downloads, integrity checks, metadata, installed files, and package
-dependencies. See `packages/codex/` for a complete implementation. Add any build
-tools to the Dockerfile, make both hooks executable, set `PACKAGES='codex example'`
-in `.env`, and rebuild the image. Add package-specific settings to Compose's
-`environment` mapping when needed.
+The runner verifies these fields, name, version, and architecture before accepting
+the output. A build hook may repack binaries, compile source, or import an upstream
+`.deb`; an importer using automatic revisions must add the fields and assigned
+version to the control metadata before returning its output.
 
-Updates already published for the same package, version, and architecture are
-skipped. An adapter failure stops that adapter's work, then the runner continues
-with remaining adapters. Successful publications remain available; the overall
-cycle reports failure and retries at the next interval. Repository export is
-attempted even after an adapter fails. Shared configuration failures stop the
-cycle before package processing. The repository lock prevents overlapping runs.
+Each stream has a temporary workspace shared by query and build. Store download
+URLs, archive checksums, or other query results there in any convenient format.
+The hook owns download integrity checks, dependencies, file layout, and maintainer
+scripts. See `packages/codex/` for the included adapter.
 
-## Automatic packaging revisions
+## Checksums and Debian revisions
 
-The shared runner fingerprints adapter file paths, contents, and executable
-permissions, along with the Dockerfile. It excludes caches and generated
-`build/` directories. File timestamps, polling, container
-restarts, and architecture selection do not change the fingerprint. Changes to
-any included file, even comments, conservatively count as recipe changes.
+Our input checksum answers whether the packaging recipe changed. It covers:
+
+- Adapter file paths, contents, and executable permissions.
+- The Dockerfile.
+- Environment values named in the adapter's `revision-env` file.
+
+It excludes revision helpers, inactivity settings, caches, generated `build/`
+directories, timestamps, and architecture selection. Changes to included comments
+also count as recipe changes. Do not list `ARCHES` in `revision-env` unless selecting
+another architecture should rebuild the existing ones.
+
+This checksum is embedded in the `.deb`; there are no separate checksum files.
+Inspect it without unpacking the main payload:
+
+```sh
+dpkg-deb --field PACKAGE.deb X-Build-Inputs-SHA256
+dpkg-deb --field PACKAGE.deb X-Publisher-Stream
+```
+
+The runner reads filenames and control metadata to decide what to build:
 
 | Situation | Result |
 | --- | --- |
-| New upstream version | Start at revision `1` |
-| Same upstream version and recipe | Reuse the revision; skip published architectures |
-| Same upstream version, changed recipe | Increment the revision for all architectures |
-| Existing packages without fingerprint state | Use the highest published revision plus `1` |
+| No package for this upstream version | Start at revision 1 |
+| Latest artifact for this stream has the same recipe checksum | Reuse its revision; build only missing architectures |
+| Recipe changed, or existing artifacts have no matching metadata | Use the highest existing revision plus 1 |
+| New upstream version | Start its revision at 1 |
 
-State lives in `repo/.state/revisions/CODENAME/PACKAGE.json`. The runner reserves a
-revision atomically before building and records successful publication separately
-for each architecture. Failed builds retry the same revision while the recipe is
-unchanged. A partial publication resumes the missing architectures; a process
-interrupted after publication can recover from reprepro's package listing. Recipe
-reverts also receive a new revision. Keep `.state/` with the repository when moving
-or backing it up; losing it causes a conservative rebuild at a higher revision.
+Revision allocation considers all streams producing the same Debian package and
+upstream version, so they do not collide. A stream reuses its own latest matching
+artifact even when another stream has a higher revision. Reverting a recipe also
+requires a new revision. Historical upstream versions are not rebuilt merely
+because the packaging script changed.
 
-If configuration affects package output, an adapter can add `revision-env` with
-one environment-variable name per line. Those values enter the fingerprint;
-pass them through Compose's `environment` mapping. Do not include variables such
-as `ARCHES` unless changing them should rebuild already published architectures.
-Invalid state or unrecognized existing Debian revision formats fail rather than
-silently resetting the revision.
+A completely failed attempt leaves no artifact and retries the same next revision.
+A partial success carries the metadata needed to resume at that revision. Complete
+files appear atomically in `pool/main/STREAM/`; different contents cannot replace
+an existing package/version/architecture identity.
 
-This detects declared recipe inputs. An unchanged Dockerfile can still resolve
-a different base image or different dependency versions during a rebuild. Those
-resolved inputs are not fingerprinted automatically; pin them in the Dockerfile
-when reproducible revision tracking is needed.
+The recipe checksum differs from a download checksum. Codex verifies each archive
+against GitHub's SHA256 digest during download. Those digests are not currently
+part of recipe change detection. Unchanged Dockerfile text may also resolve a
+changed base image or dependency version; pin those inputs when needed.
 
-## Local testing
+## Inactivity warnings
 
-Use `build/` for generated files. Manual local repository data belongs in
-`build/local/repo` and `build/local/gnupg`; both Git and Docker ignore `build/`.
-To initialize and run a separate local repository:
+Put a positive day count in a stream's `stale-after-days` file to enable monitoring.
+There is no universal threshold. The query should then write the latest matching
+upstream release's publication timestamp to `WORKDIR/release-date`, for example:
 
-```sh
-export REPO_DATA_DIR="$PWD/build/local"
-./codex-repo-setup.sh
-docker compose up -d --build
+```text
+2026-10-23T08:00:00Z
 ```
 
-Keep `REPO_DATA_DIR` exported for subsequent Compose commands, or record its
-absolute path in `.env`. Setup updates `.env` for the selected key and user;
-use a separate checkout if you also manage a production deployment from here.
+If that release is older than the threshold, every cycle logs a prominent warning
+with its date, age, and threshold. Checking and publishing continue normally.
+Missing or invalid dates report that activity cannot be assessed; they do not
+block publication. Network/query errors remain separate failures.
 
-The offline tests use temporary directories under `build/`, clean them up, and
-stub GitHub downloads, GPG, and reprepro. They build real fixture `.deb` files
-without using a production signing key or repository. Host requirements are Bash,
-Python 3.10+ with tarfile's data extraction filter, and Debian's `dpkg` tools.
+A new upstream release updates the release age. Changing the packaging script
+does not. Streams are never automatically paused, retired, deleted, or migrated.
 
-```sh
-python3 -m unittest discover -s tests -v
-bash -n entrypoint.sh update.sh codex-repo-setup.sh lib/repository.sh \
-    packages/codex/query packages/codex/build
-```
+## Repository storage and serving
 
-## Serve with Caddy
+All stored `.deb` versions remain available, including old stream releases and
+packaging revisions. There is no automatic cleanup policy. Indexes are generated
+with `dpkg-scanpackages --multiversion`; `apt-ftparchive` creates release metadata,
+and GPG signs it. Generation and signing finish before live indexes are replaced.
+Signing failures leave the previous live indexes intact. Stored artifacts are
+available for the next publication attempt without rebuilding.
 
-Replace the example Tailnet IP with `tailscale ip -4` on the server:
+Hash-addressed indexes are retained so APT clients can finish fetching an earlier
+signed release while new indexes are being published. Back up the entire `repo/`
+and the signing key separately. Never serve the signing-key directory.
+
+For Caddy, replace the Tailnet IP with your server's address:
 
 ```caddyfile
 http://100.101.102.103:8080 {
@@ -221,14 +284,12 @@ http://100.101.102.103:8080 {
 }
 ```
 
-The publisher uses umask 022. Caddy needs read access to `repo/` and traversal
-access through its parent directories. Never grant Caddy access to `gnupg/`.
+Caddy needs read access to `repo/` and traversal access through its parents. The
+publisher uses umask 022. Never grant Caddy access to `gnupg/`.
 
 ## Debian client
 
-Transfer `repo-pubkey.asc` securely and verify its fingerprint out of band. For an
-existing deployment, its original public key and source-list filenames remain
-valid. For a new client:
+Transfer `repo-pubkey.asc` securely and verify its fingerprint out of band:
 
 ```sh
 sudo install -d -m 0755 /etc/apt/keyrings
@@ -240,13 +301,46 @@ sudo apt update
 sudo apt install codex-cli
 ```
 
-## Operational notes
+Existing deployments may keep their original key and source-list filenames.
+For same-name streams, select a particular published version using
+`apt install PACKAGE=VERSION`; configure APT preferences to stay within a stream.
+Using Debian's package name permits replacement, but APT version, priority, and
+dependency rules still determine which package is chosen.
 
-- Codex downloads use GitHub TLS and verify GitHub-provided SHA256 digests; these
-  are not independent upstream signature verification.
-- Codex selects stable `rust-vX.Y.Z` releases and supports amd64 and arm64.
-- Release asset names and layouts are upstream assumptions that may change.
-- Package-file retention follows reprepro's existing behavior; no additional
-  history or retention mechanism is added.
-- Tests cover local fixtures. Container builds and live release publication should
-  also be verified in your deployment environment.
+## Local testing
+
+Generated files belong under ignored `build/`. Manual local repository data uses
+`build/local/repo` and `build/local/gnupg`:
+
+```sh
+export REPO_DATA_DIR="$PWD/build/local"
+./codex-repo-setup.sh
+docker compose up -d --build
+```
+
+Keep the variable exported for subsequent Compose commands, or save its absolute
+path in `.env`. Setup updates `.env` for the chosen repository; use a separate
+checkout if you also manage a production deployment from here.
+
+Run the offline regression suite:
+
+```sh
+python3 -m unittest discover -s tests -v
+```
+
+It uses temporary directories under `build/`, fixture downloads, fake signatures,
+and real Debian package/index tools. Host requirements are Bash, Python 3.10+ with
+tarfile's data extraction filter, `dpkg-dev`, `apt-utils`, and GnuPG.
+
+The real signing/APT integration check is a standalone Bash script:
+
+```sh
+bash tests/test-signed-repo.sh
+```
+
+It creates a throwaway key and two fixture streams, verifies that APT accepts the
+signed repository, and simulates selecting both versions. It redirects APT state
+into the test directory and never installs packages on the host. GPG agent startup
+requires permission to create a local socket. Both checks clean up their test data.
+
+Container image builds and live upstream publication remain deployment checks.

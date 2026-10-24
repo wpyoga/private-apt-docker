@@ -1,0 +1,32 @@
+#!/bin/bash
+# Create a small, installable package without downloading anything.
+set -Eeuo pipefail
+
+stream_dir=$(cd -- "$(dirname -- "$0")" && pwd)
+workspace=$1
+version=$2
+architecture=$3
+output=$4
+
+if [[ "${TEST_FAIL_ARCH:-}" == "$architecture" ]]; then
+    echo "Fixture build failed for $architecture" >&2
+    exit 7
+fi
+
+package_name=$(cat "$stream_dir/package-name")
+package_dir="$workspace/package-$architecture"
+mkdir -p "$package_dir/DEBIAN"
+mkdir -p "$package_dir/usr/share/$package_name"
+printf '%s\n' "$PUBLISHER_STREAM" > "$package_dir/usr/share/$package_name/stream"
+
+cat > "$package_dir/DEBIAN/control" <<CONTROL
+Package: $package_name
+Version: $version
+Architecture: $architecture
+Maintainer: Repository test <test@localhost>
+Description: Empty integration fixture
+X-Build-Inputs-SHA256: $BUILD_INPUTS_SHA256
+X-Publisher-Stream: $PUBLISHER_STREAM
+CONTROL
+
+dpkg-deb --build --root-owner-group "$package_dir" "$output"

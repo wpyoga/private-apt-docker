@@ -10,7 +10,6 @@ services:
       CHECK_INTERVAL: ${CHECK_INTERVAL:-21600}
       ARCHES: ${ARCHES:-amd64 arm64}
       CODENAME: ${CODENAME:-trixie}
-      PACKAGES: ${PACKAGES:-codex}
       REPO_ORIGIN: ${REPO_ORIGIN:-Private APT Repository}
       REPO_LABEL: ${REPO_LABEL:-Private APT Repository}
       REPO_DESCRIPTION: ${REPO_DESCRIPTION:-Privately packaged Debian software}

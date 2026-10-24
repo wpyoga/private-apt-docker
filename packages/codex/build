@@ -57,6 +57,8 @@ Version: $package_version
 Section: devel
 Priority: optional
 Architecture: $arch
+X-Build-Inputs-SHA256: $BUILD_INPUTS_SHA256
+X-Publisher-Stream: $PUBLISHER_STREAM
 Maintainer: Private APT Repository <repo@localhost>
 Depends: bubblewrap, ripgrep
 Recommends: git

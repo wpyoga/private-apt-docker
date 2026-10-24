@@ -23,10 +23,9 @@ def main():
         subprocess.run(["dpkg", "--validate-version", version], check=True)
         if architecture not in architectures:
             raise SystemExit(f"Unrequested architecture in row {number}: {architecture}")
-        target = (version, architecture)
-        if target in seen:
-            raise SystemExit(f"Duplicate target in row {number}: {target}")
-        seen.add(target)
+        if architecture in seen:
+            raise SystemExit(f"Multiple current releases for architecture: {architecture}")
+        seen.add(architecture)
     # An empty file is valid: the adapter has no eligible releases.
 
 
