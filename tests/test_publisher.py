@@ -86,6 +86,7 @@ class PublisherTests(unittest.TestCase):
         name="first",
         *,
         package=None,
+        stream=None,
         version="1.2.3",
         query=None,
         build=None,
@@ -93,7 +94,9 @@ class PublisherTests(unittest.TestCase):
         directory = self.base / "adapters" / name
         directory.mkdir()
         package_name = package or f"{name}-cli"
-        (directory / "package-name").write_text(package_name + "\n")
+        (directory / "config").write_text(
+            f'release_stream={stream or name}\nbinary_packages="{package_name}"\n'
+        )
         (directory / "upstream-version").write_text(version + "\n")
 
         for hook, custom_body in (("query", query), ("build", build)):
@@ -155,6 +158,81 @@ class PublisherTests(unittest.TestCase):
         self.run_update()
         self.assertEqual(len(self.artifacts()), 4)
         self.assertFalse((self.base / "repo/.state/revisions").exists())
+
+    def test_directory_rename_does_not_change_identity_or_revision(self):
+        directory = self.adapter("alice-bob-charlie", package="example-cli", stream="example-stable")
+        self.run_update()
+        original = {path: path.read_bytes() for path in self.artifacts()}
+        directory.rename(directory.with_name("A descriptive directory"))
+        self.run_update()
+        self.assertEqual(self.versions("example-stable"), {"1.2.3-1"})
+        self.assertEqual({path: path.read_bytes() for path in self.artifacts()}, original)
+        self.assertEqual((self.base / "events").read_text().count("/build"), 2)
+
+    def test_multiple_outputs_share_revision_and_resume_missing_package(self):
+        self.adapter(package="example-cli example-common", stream="example-stable")
+        self.run_update()
+        self.assertEqual(len(self.artifacts()), 4)
+        events = (self.base / "events").read_text()
+        self.assertEqual(events.count("/build"), 2)
+        missing = next(path for path in self.artifacts() if path.name.startswith("example-common_") and path.name.endswith("amd64.deb"))
+        missing.unlink()
+        retained = {path: path.read_bytes() for path in self.artifacts()}
+        self.run_update()
+        self.assertEqual(len(self.artifacts()), 4)
+        self.assertEqual(self.versions("example-stable"), {"1.2.3-1"})
+        self.assertEqual({path: path.read_bytes() for path in retained}, retained)
+        self.assertEqual((self.base / "events").read_text().count("/build"), 3)
+        self.run_update()
+        self.assertEqual((self.base / "events").read_text().count("/build"), 3)
+
+    def test_revision_allocation_considers_every_binary_package(self):
+        self.adapter(package="example-cli example-common", stream="example-stable")
+        self.legacy("example-common", "1.2.3-7", "amd64")
+        self.run_update()
+        self.assertEqual(self.versions("example-stable"), {"1.2.3-8"})
+
+    def test_config_is_validated_without_executing_shell(self):
+        directory = self.adapter()
+        marker = self.base / "executed"
+        invalid = [
+            f"release_stream=$(touch {marker})\nbinary_packages=first-cli\n",
+            "release_stream=first\nbinary_packages=first-cli first-cli\n",
+            "release_stream=first\nrelease_stream=second\nbinary_packages=first-cli\n",
+            "release_stream=first\nbinary_packages=first-cli\nunknown=value\n",
+            "release_stream=first\n",
+        ]
+        for config in invalid:
+            with self.subTest(config=config):
+                (directory / "config").write_text(config)
+                self.run_update(expected=1)
+                self.assertFalse(marker.exists())
+                self.assertEqual(self.artifacts(), [])
+        self.assertFalse((self.base / "events").exists())
+
+    def test_duplicate_stream_identity_is_reported(self):
+        self.adapter("first", stream="shared-stable")
+        self.adapter("second", stream="shared-stable")
+        result = self.run_update(expected=1)
+        self.assertIn("Duplicate release_stream", result.stderr)
+        self.assertNotIn("second/query", (self.base / "events").read_text())
+
+    def test_incomplete_output_set_is_not_stored(self):
+        directory = self.adapter(package="example-cli example-common")
+        path = directory / "build"
+        path.write_text(path.read_text().replace('for package_name in $BINARY_PACKAGES;', 'for package_name in example-cli;'))
+        self.run_update(expected=1)
+        self.assertEqual(self.artifacts(), [])
+
+    def test_invalid_second_output_does_not_store_first(self):
+        directory = self.adapter(package="example-cli example-common")
+        path = directory / "build"
+        path.write_text(path.read_text().replace(
+            "X-Build-Inputs-SHA256: $BUILD_INPUTS_SHA256",
+            'X-Build-Inputs-SHA256: $(if [[ "$package_name" == example-common ]]; then echo invalid; else echo "$BUILD_INPUTS_SHA256"; fi)',
+        ))
+        self.run_update(expected=1)
+        self.assertEqual(self.artifacts(), [])
 
     def test_same_name_streams_publish_multiple_versions(self):
         self.adapter("gimp-3.2", package="gimp", version="3.2.1")
@@ -237,17 +315,20 @@ class PublisherTests(unittest.TestCase):
 
         workspace = self.base / "changed-build"
         workspace.mkdir()
-        replacement = workspace / existing.name
+        output = workspace / "outputs"
+        output.mkdir()
+        replacement = output / existing.name
         build_environment = {
             **self.env,
             "PUBLISHER_STREAM": "first",
+            "BINARY_PACKAGES": "first-cli",
             "BUILD_INPUTS_SHA256": checksum,
         }
         subprocess.run([
             str(directory / "build"), str(workspace), version,
-            architecture, str(replacement),
+            architecture, str(output),
         ], env=build_environment, check=True, capture_output=True)
-        package_dir = workspace / f"package-{architecture}"
+        package_dir = workspace / f"package-first-cli-{architecture}"
         payload = package_dir / "usr/share/first-cli/stream"
         payload.write_text("different contents\n")
         subprocess.run([
@@ -256,10 +337,9 @@ class PublisherTests(unittest.TestCase):
 
         result = subprocess.run([
             "python3", str(self.publisher / "lib/package-files.py"), "store",
-            str(directory), version, architecture, checksum, str(replacement),
+            str(directory), version, architecture, checksum, str(output),
         ], env=self.env, text=True, capture_output=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Refusing to overwrite", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(existing.read_bytes(), original_bytes)
 
     def test_revisions_are_automatic_without_policy_file(self):
@@ -303,7 +383,7 @@ class PublisherTests(unittest.TestCase):
         self.run_update()
         self.env["TEST_BUILD_OPTION"] = "two"
         self.run_update()
-        (directory / "package-name").chmod(0o755)
+        (directory / "config").chmod(0o755)
         self.run_update()
         dockerfile = self.publisher / "Dockerfile"
         dockerfile.write_text(dockerfile.read_text() + "\n# Environment change\n")

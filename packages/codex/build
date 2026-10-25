@@ -5,7 +5,7 @@ adapter_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 workspace=$1
 package_version=$2
 arch=$3
-output=$4
+output="$4/codex-cli_${package_version}_${arch}.deb"
 
 # Metadata stays private to this adapter; the shared runner only knows targets.tsv.
 mapfile -t asset < <(python3 - "$workspace/assets.json" "$arch" <<'PY'

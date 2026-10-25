@@ -13,8 +13,8 @@ if [[ "${TEST_FAIL_ARCH:-}" == "$architecture" ]]; then
     exit 7
 fi
 
-package_name=$(cat "$stream_dir/package-name")
-package_dir="$workspace/package-$architecture"
+for package_name in $BINARY_PACKAGES; do
+package_dir="$workspace/package-$package_name-$architecture"
 mkdir -p "$package_dir/DEBIAN"
 mkdir -p "$package_dir/usr/share/$package_name"
 printf '%s\n' "$PUBLISHER_STREAM" > "$package_dir/usr/share/$package_name/stream"
@@ -29,4 +29,5 @@ X-Build-Inputs-SHA256: $BUILD_INPUTS_SHA256
 X-Publisher-Stream: $PUBLISHER_STREAM
 CONTROL
 
-dpkg-deb --build --root-owner-group "$package_dir" "$output"
+dpkg-deb --build --root-owner-group "$package_dir" "$output/${package_name}_${version}_${architecture}.deb"
+done

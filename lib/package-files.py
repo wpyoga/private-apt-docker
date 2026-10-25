@@ -1,7 +1,6 @@
 """Choose revisions and store packages using their filenames and control metadata."""
 
 from dataclasses import dataclass
-import filecmp
 import os
 from pathlib import Path
 import shutil
@@ -111,9 +110,16 @@ def find_package(packages, version, architecture):
     return None
 
 
+def read_config(adapter):
+    values = subprocess.check_output(
+        ["bash", str(Path(__file__).with_name("config.sh")), str(adapter)], text=True
+    ).splitlines()
+    return values[0], values[1].split()
+
+
 def prepare_builds(adapter, targets, checksum):
-    package_name = (adapter / "package-name").read_text().strip()
-    packages = list_packages(package_name)
+    stream, names = read_config(adapter)
+    packages = [package for name in names for package in list_packages(name)]
     selected_versions = {}
     output_path = targets.parent / "builds.tsv"
 
@@ -123,20 +129,22 @@ def prepare_builds(adapter, targets, checksum):
 
             if upstream_version not in selected_versions:
                 version = choose_version(
-                    packages, upstream_version, adapter.name, checksum
+                    packages, upstream_version, stream, checksum
                 )
                 selected_versions[upstream_version] = version
 
             version = selected_versions[upstream_version]
-            existing = find_package(packages, version, architecture)
-            existing_path = ""
-
-            if existing is not None:
-                if existing.checksum != checksum or existing.stream != adapter.name:
+            complete = True
+            for name in names:
+                existing = find_package(
+                    [package for package in packages if package.name == name],
+                    version, architecture,
+                )
+                if existing is None:
+                    complete = False
+                elif existing.checksum != checksum or existing.stream != stream:
                     raise ValueError(f"Package belongs to another build: {existing.path}")
-                existing_path = str(existing.path)
-
-            output.write(f"{version}\t{architecture}\t{existing_path}\n")
+            output.write(f"{version}\t{architecture}\t{'complete' if complete else ''}\n")
 
 
 def validate_build(package, name, version, architecture, stream, checksum):
@@ -171,22 +179,28 @@ def copy_package(source, destination):
         os.unlink(temporary)
 
 
-def store_package(adapter, version, architecture, checksum, source):
-    package_name = (adapter / "package-name").read_text().strip()
-    package = read_package(source)
-    validate_build(
-        package, package_name, version, architecture, adapter.name, checksum
-    )
+def store_packages(adapter, version, architecture, checksum, source):
+    stream, names = read_config(adapter)
+    paths = sorted(source.iterdir())
+    expected = {f"{name}_{version}_{architecture}.deb" for name in names}
+    if {path.name for path in paths} != expected or any(not path.is_file() for path in paths):
+        raise ValueError("Build output must contain exactly the declared binary packages")
 
-    existing = find_package(list_packages(package_name), version, architecture)
-    if existing is not None:
-        if not filecmp.cmp(existing.path, source, shallow=False):
-            raise ValueError(f"Refusing to overwrite existing package: {existing.path}")
-        return
-
-    filename = f"{package_name}_{version}_{architecture}.deb"
-    destination = Path(os.environ["REPO_DIR"]) / "pool/main" / adapter.name / filename
-    copy_package(source, destination)
+    # Validate the entire output set before storing any of it.
+    pending = []
+    for path in paths:
+        package = read_package(path)
+        check_filename(package)
+        validate_build(package, path.name.split("_")[0], version, architecture, stream, checksum)
+        existing = find_package(list_packages(package.name), version, architecture)
+        if existing is not None:
+            validate_build(existing, package.name, version, architecture, stream, checksum)
+            # A resumed build may regenerate existing outputs. Preserve their bytes.
+            continue
+        pending.append(path)
+    for path in pending:
+        destination = Path(os.environ["REPO_DIR"]) / "pool/main" / stream / path.name
+        copy_package(path, destination)
 
 
 def main():
@@ -202,7 +216,7 @@ def main():
         architecture = sys.argv[4]
         checksum = sys.argv[5]
         source = Path(sys.argv[6])
-        store_package(adapter, version, architecture, checksum, source)
+        store_packages(adapter, version, architecture, checksum, source)
     else:
         raise ValueError(f"Unknown package-file operation: {command}")
 

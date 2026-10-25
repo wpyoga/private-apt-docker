@@ -38,11 +38,22 @@ work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
 status=0
 
+declare -A seen_streams=()
 shopt -s nullglob
 for directory in "$PACKAGES_DIR"/*/; do
-    stream=$(basename -- "$directory")
+    if ! configuration=$(bash "$script_dir/lib/config.sh" "$directory"); then
+        status=1
+        continue
+    fi
+    stream=${configuration%%$'\n'*}
+    if [[ -v seen_streams[$stream] ]]; then
+        echo "Duplicate release_stream: $stream" >&2
+        status=1
+        continue
+    fi
+    seen_streams[$stream]=1
     # A fresh Bash process keeps each stream's failures isolated.
-    if bash "$script_dir/lib/update-package.sh" "$stream" "$work/$stream"; then
+    if bash "$script_dir/lib/update-package.sh" "$directory" "$work/streams/$stream"; then
         echo "[$stream] Update complete"
     else
         echo "[$stream] Update failed; continuing with remaining streams" >&2

@@ -46,7 +46,7 @@ create_stream() {
     cp "$project_dir/tests/fixtures/stream/build" "$stream_dir/build"
     chmod 755 "$stream_dir/query" "$stream_dir/build"
 
-    printf '%s\n' gimp > "$stream_dir/package-name"
+    printf 'release_stream=%s\nbinary_packages=gimp\n' "$stream" > "$stream_dir/config"
     printf '%s\n' "$version" > "$stream_dir/upstream-version"
 }
 

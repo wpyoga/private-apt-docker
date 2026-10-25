@@ -9,7 +9,7 @@ The container does not serve HTTP. Point an existing Caddy instance at `repo/`.
 ## How an update works
 
 1. Take the repository lock so another updater cannot write at the same time.
-2. Read the stream directories under `packages/`, in alphabetical order.
+2. Read adapter directories under `packages/`, in alphabetical order.
 3. Finish one stream before starting the next: query, choose package revisions,
    build missing architectures, and store the results.
 4. Generate and sign repository indexes containing all stored package versions.
@@ -104,54 +104,69 @@ does not remove already published arm64 packages from the indexes.
 Direct invocations also accept `REPO_DIR`, `GNUPGHOME`, and `PACKAGES_DIR`.
 Compose supplies `/repo` and `/gnupg` inside the container.
 
-## One directory per stream
+## One directory per configured release stream
 
-A stream is an upstream release line that we choose to follow. For example:
+Each immediate, non-hidden directory under `packages/` contains one adapter. Its
+name is descriptive only: renaming it does not change stream identity, package
+names, storage paths, recipe checksums, or revision history. Directory names affect
+only processing order and diagnostic paths.
 
-```text
-packages/
-    codex/
-    gimp-3.2/
-    gimp-3.4/
-```
-
-Each directory is independent and contains:
+Each adapter contains:
 
 ```text
-package-name       Debian package name, such as gimp
+config             Release stream identity and binary package names
 query              Executable upstream query script
 build              Executable packaging script
 revision-env       Optional: build environment variable names, one per line
 stale-after-days   Optional: inactivity warning threshold
 ```
 
-Directory names may contain lowercase letters, digits, dots, underscores, and
-hyphens, and must start with a letter or digit. Hidden directories are not selected.
-All other immediate directories are processed; an incomplete stream reports an
-error without stopping the others. There is no central package registry.
+For Codex, `config` contains:
 
-Both `gimp-3.2` and `gimp-3.4` may declare `gimp` as their Debian package name. Their
-different versions are published in the same repository. APT applies its normal
-version and priority rules. Merely publishing both does not keep a client on the
-older stream; use client-side pinning when that is desired.
+```sh
+release_stream=codex
+binary_packages=codex-cli
+```
 
-The query script selects the latest eligible release in its own stream. It owns
-upstream-specific naming, channels, version conversion, and release ordering. The
-runner does not infer semantic versioning or switch streams automatically. Codex
-uses GitHub's latest stable release and supports amd64 and arm64.
+A build producing several packages can use:
 
-To add a stream, add its directory and rebuild the container image. To stop
-tracking one, remove its directory and rebuild. Its previously published packages
-remain available. No real GIMP adapters are included; those names illustrate the
-directory design.
+```sh
+release_stream=example-stable
+binary_packages="example-cli example-common"
+```
+
+Configuration is parsed as data, never sourced as shell code. Use one `key=value`
+per line, with no spaces around `=`. Blank lines and whole-line comments are
+allowed. Values may have matching single or double quotes; quotes are removed
+without shell expansion. Only the two keys above are accepted, each exactly once.
+Package names form a space-separated list of distinct Debian package names.
+Stream IDs use lowercase letters, digits, dots, underscores, and hyphens, beginning
+with a letter or digit. They must be unique among adapters in a cycle; duplicate
+IDs report an error and the later adapter is skipped.
+
+One directory follows one configured release stream. The query hook owns how that
+stream selects upstream releases; the stream ID is an identity, not a channel
+name that the runner interprets. Codex follows GitHub's latest stable release and
+supports amd64 and arm64. Multiple adapters may declare the same Debian package
+name to publish different release streams. APT applies its normal version and
+priority rules; client-side pinning is needed to stay on an older stream.
+
+To add or remove an adapter, change its directory and rebuild the container image.
+Previously published packages remain available. Incomplete adapters report an
+error without blocking the other adapters. There is no central package registry.
+
+Existing custom adapters must replace `package-name` with `config` and adopt the
+output-directory build interface below. Set `release_stream` to the previous
+stream directory name to retain existing package metadata identity. Configuration
+and build recipe changes allocate a new revision; existing artifacts stay intact.
 
 ## Query and build hooks
 
-The interface remains:
+The hook interface is:
 
 ```sh
 query WORKDIR
-build WORKDIR VERSION ARCH OUTPUT
+build WORKDIR VERSION ARCH OUTPUT_DIR
 ```
 
 `query` writes `WORKDIR/targets.tsv`. Each row contains a version, a tab, an
@@ -177,7 +192,8 @@ The build hook receives these environment variables:
 
 | Variable | Meaning |
 | --- | --- |
-| `PUBLISHER_STREAM` | Stream directory name |
+| `PUBLISHER_STREAM` | Configured `release_stream` |
+| `BINARY_PACKAGES` | Configured binary package names, separated by spaces |
 | `BUILD_INPUTS_SHA256` | Current packaging-input checksum |
 | `ARCHES` | Architectures selected for this cycle |
 
@@ -188,10 +204,19 @@ X-Build-Inputs-SHA256: <value of BUILD_INPUTS_SHA256>
 X-Publisher-Stream: <value of PUBLISHER_STREAM>
 ```
 
-The runner verifies these fields, name, version, and architecture before accepting
-the output. A build hook may repack binaries, compile source, or import an upstream
-`.deb`; an importer must add the fields and assigned
-version to the control metadata before returning its output.
+The runner calls `build` once per needed architecture, allowing one download or
+compilation to produce all declared binary packages. `OUTPUT_DIR` is an existing,
+empty directory. Write exactly one `NAME_VERSION_ARCH.deb` per declared package
+there, with no extra files. All outputs use the assigned version and requested
+architecture; architecture-independent (`all`) outputs are not supported yet.
+
+The runner validates the entire output set, including name, version, architecture,
+and the fields above, before storing any output. On a resumed build, matching
+stored outputs retain their original bytes and only missing packages are stored.
+A failed hook or invalid output set stores nothing from that invocation. A build
+hook may repack binaries, compile source, or import an upstream `.deb`; an importer
+must add the fields and assigned version to the control metadata before returning
+its output.
 
 Each stream has a temporary workspace shared by query and build. Store download
 URLs, archive checksums, or other query results there in any convenient format.
@@ -224,12 +249,14 @@ The runner reads filenames and control metadata to decide what to build:
 | Situation | Result |
 | --- | --- |
 | No package for this upstream version | Start at revision 1 |
-| Latest artifact for this stream has the same recipe checksum | Reuse its revision; build only missing architectures |
+| Latest artifact for this stream has the same recipe checksum | Reuse its revision; build incomplete architectures |
 | Recipe changed, or existing artifacts have no matching metadata | Use the highest existing revision plus 1 |
 | New upstream version | Start its revision at 1 |
 
-Revision allocation considers all streams producing the same Debian package and
-upstream version, so they do not collide. A stream reuses its own latest matching
+No binary package is the source of truth for the revision. Revision allocation
+inspects all declared binary package names across all streams for the upstream
+version and uses their highest existing revision to avoid collisions. All outputs
+of a build share the resulting version. A stream reuses its own latest matching
 artifact even when another stream has a higher revision. Reverting a recipe also
 requires a new revision. Historical upstream versions are not rebuilt merely
 because the packaging script changed.
@@ -342,6 +369,6 @@ bash tests/test-signed-repo.sh
 It creates a throwaway key and two fixture streams, verifies that APT accepts the
 signed repository, and simulates selecting both versions. It redirects APT state
 into the test directory and never installs packages on the host. GPG agent startup
-requires permission to create a local socket. Both checks clean up their test data.
+requires permission to bind a local socket, even with a writable temporary homedir. Both checks clean up their test data.
 
 Container image builds and live upstream publication remain deployment checks.
