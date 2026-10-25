@@ -3,19 +3,19 @@ services:
     build: .
     restart: unless-stopped
     init: true
-    user: "${REPO_UID:-${CODEX_UID:?Set REPO_UID or CODEX_UID}}:${REPO_GID:-${CODEX_GID:?Set REPO_GID or CODEX_GID}}"
+    user: "${REPO_UID:?Set REPO_UID in .env}:${REPO_GID:?Set REPO_GID in .env}"
     environment:
       GPG_KEY: ${GPG_KEY:?Set GPG_KEY in .env}
-      GNUPGHOME: /gnupg
-      CHECK_INTERVAL: ${CHECK_INTERVAL:-21600}
-      ARCHES: ${ARCHES:-amd64 arm64}
-      CODENAME: ${CODENAME:-trixie}
-      REPO_ORIGIN: ${REPO_ORIGIN:-Private APT Repository}
-      REPO_LABEL: ${REPO_LABEL:-Private APT Repository}
-      REPO_DESCRIPTION: ${REPO_DESCRIPTION:-Privately packaged Debian software}
+      MAINTAINER: ${MAINTAINER:?Set MAINTAINER in .env}
+      REPO_NAME: ${REPO_NAME:?Set REPO_NAME in .env}
+      REPO_DESCRIPTION: ${REPO_DESCRIPTION:?Set REPO_DESCRIPTION in .env}
+      REPO_ARCHITECTURES: ${REPO_ARCHITECTURES:?Set REPO_ARCHITECTURES in .env}
+      CHECK_INTERVAL: ${CHECK_INTERVAL:?Set CHECK_INTERVAL in .env}
+      ARCHES: ${ARCHES:?Set ARCHES in .env}
+      CODENAME: ${CODENAME:?Set CODENAME in .env}
     volumes:
-      - ${REPO_DATA_DIR:-/srv/apt/codex}/repo:/repo
-      - ${REPO_DATA_DIR:-/srv/apt/codex}/gnupg:/gnupg
+      - ${REPO_DATA_DIR:?Set REPO_DATA_DIR in .env}/repo:/repo
+      - ${REPO_DATA_DIR:?Set REPO_DATA_DIR in .env}/gnupg:/gnupg
     security_opt:
       - no-new-privileges:true
     cap_drop:

@@ -5,7 +5,7 @@ Priority: optional
 Architecture: @ARCHITECTURE@
 X-Build-Inputs-SHA256: @BUILD_INPUTS_SHA256@
 X-Publisher-Stream: @PUBLISHER_STREAM@
-Maintainer: Private APT Repository <repo@localhost>
+Maintainer: @MAINTAINER@
 Depends: bubblewrap, ripgrep
 Recommends: git
 Description: OpenAI Codex CLI (precompiled, Debian system tools)

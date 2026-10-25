@@ -43,7 +43,10 @@ while IFS=$'\t' read -r VERSION ARCHITECTURE EXISTING; do
     OUTPUT_DIR="$WORKSPACE/output-$ARCHITECTURE"
     mkdir -p "$OUTPUT_DIR"
     echo "[$STREAM] Building $BINARY_PACKAGES $VERSION ($ARCHITECTURE)"
-    "$ADAPTER_DIR/build" "$VERSION" "$ARCHITECTURE" "$OUTPUT_DIR"
+    if ! "$ADAPTER_DIR/build" "$VERSION" "$ARCHITECTURE" "$OUTPUT_DIR"; then
+        echo "ERROR: [$STREAM] Build failed for $VERSION ($ARCHITECTURE)" >&2
+        exit 1
+    fi
     python3 "$FRAMEWORK_DIR/lib/package-files.py" store \
         "$ADAPTER_DIR" "$VERSION" "$ARCHITECTURE" "$BUILD_INPUTS_SHA256" "$OUTPUT_DIR"
     echo "[$STREAM] Stored: $BINARY_PACKAGES $VERSION ($ARCHITECTURE)"

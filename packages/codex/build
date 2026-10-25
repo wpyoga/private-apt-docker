@@ -5,11 +5,13 @@ set -Eeuo pipefail
 : "${WORKSPACE:?WORKSPACE must be set and non-empty}"
 : "${PUBLISHER_STREAM:?PUBLISHER_STREAM must be set and non-empty}"
 : "${BUILD_INPUTS_SHA256:?BUILD_INPUTS_SHA256 must be set and non-empty}"
+: "${MAINTAINER:?MAINTAINER must be set and non-empty}"
 
 PACKAGE_VERSION="$1"
 ARCHITECTURE="$2"
 OUTPUT_DIR="$3"
 OUTPUT="$OUTPUT_DIR/codex-cli_${PACKAGE_VERSION}_${ARCHITECTURE}.deb"
+SOURCE_DIR="$WORKSPACE/extract-$ARCHITECTURE"
 
 check_member_types() {
     # Allow regular files (-), directories (d), symlinks (l), and hard links (h).
@@ -29,32 +31,13 @@ check_links() {
     while IFS= read -r -d '' LINK_PATH; do
         RESOLVED_PATH=$(realpath --canonicalize-missing -- "$LINK_PATH")
         case "$RESOLVED_PATH" in
-            "$DESTINATION_DIR"|"$DESTINATION_DIR"/*) ;;
+            "$SOURCE_DIR"|"$SOURCE_DIR"/*) ;;
             *)
                 echo "Archive link escapes extraction directory: $LINK_PATH" >&2
                 exit 1
                 ;;
         esac
-    done < <(find "$DESTINATION_DIR" -type l -print0)
-}
-
-find_package_root() {
-    local -a DIRECTORIES=()
-
-    SOURCE_DIR="$DESTINATION_DIR"
-    if [[ -f "$SOURCE_DIR/bin/codex" ]]; then
-        return
-    fi
-
-    # Accept one wrapper directory around the upstream package.
-    mapfile -d '' -t DIRECTORIES < <(
-        find -L "$DESTINATION_DIR" -mindepth 1 -maxdepth 1 -type d -print0
-    )
-    if (( ${#DIRECTORIES[@]} != 1 )); then
-        echo 'Unexpected package layout' >&2
-        exit 1
-    fi
-    SOURCE_DIR=${DIRECTORIES[0]}
+    done < <(find "$SOURCE_DIR" -type l -print0)
 }
 
 check_package_files() {
@@ -62,7 +45,7 @@ check_package_files() {
 
     for REQUIRED in bin/codex bin/codex-code-mode-host codex-package.json; do
         if [[ ! -f "$SOURCE_DIR/$REQUIRED" ]]; then
-            echo "Missing $REQUIRED" >&2
+            echo "ERROR: Unexpected Codex archive layout: Missing $REQUIRED at $SOURCE_DIR" >&2
             exit 1
         fi
     done
@@ -80,19 +63,17 @@ check_package_files() {
 }
 
 extract_package() {
-    DESTINATION_DIR="$WORKSPACE/extract-$ARCHITECTURE"
     check_member_types
 
-    mkdir -p "$DESTINATION_DIR"
-    DESTINATION_DIR=$(realpath -- "$DESTINATION_DIR")
+    mkdir -p "$SOURCE_DIR"
+    SOURCE_DIR=$(realpath -- "$SOURCE_DIR")
     # Use tar's path protections; never enable absolute names or dereferencing.
-    tar --extract --gzip --file "$ARCHIVE_PATH" --directory "$DESTINATION_DIR" \
+    tar --extract --gzip --file "$ARCHIVE_PATH" --directory "$SOURCE_DIR" \
         --no-same-owner --no-same-permissions --keep-old-files
 
     check_links
     # Keep owner access; remove group/other write and setuid/setgid/sticky bits.
-    chmod -R u+rwX,go-w,a-s,a-t "$DESTINATION_DIR"
-    find_package_root
+    chmod -R u+rwX,go-w,a-s,a-t "$SOURCE_DIR"
     check_package_files
 }
 
@@ -133,11 +114,14 @@ for BINARY in "$PACKAGE_ROOT"/bin/*; do
     ln -s "../lib/openai-codex/bin/$BINARY_NAME" "$PACKAGE_DIR/usr/bin/$BINARY_NAME"
 done
 
+# Escape replacement characters in the maintainer's human-entered name.
+MAINTAINER_SED=$(printf '%s' "$MAINTAINER" | sed 's/[\\&|]/\\&/g')
 sed \
+    -e "s|@MAINTAINER@|$MAINTAINER_SED|g" \
     -e "s/@PACKAGE_VERSION@/$PACKAGE_VERSION/g" \
     -e "s/@ARCHITECTURE@/$ARCHITECTURE/g" \
     -e "s/@BUILD_INPUTS_SHA256@/$BUILD_INPUTS_SHA256/g" \
     -e "s/@PUBLISHER_STREAM@/$PUBLISHER_STREAM/g" \
-    "$ADAPTER_DIR/control.template" > "$PACKAGE_DIR/DEBIAN/control"
+    "$ADAPTER_DIR/control.in" > "$PACKAGE_DIR/DEBIAN/control"
 
 dpkg-deb --build --root-owner-group -Zgzip "$PACKAGE_DIR" "$OUTPUT"

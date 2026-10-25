@@ -3,7 +3,10 @@ set -Eeuo pipefail
 
 : "${FRAMEWORK_DIR:?FRAMEWORK_DIR must point to the framework root}"
 export FRAMEWORK_DIR
-CHECK_INTERVAL=${CHECK_INTERVAL:-21600}
+# shellcheck source=lib/repository.sh
+source "$FRAMEWORK_DIR/lib/repository.sh"
+validate_repository_config
+: "${CHECK_INTERVAL:?CHECK_INTERVAL must be set and non-empty}"
 
 case "$CHECK_INTERVAL" in
     ''|*[!0-9]*)

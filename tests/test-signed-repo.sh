@@ -18,6 +18,10 @@ export REPO_DIR="$WORK_DIR/repo"
 export PACKAGES_DIR="$WORK_DIR/streams"
 export CODENAME=trixie
 export ARCHES='amd64 arm64'
+export REPO_ARCHITECTURES='amd64 arm64'
+export MAINTAINER='Repository Test <test@localhost>'
+export REPO_NAME='Test APT Repository'
+export REPO_DESCRIPTION='Repository integration fixtures'
 
 CLIENT_DIR="$WORK_DIR/client"
 APT_OPTIONS=()

@@ -71,6 +71,11 @@ class PublisherTests(unittest.TestCase):
             "REPO_DIR": str(self.base / "repo"),
             "PACKAGES_DIR": str(self.base / "adapters"),
             "ARCHES": "amd64 arm64",
+            "REPO_ARCHITECTURES": "amd64 arm64",
+            "CHECK_INTERVAL": "21600",
+            "MAINTAINER": "Repository Test <test@localhost>",
+            "REPO_NAME": "Test APT Repository",
+            "REPO_DESCRIPTION": "Repository integration fixtures",
             "CODENAME": "trixie",
             "GPG_KEY": KEY,
             "GNUPGHOME": str(self.base / "keyring"),
@@ -348,6 +353,7 @@ class PublisherTests(unittest.TestCase):
         result = self.run_update(expected=1)
         self.assertIn("[bad-query] Update failed", result.stderr)
         self.assertIn("[bad-build] Update failed", result.stderr)
+        self.assertIn("ERROR: [bad-build] Build failed for 1.2.3-1 (amd64)", result.stderr)
         self.assertEqual(len(self.artifacts()), 2)
         self.assertIn("Version: 1.2.3-1", self.index())
 
@@ -563,19 +569,40 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual((path.parent / f"by-hash/SHA512/{digest}").read_bytes(), previous)
         self.assertIn("Acquire-By-Hash: yes", (self.base / "repo/dists/trixie/Release").read_text())
 
-    def test_existing_identity_and_configuration_are_preserved(self):
+    def test_central_repository_config_controls_published_identity(self):
         self.adapter()
         self.run_update()
-        configuration = self.base / "repo/conf/distributions"
-        original = configuration.read_text().replace("Private APT Repository", "Private Codex Repository")
-        configuration.write_text(original)
-        self.env["REPO_ORIGIN"] = "Ignored override"
+        before = self.artifacts()
+        self.env["REPO_NAME"] = "Another Repository"
         self.run_update()
-        self.assertEqual(configuration.read_text(), original)
-        release = self.base / "repo/dists/trixie/Release"
-        self.assertIn("Origin: Private Codex Repository", release.read_text())
-        self.env["GPG_KEY"] = "B" * 40
+        release = (self.base / "repo/dists/trixie/Release").read_text()
+        self.assertIn("Origin: Another Repository", release)
+        self.assertIn("Label: Another Repository", release)
+        self.assertEqual(self.artifacts(), before)
+        self.env["GPG_KEY"] = "invalid-fingerprint"
         self.run_update(expected=1)
+
+    def test_missing_global_configuration_fails_before_writing(self):
+        for variable in ("MAINTAINER", "REPO_NAME", "PACKAGES_DIR", "REPO_DIR"):
+            for value in (None, ""):
+                with self.subTest(variable=variable, value=value):
+                    environment = dict(self.env)
+                    environment.pop(variable, None)
+                    if value is not None:
+                        environment[variable] = value
+                    result = subprocess.run(
+                        ["bash", str(self.publisher / "update.sh")],
+                        env=environment,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(f"{variable} must", result.stderr)
+                    self.assertFalse((self.base / "repo").exists())
+        self.env["PACKAGES_DIR"] = str(self.base / "missing-adapters")
+        result = self.run_update(expected=1)
+        self.assertIn("PACKAGES_DIR does not exist", result.stderr)
+        self.assertFalse((self.base / "repo").exists())
 
     def test_architecture_selector_keeps_other_published_architecture(self):
         self.adapter()
@@ -798,10 +825,11 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual(len(self.artifacts()), 2)
         self.assertEqual(self.versions("codex"), {"1.2.3-1"})
 
-    def test_codex_wrapper_layout(self):
+    def test_codex_unexpected_wrapper_layout_fails(self):
         self.codex_fixture(wrapped=True)
-        self.run_update()
-        self.assertEqual(len(self.artifacts()), 2)
+        result = self.run_update(expected=1)
+        self.assertIn("Missing bin/codex", result.stderr)
+        self.assertEqual(self.artifacts(), [])
 
     def test_codex_checksum_and_metadata_failures(self):
         self.codex_fixture(corrupt_digest=True)
@@ -820,10 +848,22 @@ class PublisherTests(unittest.TestCase):
         self.run_update(expected=1)
         self.assertEqual(self.artifacts(), [])
 
+    def test_codex_maintainer_comes_from_global_configuration(self):
+        self.codex_fixture()
+        self.run_update()
+        maintainer = "Alice / Release & Ops | Team\\Name <alice@example.com>"
+        self.env["MAINTAINER"] = maintainer
+        self.run_update()
+        self.assertEqual(self.versions("codex"), {"1.2.3-1", "1.2.3-2"})
+        for artifact in self.artifacts("codex"):
+            metadata = fields(artifact)
+            if metadata["version"] == "1.2.3-2":
+                self.assertEqual(metadata["maintainer"], maintainer)
+
     def test_codex_control_template_is_a_packaging_input(self):
         self.codex_fixture()
         self.run_update()
-        template = self.base / "adapters/codex/control.template"
+        template = self.base / "adapters/codex/control.in"
         template.write_text(template.read_text() + "Homepage: https://example.invalid\n")
         self.run_update()
         self.assertEqual(self.versions("codex"), {"1.2.3-1", "1.2.3-2"})

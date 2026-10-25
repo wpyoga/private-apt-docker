@@ -6,12 +6,19 @@ umask 077
 export FRAMEWORK_DIR
 cd "$FRAMEWORK_DIR"
 
-REPO_USER=${REPO_USER:-codexrepo}
-REPO_DATA_DIR=${REPO_DATA_DIR:-/srv/apt/codex}
+# Setup reads the one operator-owned config file; missing files are an error.
+set -a
+source "$FRAMEWORK_DIR/.env"
+set +a
+
+: "${REPO_USER:?REPO_USER must be set and non-empty}"
+: "${REPO_DATA_DIR:?REPO_DATA_DIR must be set and non-empty}"
+: "${MAINTAINER:?MAINTAINER must be set and non-empty}"
+: "${REPO_NAME:?REPO_NAME must be set and non-empty}"
 BASE_DIR=$(realpath -m -- "$REPO_DATA_DIR")
-GPG_KEY_NAME=${GPG_KEY_NAME:-Private APT Repository <repo@localhost>}
-GPG_KEY_TYPE=${GPG_KEY_TYPE:-ed25519}
-GPG_KEY_VALIDITY=${GPG_KEY_VALIDITY:-20y}
+: "${GPG_KEY_NAME:?GPG_KEY_NAME must be set and non-empty}"
+: "${GPG_KEY_TYPE:?GPG_KEY_TYPE must be set and non-empty}"
+: "${GPG_KEY_VALIDITY:?GPG_KEY_VALIDITY must be set and non-empty}"
 
 if ! id "$REPO_USER" >/dev/null 2>&1; then
     sudo useradd --system --no-create-home --shell /usr/sbin/nologin "$REPO_USER"

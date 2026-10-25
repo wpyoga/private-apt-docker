@@ -7,29 +7,7 @@ export FRAMEWORK_DIR
 # shellcheck source=lib/repository.sh
 source "$FRAMEWORK_DIR/lib/repository.sh"
 
-export REPO_DIR=${REPO_DIR:-/repo}
-export CODENAME=${CODENAME:-trixie}
-export GNUPGHOME=${GNUPGHOME:-/gnupg}
-export ARCHES=${ARCHES:-amd64 arm64}
-export PACKAGES_DIR=${PACKAGES_DIR:-$FRAMEWORK_DIR/packages}
-: "${GPG_KEY:?Missing GPG_KEY}"
-
-read -r -a ARCHITECTURES <<< "${ARCHES//$'\n'/ }"
-if (( ${#ARCHITECTURES[@]} == 0 )); then
-    echo 'ARCHES must not be empty' >&2
-    exit 1
-fi
-for ARCHITECTURE in "${ARCHITECTURES[@]}"; do
-    case "$ARCHITECTURE" in
-        amd64|arm64) ;;
-        *)
-            echo "Unsupported architecture: $ARCHITECTURE" >&2
-            exit 1
-            ;;
-    esac
-done
-ARCHES="${ARCHITECTURES[*]}"
-PACKAGES_DIR=$(cd -- "$PACKAGES_DIR" && pwd)
+validate_repository_config
 
 mkdir -p "$REPO_DIR/.state"
 exec 9>"$REPO_DIR/.state/update.lock"

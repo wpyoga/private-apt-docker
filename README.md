@@ -36,20 +36,19 @@ docker compose logs -f
 ```
 
 Existing client source lists, public keys, storage paths, and the Compose service
-name remain valid. `CODEX_UID` and `CODEX_GID` still work; `REPO_UID` and `REPO_GID`
-take precedence when set. Do not rerun setup just to upgrade.
+name remain valid. Set `REPO_UID` and `REPO_GID` explicitly in `.env`; legacy
+`CODEX_UID` and `CODEX_GID` fallbacks are no longer used. Do not rerun setup just to
+upgrade an existing deployment.
 
-This implementation replaces reprepro with Debian's index-generation tools. It
-reuses the identity and signing configuration in `repo/conf/distributions` and
-indexes existing `.deb` files in `repo/pool/`. Old reprepro databases and revision
-JSON files are left untouched and are no longer read.
+The operator-owned `.env` is the central configuration file. Compare your existing
+file with `.env.example` and supply every required setting before rebuilding.
+Set `REPO_NAME` to the current repository identity if you want to preserve it.
+The publisher no longer reads or generates `repo/conf/distributions`; it uses the
+configured name and signing key directly. Existing repository databases and
+revision JSON files are left untouched and are no longer read.
 
-Remove obsolete `PACKAGES` and `DEB_REVISION` settings from `.env`. Directory
-listing now selects streams; package metadata now supplies revision history.
-Debian revisions are now always assigned automatically; the `revision-policy`
-file is no longer used. Removing it changes the recipe checksum, so an existing
-Codex version receives one new packaging revision on the next update.
-
+Remove obsolete `PACKAGES`, `DEB_REVISION`, `REPO_ORIGIN`, and `REPO_LABEL` settings.
+Directory listing selects adapters; package metadata supplies revision history.
 Existing artifacts without our metadata remain available. Their first automatic
 rebuild uses the next revision and establishes the metadata, for example `-3` to
 `-4`. No revision state or checksum sidecar files are created.
@@ -57,53 +56,66 @@ rebuild uses the next revision and establishes the metadata, for example `-3` to
 ## First-time setup
 
 The host needs Docker Compose, GnuPG, Python 3, sudo, and the usual core utilities.
-Run from the project directory:
+From the project directory:
 
 ```sh
+cp .env.example .env
+chmod 600 .env
+# Edit .env: set your MAINTAINER, REPO_NAME, key identity, and storage directory.
 export FRAMEWORK_DIR="$PWD"
 ./codex-repo-setup.sh
 docker compose up -d --build
 docker compose logs -f
 ```
 
-Setup creates the `codexrepo` system user, storage directories, and a dedicated
-signing key if none exists. It writes `REPO_UID`, `REPO_GID`, and `GPG_KEY` to `.env`
-with mode 0600, preserving unrelated settings. It exports `repo-pubkey.asc` and
-prints the fingerprint. Setup does not start the container.
+Setup reads exactly `$FRAMEWORK_DIR/.env`, validates its required inputs, creates
+the configured system user and storage directories, and generates a dedicated
+signing key if none exists. It writes `REPO_UID`, `REPO_GID`, and `GPG_KEY` back to
+that file with mode 0600, preserving other settings. It exports `repo-pubkey.asc`
+and prints the fingerprint. Setup does not start the container.
 
-You may import an existing dedicated key into `/srv/apt/codex/gnupg` first. If that
-keyring has multiple primary secret keys, select one explicitly:
-
-```sh
-GPG_KEY=YOUR_FULL_FINGERPRINT ./codex-repo-setup.sh
-```
+You may import an existing dedicated key into the configured `gnupg/` directory
+first. If it contains multiple primary secret keys, set `GPG_KEY` in `.env` to the
+full fingerprint of the key you intend to use.
 
 Signing must work without interactive passphrase entry. Protect the signing key
 and Docker daemon. Verify the public-key fingerprint out of band before using it
 on clients.
 
-## Configuration
+## Central configuration
 
-Set these values in `.env` as needed:
+`.env.example` lists the required settings with explicit example values. Copy it
+to `.env` and edit it using shell-compatible `NAME=value` assignments. Setup
+sources this operator-owned file; Compose reads it as its environment file. The
+scripts do not invent missing settings or search for alternate config paths.
 
-| Setting | Default | Purpose |
-| --- | --- | --- |
-| `REPO_UID`, `REPO_GID` | Required; legacy `CODEX_*` fallback | Container user |
-| `GPG_KEY` | Required | Full signing-key fingerprint |
-| `ARCHES` | `amd64 arm64` | Architectures to check and build |
-| `CODENAME` | `trixie` | APT distribution |
-| `CHECK_INTERVAL` | `21600` | Seconds to wait after a cycle; minimum 3600 |
-| `REPO_DATA_DIR` | `/srv/apt/codex` | Host parent of `repo/` and `gnupg/` |
-| `REPO_ORIGIN`, `REPO_LABEL` | `Private APT Repository` | Identity for a new repository |
-| `REPO_DESCRIPTION` | `Privately packaged Debian software` | Description for a new repository |
+| Setting | Purpose |
+| --- | --- |
+| `MAINTAINER` | Debian package maintainer, in `Name <email>` form |
+| `REPO_NAME` | APT repository name, used for both Origin and Label |
+| `REPO_DESCRIPTION` | APT repository description |
+| `CODENAME` | APT distribution and suite |
+| `ARCHES` | Architectures to check and build this cycle |
+| `REPO_ARCHITECTURES` | Architectures whose repository indexes are published |
+| `CHECK_INTERVAL` | Seconds to wait after a cycle; minimum 3600 |
+| `REPO_DATA_DIR` | Host parent of `repo/` and `gnupg/` |
+| `REPO_USER` | System user created or reused by setup |
+| `GPG_KEY_NAME`, `GPG_KEY_TYPE`, `GPG_KEY_VALIDITY` | Explicit signing-key creation settings |
+| `REPO_UID`, `REPO_GID`, `GPG_KEY` | Setup outputs; supply existing values when upgrading |
 
-Existing repository configuration is preserved. Signing-key, codename, component,
-or architecture mismatches fail explicitly. The supported component is `main`.
-New repositories configure both amd64 and arm64. Selecting only amd64 for a cycle
-does not remove already published arm64 packages from the indexes.
+Changing `MAINTAINER` rebuilds Codex at the next packaging revision. Changing
+`REPO_NAME` updates signed repository metadata without rebuilding package files.
+Maintainer and repository identity values must be single-line strings.
 
-Direct invocations also accept `REPO_DIR`, `GNUPGHOME`, and `PACKAGES_DIR`.
-Compose supplies `/repo` and `/gnupg` inside the container.
+Docker defines its fixed paths explicitly: `FRAMEWORK_DIR=/opt/apt-publisher`,
+`PACKAGES_DIR=/opt/apt-publisher/packages`, `REPO_DIR=/repo`, and `GNUPGHOME=/gnupg`.
+Direct host invocations must export their own values for those paths and the
+required settings. There are no path-discovery fallbacks.
+
+Both amd64 and arm64 are supported. Selecting only amd64 for a cycle does not
+remove arm64 packages when `REPO_ARCHITECTURES` still includes arm64. Missing or
+empty required settings fail before repository files are written; Compose also
+rejects missing settings before starting the container.
 
 ## One directory per configured release stream
 
@@ -136,7 +148,7 @@ RELEASE_STREAM=example-stable
 BINARY_PACKAGES="example-cli example-common"
 ```
 
-Configuration is parsed as data, never sourced as shell code. Use one `key=value`
+Adapter configuration is parsed as data, never sourced as shell code. Use one `key=value`
 per line, with no spaces around `=`. Blank lines and whole-line comments are
 allowed. Values may have matching single or double quotes; quotes are removed
 without shell expansion. Only the two keys above are accepted, each exactly once.
@@ -151,10 +163,13 @@ name that the runner interprets. Codex follows GitHub's latest stable release an
 supports amd64 and arm64. Its `query` hook contains both the release download
 and JSON processing using Bash and `jq`, with no inline Python or separate
 release helper. Its build hook renders `@VARNAME@` placeholders in
-`control.template` using `sed`. Extraction and validation live in short functions
-inside the build hook. GNU tar handles extraction paths; packaging checks validate
-the layout and metadata, reject special files and escaping links, and discard
-privileged permissions. There is no Python code in the Codex adapter.
+`control.in` using `sed`. Extraction and validation live in short functions
+inside the build hook. Codex expects `bin/` and `codex-package.json` directly at
+the archive root. A wrapper directory or changed layout fails with a missing-file
+error; update the adapter deliberately when upstream changes its layout.
+GNU tar handles extraction paths. Packaging checks reject special files and
+external links before copying or changing permissions, and validate the expected
+files, version, and entrypoint. There is no Python code in the Codex adapter.
 Multiple adapters may declare the same Debian package name to
 publish different release streams. APT applies its normal version and priority
 rules; client-side pinning is needed to stay on an older stream.
@@ -221,6 +236,7 @@ Query and build hooks receive these environment variables:
 | `WORKSPACE` | Absolute path to this adapter’s temporary working directory |
 | `PUBLISHER_STREAM` | Configured `RELEASE_STREAM` |
 | `BINARY_PACKAGES` | Configured binary package names, separated by spaces |
+| `MAINTAINER` | Global Debian package maintainer from `.env` |
 | `BUILD_INPUTS_SHA256` | Current packaging-input checksum; provided before build |
 | `ARCHES` | Architectures selected for this cycle |
 
@@ -230,6 +246,21 @@ Include these fields in the binary package control file:
 X-Build-Inputs-SHA256: <value of BUILD_INPUTS_SHA256>
 X-Publisher-Stream: <value of PUBLISHER_STREAM>
 ```
+
+Every adapter must expect a fixed layout inside its selected upstream artifact.
+Check the required paths and metadata before producing packages. If upstream moves
+or removes expected files, log an error naming the missing path and exit nonzero.
+Do not search for alternative roots, unwrap arbitrary directories, or silently
+adapt to a changed layout. The maintainer must update the adapter explicitly.
+
+The framework logs the failed stream, version, and architecture. Existing packages
+remain available and other streams continue processing. Logs are the maintainer
+notification mechanism for now; no email or external alerts are sent.
+
+File-type and link restrictions are adapter-specific packaging policy. Codex
+rejects special files and links outside its extraction directory because its
+expected bundle does not need them, and later build steps read or modify files.
+Other adapters must explicitly handle any such entries their package needs.
 
 The runner calls `build` once per needed architecture, allowing one download or
 compilation to produce all declared binary packages. `OUTPUT_DIR` is an existing,
@@ -369,14 +400,13 @@ Generated files belong under ignored `build/`. Manual local repository data uses
 
 ```sh
 export FRAMEWORK_DIR="$PWD"
-export REPO_DATA_DIR="$PWD/build/local"
+# In .env, set REPO_DATA_DIR to the absolute path of build/local.
 ./codex-repo-setup.sh
 docker compose up -d --build
 ```
 
-Keep the variable exported for subsequent Compose commands, or save its absolute
-path in `.env`. Setup updates `.env` for the chosen repository; use a separate
-checkout if you also manage a production deployment from here.
+Setup updates `.env` for the chosen repository; use a separate checkout if you
+also manage a production deployment from here.
 
 From the project root, run every check with:
 

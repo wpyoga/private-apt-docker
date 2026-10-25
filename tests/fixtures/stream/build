@@ -4,6 +4,7 @@ set -Eeuo pipefail
 
 : "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
 : "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${MAINTAINER:?MAINTAINER must be set and non-empty}"
 : "${BINARY_PACKAGES:?BINARY_PACKAGES must be set and non-empty}"
 : "${PUBLISHER_STREAM:?PUBLISHER_STREAM must be set and non-empty}"
 : "${BUILD_INPUTS_SHA256:?BUILD_INPUTS_SHA256 must be set and non-empty}"
@@ -27,7 +28,7 @@ for PACKAGE_NAME in $BINARY_PACKAGES; do
 Package: $PACKAGE_NAME
 Version: $VERSION
 Architecture: $ARCHITECTURE
-Maintainer: Repository test <test@localhost>
+Maintainer: $MAINTAINER
 Description: Empty integration fixture
 X-Build-Inputs-SHA256: $BUILD_INPUTS_SHA256
 X-Publisher-Stream: $PUBLISHER_STREAM

@@ -4,6 +4,10 @@ set -Eeuo pipefail
 : "${REPO_DIR:?REPO_DIR must be set and non-empty}"
 : "${GPG_KEY:?GPG_KEY must be set and non-empty}"
 : "${GNUPGHOME:?GNUPGHOME must be set and non-empty}"
+: "${REPO_NAME:?REPO_NAME must be set and non-empty}"
+: "${REPO_DESCRIPTION:?REPO_DESCRIPTION must be set and non-empty}"
+: "${CODENAME:?CODENAME must be set and non-empty}"
+: "${REPO_ARCHITECTURES:?REPO_ARCHITECTURES must be set and non-empty}"
 
 STAGING_DIR="$1"
 mkdir -p "$STAGING_DIR"
@@ -18,9 +22,9 @@ for ARCHITECTURE in $REPO_ARCHITECTURES; do
 done
 
 apt-ftparchive \
-    -o "APT::FTPArchive::Release::Origin=$REPO_ORIGIN" \
-    -o "APT::FTPArchive::Release::Label=$REPO_LABEL" \
-    -o "APT::FTPArchive::Release::Suite=$REPO_SUITE" \
+    -o "APT::FTPArchive::Release::Origin=$REPO_NAME" \
+    -o "APT::FTPArchive::Release::Label=$REPO_NAME" \
+    -o "APT::FTPArchive::Release::Suite=$CODENAME" \
     -o "APT::FTPArchive::Release::Codename=$CODENAME" \
     -o "APT::FTPArchive::Release::Architectures=$REPO_ARCHITECTURES" \
     -o 'APT::FTPArchive::Release::Components=main' \
