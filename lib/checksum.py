@@ -1,10 +1,9 @@
-"""Print a checksum of a stream's declared packaging inputs."""
+"""Print a checksum of a stream's packaging inputs."""
 
 import hashlib
 import json
 import os
 from pathlib import Path
-import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,12 +30,7 @@ def checksum(adapter):
         executable_permissions = path.stat().st_mode & 0o111
         contents_checksum = hashlib.sha256(path.read_bytes()).hexdigest()
         records.append((name, executable_permissions, contents_checksum))
-    environment = adapter / "revision-env"
-    if environment.exists():
-        for name in environment.read_text().splitlines():
-            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
-                raise SystemExit(f"Invalid variable name in {environment}: {name}")
-            records.append(("environment", name, os.environ.get(name)))
+    records.append(("environment", "MAINTAINER", os.environ["MAINTAINER"]))
     return hashlib.sha256(json.dumps(records).encode()).hexdigest()
 
 

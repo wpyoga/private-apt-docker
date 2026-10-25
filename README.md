@@ -103,7 +103,7 @@ scripts do not invent missing settings or search for alternate config paths.
 | `GPG_KEY_NAME`, `GPG_KEY_TYPE`, `GPG_KEY_VALIDITY` | Explicit signing-key creation settings |
 | `REPO_UID`, `REPO_GID`, `GPG_KEY` | Setup outputs; supply existing values when upgrading |
 
-Changing `MAINTAINER` rebuilds Codex at the next packaging revision. Changing
+Changing `MAINTAINER` rebuilds every package at the next packaging revision. Changing
 `REPO_NAME` updates signed repository metadata without rebuilding package files.
 Maintainer and repository identity values must be single-line strings.
 
@@ -130,7 +130,6 @@ Each adapter contains:
 config             Release stream identity and binary package names
 query              Executable upstream query script
 build              Executable packaging script
-revision-env       Optional: build environment variable names, one per line
 stale-after-days   Optional: inactivity warning threshold
 ```
 
@@ -287,12 +286,11 @@ Our input checksum answers whether the packaging recipe changed. It covers:
 
 - Adapter file paths, contents, and executable permissions.
 - The Dockerfile.
-- Environment values named in the adapter's `revision-env` file.
+- The global `MAINTAINER` value.
 
 It excludes revision helpers, inactivity settings, caches, generated `build/`
 directories, timestamps, and architecture selection. Changes to included comments
-also count as recipe changes. Do not list `ARCHES` in `revision-env` unless selecting
-another architecture should rebuild the existing ones.
+also count as recipe changes.
 
 This checksum is embedded in the `.deb`; there are no separate checksum files.
 Inspect it without unpacking the main payload:

@@ -472,10 +472,8 @@ class PublisherTests(unittest.TestCase):
 
     def test_configuration_permissions_and_dockerfile_affect_checksum(self):
         directory = self.adapter()
-        (directory / "revision-env").write_text("TEST_BUILD_OPTION\n")
-        self.env["TEST_BUILD_OPTION"] = "one"
         self.run_update()
-        self.env["TEST_BUILD_OPTION"] = "two"
+        self.env["MAINTAINER"] = "New Maintainer <new@example.com>"
         self.run_update()
         (directory / "config").chmod(0o755)
         self.run_update()
@@ -486,6 +484,21 @@ class PublisherTests(unittest.TestCase):
         helper.write_text(helper.read_text() + "\n# Not a packaging input\n")
         self.run_update()
         self.assertEqual(self.versions("first"), {f"1.2.3-{number}" for number in range(1, 5)})
+
+    def test_global_maintainer_change_rebuilds_every_stream(self):
+        self.adapter("first")
+        self.adapter("second")
+        self.run_update()
+        maintainer = "New Maintainer <new@example.com>"
+        self.env["MAINTAINER"] = maintainer
+        self.run_update()
+        self.run_update()
+        for stream in ("first", "second"):
+            self.assertEqual(self.versions(stream), {"1.2.3-1", "1.2.3-2"})
+            for artifact in self.artifacts(stream):
+                metadata = fields(artifact)
+                if metadata["version"] == "1.2.3-2":
+                    self.assertEqual(metadata["maintainer"], maintainer)
 
     def test_new_upstream_resets_revision_without_rebuilding_history(self):
         directory = self.adapter()
