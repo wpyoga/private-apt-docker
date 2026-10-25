@@ -2,7 +2,7 @@
 
 This container checks upstream releases, builds Debian packages, and publishes
 one signed APT repository. It includes an unofficial repackaging of the official
-OpenAI Codex executables as `codex-cli`.
+OpenAI Codex executables as `codex-cli`, and community Ghostty Debian packages as `ghostty`.
 
 The container does not serve HTTP. Point an existing Caddy instance at `repo/`.
 
@@ -306,6 +306,23 @@ URLs, archive checksums, or other query results there in any convenient format.
 The hook owns download integrity checks, dependencies, file layout, and maintainer
 scripts. See `packages/codex/` for the included adapter.
 
+## Ghostty
+
+`packages/ghostty/` imports the latest stable release from
+[mkasberg/ghostty-ubuntu](https://github.com/mkasberg/ghostty-ubuntu), the community
+Debian package source linked by Ghostty's installation documentation. It selects
+Debian Trixie assets for amd64 and arm64, regardless of the repository suite name.
+These are community binaries, not official Ghostty Linux binaries.
+
+The adapter verifies GitHub's SHA256 digest and the package name, version,
+architecture, and required executable, desktop entry, and terminfo paths. It
+preserves upstream dependencies, resources, and maintainer scripts, and replaces
+version, maintainer, and publisher metadata without executing those scripts.
+Community rebuilds remain part of the tracked version: release `1.3.1-0-ppa2`
+becomes `1.3.1+0.ppa2-1`. Missing architectures retain previously published packages.
+After rebuilding the publisher image and publishing an update cycle, clients can
+install it with `sudo apt install ghostty`.
+
 ## Checksums and Debian revisions
 
 Our input checksum answers whether the packaging recipe changed. It covers:
@@ -454,8 +471,8 @@ It uses temporary directories under `build/`, fixture downloads, fake signatures
 and real Debian package/index tools. Host requirements are Bash, GNU tar, Python
 3.10+, `dpkg-dev`, `apt-utils`, `jq`, and GnuPG.
 
-The regression tests are grouped into `test_publisher.py`, `test_codex.py`, and
-`test_setup.py`. Their shared temporary fixtures live in
+The regression tests are grouped into `test_publisher.py`, `test_codex.py`,
+`test_ghostty.py`, and `test_setup.py`. Their shared temporary fixtures live in
 `publisher_test_support.py`. The setup test uses fake sudo and GPG commands;
 it does not change host users, production configuration, or signing keys.
 

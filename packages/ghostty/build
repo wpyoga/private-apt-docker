@@ -1,0 +1,47 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${PUBLISHER_STREAM:?PUBLISHER_STREAM must be set and non-empty}"
+: "${BUILD_INPUTS_SHA256:?BUILD_INPUTS_SHA256 must be set and non-empty}"
+: "${MAINTAINER:?MAINTAINER must be set and non-empty}"
+
+PACKAGE_VERSION="$1"
+ARCHITECTURE="$2"
+OUTPUT_DIR="$3"
+ASSET=$(jq -ce --arg ARCH "$ARCHITECTURE" '.[$ARCH]' "$WORKSPACE/assets.json")
+UPSTREAM_VERSION=$(jq -re '.version | strings' <<< "$ASSET")
+DEB_VERSION=$(jq -re '.deb_version | strings' <<< "$ASSET")
+DOWNLOAD_URL=$(jq -re '.url | strings' <<< "$ASSET")
+DOWNLOAD_SHA256=$(jq -re '.sha256 | strings' <<< "$ASSET")
+if [[ "$UPSTREAM_VERSION" != "${PACKAGE_VERSION%-*}" ]]; then
+    echo 'Inconsistent Ghostty build version' >&2
+    exit 1
+fi
+DOWNLOAD="$WORKSPACE/ghostty-$ARCHITECTURE.deb"
+PACKAGE_DIR="$WORKSPACE/pkg-$ARCHITECTURE"
+curl -fLsS --retry 3 "$DOWNLOAD_URL" -o "$DOWNLOAD"
+printf '%s  %s\n' "$DOWNLOAD_SHA256" "$DOWNLOAD" | sha256sum -c -
+for FIELD in Package Version Architecture; do
+    case "$FIELD" in
+        Package) EXPECTED=ghostty ;;
+        Version) EXPECTED="$DEB_VERSION" ;;
+        Architecture) EXPECTED="$ARCHITECTURE" ;;
+    esac
+    if [[ "$(dpkg-deb --field "$DOWNLOAD" "$FIELD")" != "$EXPECTED" ]]; then
+        echo "Unexpected Ghostty $FIELD; expected $EXPECTED" >&2
+        exit 1
+    fi
+done
+# Extract without executing maintainer scripts; preserve upstream integration.
+dpkg-deb --raw-extract "$DOWNLOAD" "$PACKAGE_DIR"
+for REQUIRED in usr/bin/ghostty usr/share/applications/com.mitchellh.ghostty.desktop usr/share/terminfo/x/xterm-ghostty; do
+    if [[ ! -f "$PACKAGE_DIR/$REQUIRED" ]]; then
+        echo "Unexpected Ghostty package layout: Missing $REQUIRED" >&2
+        exit 1
+    fi
+done
+python3 "$ADAPTER_DIR/rewrite-control.py" "$PACKAGE_DIR/DEBIAN/control" "$PACKAGE_VERSION"
+dpkg-deb --build --root-owner-group -Zgzip "$PACKAGE_DIR" \
+    "$OUTPUT_DIR/ghostty_${PACKAGE_VERSION}_${ARCHITECTURE}.deb"
