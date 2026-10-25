@@ -6,6 +6,10 @@ OpenAI Codex executables as `codex-cli`, and community Ghostty Debian packages a
 
 The container does not serve HTTP. Point an existing Caddy instance at `repo/`.
 
+For development, read [AGENTS.md](AGENTS.md) for coding conventions and
+[ARCHITECTURE.md](ARCHITECTURE.md) for the design rationale, adapter development
+workflow, and guidance for resuming work in another session.
+
 ## How an update works
 
 1. Take the repository lock so another updater cannot write at the same time.
