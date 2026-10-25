@@ -1,18 +1,40 @@
 """Replace publisher-owned fields while retaining upstream control metadata."""
+
 import os
 from pathlib import Path
-import re
 import sys
 
-path = Path(sys.argv[1])
-replacements = {
-    "Version": sys.argv[2],
-    "Maintainer": os.environ["MAINTAINER"],
-    "X-Build-Inputs-SHA256": os.environ["BUILD_INPUTS_SHA256"],
-    "X-Publisher-Stream": os.environ["PUBLISHER_STREAM"],
-}
-text = path.read_text()
-for field, value in replacements.items():
-    text = re.sub(r"^" + re.escape(field) + r":[^\n]*\n(?:[ \t][^\n]*\n)*", "", text, flags=re.M | re.I)
-    text = text.rstrip("\n") + f"\n{field}: {value}\n"
-path.write_text(text)
+
+def rewrite_fields(text, replacements):
+    replacement_names = {name.lower() for name in replacements}
+    retained_lines = []
+    replacing_field = False
+
+    for line in text.splitlines(keepends=True):
+        if not line.startswith((" ", "\t")):
+            field_name = line.split(":", 1)[0].lower()
+            replacing_field = field_name in replacement_names
+
+        # Continuation lines belong to the preceding field.
+        if not replacing_field:
+            retained_lines.append(line)
+
+    result = "".join(retained_lines).rstrip("\n") + "\n"
+    for name, value in replacements.items():
+        result += f"{name}: {value}\n"
+    return result
+
+
+def main():
+    path = Path(sys.argv[1])
+    replacements = {
+        "Version": sys.argv[2],
+        "Maintainer": os.environ["MAINTAINER"],
+        "X-Build-Inputs-SHA256": os.environ["BUILD_INPUTS_SHA256"],
+        "X-Publisher-Stream": os.environ["PUBLISHER_STREAM"],
+    }
+    path.write_text(rewrite_fields(path.read_text(), replacements))
+
+
+if __name__ == "__main__":
+    main()

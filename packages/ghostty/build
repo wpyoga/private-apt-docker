@@ -10,38 +10,77 @@ set -Eeuo pipefail
 PACKAGE_VERSION="$1"
 ARCHITECTURE="$2"
 OUTPUT_DIR="$3"
-ASSET=$(jq -ce --arg ARCH "$ARCHITECTURE" '.[$ARCH]' "$WORKSPACE/assets.json")
-UPSTREAM_VERSION=$(jq -re '.version | strings' <<< "$ASSET")
-DEB_VERSION=$(jq -re '.deb_version | strings' <<< "$ASSET")
-DOWNLOAD_URL=$(jq -re '.url | strings' <<< "$ASSET")
-DOWNLOAD_SHA256=$(jq -re '.sha256 | strings' <<< "$ASSET")
-if [[ "$UPSTREAM_VERSION" != "${PACKAGE_VERSION%-*}" ]]; then
-    echo 'Inconsistent Ghostty build version' >&2
-    exit 1
-fi
-DOWNLOAD="$WORKSPACE/ghostty-$ARCHITECTURE.deb"
+DOWNLOAD_PATH="$WORKSPACE/ghostty-$ARCHITECTURE.deb"
 PACKAGE_DIR="$WORKSPACE/pkg-$ARCHITECTURE"
-curl -fLsS --retry 3 "$DOWNLOAD_URL" -o "$DOWNLOAD"
-printf '%s  %s\n' "$DOWNLOAD_SHA256" "$DOWNLOAD" | sha256sum -c -
-for FIELD in Package Version Architecture; do
-    case "$FIELD" in
-        Package) EXPECTED=ghostty ;;
-        Version) EXPECTED="$DEB_VERSION" ;;
-        Architecture) EXPECTED="$ARCHITECTURE" ;;
-    esac
-    if [[ "$(dpkg-deb --field "$DOWNLOAD" "$FIELD")" != "$EXPECTED" ]]; then
-        echo "Unexpected Ghostty $FIELD; expected $EXPECTED" >&2
+OUTPUT_PATH="$OUTPUT_DIR/ghostty_${PACKAGE_VERSION}_${ARCHITECTURE}.deb"
+
+read_selected_asset() {
+    local ASSET EXPECTED_VERSION
+
+    ASSET=$(jq --compact-output --exit-status --arg ARCH "$ARCHITECTURE" \
+        '.[$ARCH]' "$WORKSPACE/assets.json")
+    UPSTREAM_VERSION=$(jq --raw-output --exit-status '.version | strings' <<< "$ASSET")
+    DEB_VERSION=$(jq --raw-output --exit-status '.deb_version | strings' <<< "$ASSET")
+    DOWNLOAD_URL=$(jq --raw-output --exit-status '.url | strings' <<< "$ASSET")
+    DOWNLOAD_SHA256=$(jq --raw-output --exit-status '.sha256 | strings' <<< "$ASSET")
+
+    EXPECTED_VERSION="${PACKAGE_VERSION%-*}"
+    if [[ "$UPSTREAM_VERSION" != "$EXPECTED_VERSION" ]]; then
+        printf '[ghostty] Build %s (%s): expected selected version %s, got %s\n' \
+            "$PACKAGE_VERSION" "$ARCHITECTURE" "$EXPECTED_VERSION" "$UPSTREAM_VERSION" >&2
         exit 1
     fi
-done
-# Extract without executing maintainer scripts; preserve upstream integration.
-dpkg-deb --raw-extract "$DOWNLOAD" "$PACKAGE_DIR"
-for REQUIRED in usr/bin/ghostty usr/share/applications/com.mitchellh.ghostty.desktop usr/share/terminfo/x/xterm-ghostty; do
-    if [[ ! -f "$PACKAGE_DIR/$REQUIRED" ]]; then
-        echo "Unexpected Ghostty package layout: Missing $REQUIRED" >&2
+}
+
+download_package() {
+    curl -fLsS --retry 3 "$DOWNLOAD_URL" -o "$DOWNLOAD_PATH"
+    printf '%s  %s\n' "$DOWNLOAD_SHA256" "$DOWNLOAD_PATH" | sha256sum -c -
+}
+
+check_control_field() {
+    local FIELD EXPECTED ACTUAL
+    FIELD="$1"
+    EXPECTED="$2"
+    ACTUAL=$(dpkg-deb --field "$DOWNLOAD_PATH" "$FIELD")
+
+    if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+        printf "[ghostty] %s (%s): unexpected %s in %s; expected '%s', got '%s'\n" \
+            "$PACKAGE_VERSION" "$ARCHITECTURE" "$FIELD" \
+            "$DOWNLOAD_PATH" "$EXPECTED" "$ACTUAL" >&2
         exit 1
     fi
-done
-python3 "$ADAPTER_DIR/rewrite-control.py" "$PACKAGE_DIR/DEBIAN/control" "$PACKAGE_VERSION"
-dpkg-deb --build --root-owner-group -Zgzip "$PACKAGE_DIR" \
-    "$OUTPUT_DIR/ghostty_${PACKAGE_VERSION}_${ARCHITECTURE}.deb"
+}
+
+check_package_files() {
+    local REQUIRED_PATH
+    local REQUIRED_PATHS=(
+        usr/bin/ghostty
+        usr/share/applications/com.mitchellh.ghostty.desktop
+        usr/share/terminfo/x/xterm-ghostty
+    )
+
+    for REQUIRED_PATH in "${REQUIRED_PATHS[@]}"; do
+        if [[ ! -f "$PACKAGE_DIR/$REQUIRED_PATH" ]]; then
+            printf '[ghostty] %s (%s): unexpected package layout; Missing %s in %s\n' \
+                "$PACKAGE_VERSION" "$ARCHITECTURE" "$REQUIRED_PATH" "$PACKAGE_DIR" >&2
+            exit 1
+        fi
+    done
+}
+
+repackage() {
+    # Preserve upstream dependencies and integration without running its scripts.
+    dpkg-deb --raw-extract "$DOWNLOAD_PATH" "$PACKAGE_DIR"
+    check_package_files
+
+    python3 "$ADAPTER_DIR/rewrite-control.py" \
+        "$PACKAGE_DIR/DEBIAN/control" "$PACKAGE_VERSION"
+    dpkg-deb --build --root-owner-group -Zgzip "$PACKAGE_DIR" "$OUTPUT_PATH"
+}
+
+read_selected_asset
+download_package
+check_control_field Package ghostty
+check_control_field Version "$DEB_VERSION"
+check_control_field Architecture "$ARCHITECTURE"
+repackage

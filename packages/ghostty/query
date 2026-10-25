@@ -9,73 +9,101 @@ RELEASE_FILE="$WORKSPACE/release.json"
 ASSETS_FILE="$WORKSPACE/assets.json"
 TARGETS_FILE="$WORKSPACE/targets.tsv"
 
-curl -fLsS --retry 3 \
-    -H 'Accept: application/vnd.github+json' \
-    -H 'User-Agent: private-apt-publisher' \
-    https://api.github.com/repos/mkasberg/ghostty-ubuntu/releases/latest \
-    -o "$RELEASE_FILE"
+query_release() {
+    curl -fLsS --retry 3 \
+        -H 'Accept: application/vnd.github+json' \
+        -H 'User-Agent: private-apt-publisher' \
+        https://api.github.com/repos/mkasberg/ghostty-ubuntu/releases/latest \
+        -o "$RELEASE_FILE"
 
-TAG=$(jq --raw-output --exit-status '.tag_name | strings' "$RELEASE_FILE")
-if [[ ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+-ppa[0-9]+$ ]]; then
-    echo "Unexpected release tag: $TAG" >&2
-    exit 1
-fi
-if ! jq --exit-status '.draft == false and .prerelease == false' "$RELEASE_FILE" >/dev/null; then
-    echo "Expected a stable release: $TAG" >&2
-    exit 1
-fi
-# Track community rebuilds as well as Ghostty versions.
-RELEASE_VERSION=${TAG%%-*}
-PACKAGE_REVISION=${TAG#*-}
-VERSION="$RELEASE_VERSION+${PACKAGE_REVISION//-/.}"
-DEB_VERSION="$RELEASE_VERSION-${PACKAGE_REVISION/-/\~}"
-
-RELEASE_DATE=$(jq --raw-output '.published_at // empty' "$RELEASE_FILE")
-if [[ -n "$RELEASE_DATE" ]]; then
-    printf '%s\n' "$RELEASE_DATE" > "$WORKSPACE/release-date"
-fi
-
-printf '{}\n' > "$ASSETS_FILE"
-: > "$TARGETS_FILE"
-
-for ARCHITECTURE in $ARCHES; do
-    case "$ARCHITECTURE" in
-        amd64|arm64) ;;
-        *) echo "Unsupported architecture: $ARCHITECTURE" >&2; exit 1 ;;
-    esac
-    ASSET_NAME="ghostty_${RELEASE_VERSION}-${PACKAGE_REVISION//-/.}_${ARCHITECTURE}_trixie.deb"
-    ASSET=$(jq --compact-output --arg NAME "$ASSET_NAME" \
-        'first(.assets[] | select(.name == $NAME)) // empty' "$RELEASE_FILE")
-    if [[ -z "$ASSET" ]]; then
-        echo "WARNING: No upstream package for $ARCHITECTURE: $ASSET_NAME" >&2
-        continue
+    TAG=$(jq --raw-output --exit-status '.tag_name | strings' "$RELEASE_FILE")
+    if [[ ! "$TAG" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-([0-9]+)-(ppa[0-9]+)$ ]]; then
+        echo "[ghostty] Unexpected release tag: $TAG" >&2
+        exit 1
     fi
+    RELEASE_VERSION="${BASH_REMATCH[1]}"
+    DEBIAN_REVISION="${BASH_REMATCH[2]}"
+    COMMUNITY_REVISION="${BASH_REMATCH[3]}"
+
+    if ! jq --exit-status \
+        '.draft == false and .prerelease == false' "$RELEASE_FILE" >/dev/null; then
+        echo "[ghostty] Expected a stable release: $TAG" >&2
+        exit 1
+    fi
+
+    # Keep community rebuilds in our tracked version, separate from our revision.
+    ASSET_VERSION="$RELEASE_VERSION-$DEBIAN_REVISION.$COMMUNITY_REVISION"
+    VERSION="$RELEASE_VERSION+$DEBIAN_REVISION.$COMMUNITY_REVISION"
+    DEB_VERSION="$RELEASE_VERSION-$DEBIAN_REVISION~$COMMUNITY_REVISION"
+
+    RELEASE_DATE=$(jq --raw-output '.published_at // empty' "$RELEASE_FILE")
+    if [[ -n "$RELEASE_DATE" ]]; then
+        printf '%s\n' "$RELEASE_DATE" > "$WORKSPACE/release-date"
+    fi
+}
+
+validate_asset() {
+    local ASSET_NAME ASSET
+    ASSET_NAME="$1"
+    ASSET="$2"
 
     if ! jq --exit-status '
         .digest | strings | length == 71 and test("^sha256:[0-9a-fA-F]{64}$")
     ' <<< "$ASSET" >/dev/null; then
-        echo "Missing or invalid SHA256 digest: $ASSET_NAME" >&2
+        echo "[ghostty] Missing or invalid SHA256 digest: $ASSET_NAME" >&2
         exit 1
     fi
     if ! jq --exit-status '
         .browser_download_url | strings
         | startswith("https://") and (test("\\s") | not)
     ' <<< "$ASSET" >/dev/null; then
-        echo "Invalid asset URL: $ASSET_NAME" >&2
+        echo "[ghostty] Invalid asset URL: $ASSET_NAME" >&2
         exit 1
     fi
+}
 
-    # Keep the metadata indexed by Debian architecture for the build hook.
-    jq --arg ARCH "$ARCHITECTURE" --arg VERSION "$VERSION" --arg DEB_VERSION "$DEB_VERSION" --argjson ASSET "$ASSET" '
-        .[$ARCH] = {
-            version: $VERSION,
-            deb_version: $DEB_VERSION,
-            name: $ASSET.name,
-            url: $ASSET.browser_download_url,
-            sha256: ($ASSET.digest | ltrimstr("sha256:"))
-        }
-    ' "$ASSETS_FILE" > "$WORKSPACE/assets.tmp"
-    mv -- "$WORKSPACE/assets.tmp" "$ASSETS_FILE"
+select_assets() {
+    local ARCHITECTURE ASSET_NAME ASSET
 
-    printf '%s\t%s\n' "$VERSION" "$ARCHITECTURE" >> "$TARGETS_FILE"
-done
+    printf '{}\n' > "$ASSETS_FILE"
+    : > "$TARGETS_FILE"
+
+    for ARCHITECTURE in $ARCHES; do
+        case "$ARCHITECTURE" in
+            amd64|arm64) ;;
+            *)
+                echo "[ghostty] Unsupported architecture: $ARCHITECTURE" >&2
+                exit 1
+                ;;
+        esac
+        ASSET_NAME="ghostty_${ASSET_VERSION}_${ARCHITECTURE}_trixie.deb"
+        ASSET=$(jq --compact-output --arg NAME "$ASSET_NAME" \
+            'first(.assets[] | select(.name == $NAME)) // empty' "$RELEASE_FILE")
+        if [[ -z "$ASSET" ]]; then
+            echo "WARNING: [ghostty] No upstream package for $ARCHITECTURE: $ASSET_NAME" >&2
+            continue
+        fi
+        validate_asset "$ASSET_NAME" "$ASSET"
+
+        # Keep the metadata indexed by Debian architecture for the build hook.
+        jq \
+            --arg ARCH "$ARCHITECTURE" \
+            --arg VERSION "$VERSION" \
+            --arg DEB_VERSION "$DEB_VERSION" \
+            --argjson ASSET "$ASSET" '
+            .[$ARCH] = {
+                version: $VERSION,
+                deb_version: $DEB_VERSION,
+                name: $ASSET.name,
+                url: $ASSET.browser_download_url,
+                sha256: ($ASSET.digest | ltrimstr("sha256:"))
+            }
+        ' "$ASSETS_FILE" > "$WORKSPACE/assets.tmp"
+        mv -- "$WORKSPACE/assets.tmp" "$ASSETS_FILE"
+
+        printf '%s\t%s\n' "$VERSION" "$ARCHITECTURE" >> "$TARGETS_FILE"
+    done
+}
+
+query_release
+select_assets
