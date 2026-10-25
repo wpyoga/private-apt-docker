@@ -24,14 +24,17 @@ validate_repository_config() {
             return 1
         fi
     done
+
     if [[ ! "$CODENAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*$ ]]; then
         echo 'Invalid CODENAME' >&2
         return 1
     fi
+
     if [[ ! "$GPG_KEY" =~ ^[[:xdigit:]]{40}$ && ! "$GPG_KEY" =~ ^[[:xdigit:]]{64}$ ]]; then
         echo 'GPG_KEY must be a full signing-key fingerprint' >&2
         return 1
     fi
+
     for ARCHITECTURE in $REPO_ARCHITECTURES; do
         case "$ARCHITECTURE" in
             amd64|arm64) ;;
@@ -41,15 +44,11 @@ validate_repository_config() {
                 ;;
         esac
     done
+
     for ARCHITECTURE in $ARCHES; do
         if [[ " $REPO_ARCHITECTURES " != *" $ARCHITECTURE "* ]]; then
             echo "Selected architecture $ARCHITECTURE is not in REPO_ARCHITECTURES" >&2
             return 1
         fi
     done
-}
-
-initialize_repository() {
-    gpg --batch --list-secret-keys "$GPG_KEY" >/dev/null
-    mkdir -p "$REPO_DIR/pool"
 }

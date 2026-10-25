@@ -16,11 +16,16 @@ for HOOK in query build; do
         exit 1
     fi
 done
+
 mkdir -p "$WORKSPACE"
 echo "[$STREAM] Querying upstream"
 "$ADAPTER_DIR/query"
-python3 "$FRAMEWORK_DIR/lib/validate-targets.py" "$WORKSPACE/targets.tsv" "$ARCHES"
-python3 "$FRAMEWORK_DIR/lib/check-activity.py" "$ADAPTER_DIR" "$WORKSPACE"
+
+BUILD_INPUTS_SHA256=$(python3 "$FRAMEWORK_DIR/lib/checksum.py")
+export BUILD_INPUTS_SHA256
+python3 "$FRAMEWORK_DIR/lib/resolve-builds.py"
+python3 "$FRAMEWORK_DIR/lib/check-activity.py"
+
 for ARCHITECTURE in $ARCHES; do
     if ! awk -F '\t' -v ARCHITECTURE="$ARCHITECTURE" '
         $2 == ARCHITECTURE { FOUND = 1 }
@@ -30,16 +35,12 @@ for ARCHITECTURE in $ARCHES; do
     fi
 done
 
-BUILD_INPUTS_SHA256=$(python3 "$FRAMEWORK_DIR/lib/checksum.py" "$ADAPTER_DIR")
-export BUILD_INPUTS_SHA256
-python3 "$FRAMEWORK_DIR/lib/package-files.py" resolve \
-    "$ADAPTER_DIR" "$WORKSPACE/targets.tsv" "$BUILD_INPUTS_SHA256"
-
 while IFS=$'\t' read -r VERSION ARCHITECTURE EXISTING; do
     if [[ -n "$EXISTING" ]]; then
         echo "[$STREAM] Already stored: $BINARY_PACKAGES $VERSION ($ARCHITECTURE)"
         continue
     fi
+
     OUTPUT_DIR="$WORKSPACE/output-$ARCHITECTURE"
     mkdir -p "$OUTPUT_DIR"
     echo "[$STREAM] Building $BINARY_PACKAGES $VERSION ($ARCHITECTURE)"
@@ -47,7 +48,6 @@ while IFS=$'\t' read -r VERSION ARCHITECTURE EXISTING; do
         echo "ERROR: [$STREAM] Build failed for $VERSION ($ARCHITECTURE)" >&2
         exit 1
     fi
-    python3 "$FRAMEWORK_DIR/lib/package-files.py" store \
-        "$ADAPTER_DIR" "$VERSION" "$ARCHITECTURE" "$BUILD_INPUTS_SHA256" "$OUTPUT_DIR"
+    bash "$FRAMEWORK_DIR/lib/store-packages.sh" "$VERSION" "$ARCHITECTURE" "$OUTPUT_DIR"
     echo "[$STREAM] Stored: $BINARY_PACKAGES $VERSION ($ARCHITECTURE)"
 done < "$WORKSPACE/builds.tsv"

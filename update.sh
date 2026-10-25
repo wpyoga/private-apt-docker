@@ -4,6 +4,7 @@ umask 022
 
 : "${FRAMEWORK_DIR:?FRAMEWORK_DIR must point to the framework root}"
 export FRAMEWORK_DIR
+
 # shellcheck source=lib/repository.sh
 source "$FRAMEWORK_DIR/lib/repository.sh"
 
@@ -15,7 +16,10 @@ if ! flock -n 9; then
     echo 'Update already running'
     exit 0
 fi
-initialize_repository
+
+gpg --batch --list-secret-keys "$GPG_KEY" >/dev/null
+mkdir -p "$REPO_DIR/pool"
+
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf -- "$WORK_DIR"' EXIT
 STATUS=0
@@ -25,19 +29,23 @@ shopt -s nullglob
 for ADAPTER_DIR in "$PACKAGES_DIR"/*/; do
     ADAPTER_DIR=${ADAPTER_DIR%/}
     export ADAPTER_DIR
-    if ! CONFIGURATION=$(bash "$FRAMEWORK_DIR/lib/config.sh" "$ADAPTER_DIR"); then
+
+    if ! CONFIGURATION=$(bash "$FRAMEWORK_DIR/lib/config.sh"); then
         STATUS=1
         continue
     fi
+
     STREAM=${CONFIGURATION%%$'\n'*}
+
     if [[ -v SEEN_STREAMS[$STREAM] ]]; then
         echo "Duplicate RELEASE_STREAM: $STREAM" >&2
         STATUS=1
         continue
     fi
     SEEN_STREAMS[$STREAM]=1
+
     export PUBLISHER_STREAM="$STREAM"
-    export BINARY_PACKAGES=${CONFIGURATION#*$'\n'}
+    export BINARY_PACKAGES="${CONFIGURATION#*$'\n'}"
     export WORKSPACE="$WORK_DIR/streams/$STREAM"
 
     # A fresh Bash process keeps each stream's failures isolated.
@@ -48,8 +56,10 @@ for ADAPTER_DIR in "$PACKAGES_DIR"/*/; do
         STATUS=1
     fi
 done
+
 if ! bash "$FRAMEWORK_DIR/lib/publish.sh" "$WORK_DIR/publication"; then
     echo 'Repository publication failed; retry next cycle' >&2
     STATUS=1
 fi
+
 exit "$STATUS"

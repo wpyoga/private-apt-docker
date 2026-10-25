@@ -4,9 +4,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import sys
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(os.environ["FRAMEWORK_DIR"])
 IGNORED_DIRECTORIES = {"__pycache__", ".git", ".pytest_cache", "build"}
 
 
@@ -24,15 +23,18 @@ def checksum(adapter):
             raise SystemExit(f"Recipe symlinks are unsupported: {path}")
         if path.is_file():
             inputs.append((f"adapter/{relative.as_posix()}", path))
+
     inputs.append(("Dockerfile", ROOT / "Dockerfile"))
+
     records = []
     for name, path in inputs:
         executable_permissions = path.stat().st_mode & 0o111
         contents_checksum = hashlib.sha256(path.read_bytes()).hexdigest()
         records.append((name, executable_permissions, contents_checksum))
+
     records.append(("environment", "MAINTAINER", os.environ["MAINTAINER"]))
     return hashlib.sha256(json.dumps(records).encode()).hexdigest()
 
 
 if __name__ == "__main__":
-    print(checksum(Path(sys.argv[1])))
+    print(checksum(Path(os.environ["ADAPTER_DIR"])))

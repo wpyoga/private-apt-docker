@@ -25,6 +25,32 @@ operating system releases it when the processes holding it exit. The empty file
 may remain; it is not a stale lock. The lock protects against a second container
 or a manual invocation using the same storage.
 
+## Framework scripts
+
+Scripts receive their directories and stream settings through the exported
+environment. They require that context rather than searching for paths or
+reading the adapter configuration again.
+
+| File | Responsibility |
+| --- | --- |
+| `entrypoint.sh` | Run an update, wait for the configured interval, repeat |
+| `update.sh` | Lock the repository, discover streams, process them, publish |
+| `lib/config.sh` | Read and validate one adapter's configuration as data |
+| `lib/repository.sh` | Check the shared repository settings |
+| `lib/update-package.sh` | Query and build one stream |
+| `lib/resolve-builds.py` | Validate query targets and choose revisions and missing builds |
+| `lib/store-packages.sh` | Validate the whole output set and store packages without replacing existing files |
+| `lib/publish.sh` | Generate indexes, sign them, then publish them |
+| `lib/checksum.py` | Fingerprint the packaging inputs |
+| `lib/check-activity.py` | Compare the upstream release date with the inactivity threshold |
+| `codex-repo-setup.sh` | Prepare host storage and signing identity, then update `.env` |
+
+Shell handles process coordination, file installation, and the setup config
+update. Python handles revision bookkeeping, file fingerprints, and dates with
+timezones. Target validation lives with revision selection because both use the
+same query results. Package storage has its own script because it handles the
+finished artifacts rather than deciding which builds to run.
+
 ## Existing deployments
 
 From this directory:
@@ -55,7 +81,7 @@ rebuild uses the next revision and establishes the metadata, for example `-3` to
 
 ## First-time setup
 
-The host needs Docker Compose, GnuPG, Python 3, sudo, and the usual core utilities.
+The host needs Docker Compose, GnuPG, sudo, and the usual core utilities.
 From the project directory:
 
 ```sh
@@ -427,6 +453,11 @@ python3 -m unittest discover -s tests -v
 It uses temporary directories under `build/`, fixture downloads, fake signatures,
 and real Debian package/index tools. Host requirements are Bash, GNU tar, Python
 3.10+, `dpkg-dev`, `apt-utils`, `jq`, and GnuPG.
+
+The regression tests are grouped into `test_publisher.py`, `test_codex.py`, and
+`test_setup.py`. Their shared temporary fixtures live in
+`publisher_test_support.py`. The setup test uses fake sudo and GPG commands;
+it does not change host users, production configuration, or signing keys.
 
 The real signing/APT integration check is a standalone Bash script:
 

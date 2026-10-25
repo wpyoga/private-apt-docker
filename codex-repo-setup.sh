@@ -15,14 +15,16 @@ set +a
 : "${REPO_DATA_DIR:?REPO_DATA_DIR must be set and non-empty}"
 : "${MAINTAINER:?MAINTAINER must be set and non-empty}"
 : "${REPO_NAME:?REPO_NAME must be set and non-empty}"
-BASE_DIR=$(realpath -m -- "$REPO_DATA_DIR")
 : "${GPG_KEY_NAME:?GPG_KEY_NAME must be set and non-empty}"
 : "${GPG_KEY_TYPE:?GPG_KEY_TYPE must be set and non-empty}"
 : "${GPG_KEY_VALIDITY:?GPG_KEY_VALIDITY must be set and non-empty}"
 
+BASE_DIR=$(realpath -m -- "$REPO_DATA_DIR")
+
 if ! id "$REPO_USER" >/dev/null 2>&1; then
     sudo useradd --system --no-create-home --shell /usr/sbin/nologin "$REPO_USER"
 fi
+
 REPO_UID=$(id -u "$REPO_USER")
 REPO_GID=$(id -g "$REPO_USER")
 sudo install -d -o "$REPO_UID" -g "$REPO_GID" -m 755 "$BASE_DIR" "$BASE_DIR/repo"
@@ -43,6 +45,7 @@ fi
 if [[ -n "${GPG_KEY:-}" ]]; then
     KEYS=$(list_keys "$GPG_KEY")
 fi
+
 # Select primary fingerprints only; signing subkeys have their own fpr records.
 mapfile -t FINGERPRINTS < <(awk -F: '
     $1 == "sec" { IS_PRIMARY = 1; next }
@@ -53,7 +56,19 @@ if (( ${#FINGERPRINTS[@]} != 1 )); then
     exit 1
 fi
 FINGERPRINT=${FINGERPRINTS[0]}
-python3 "$FRAMEWORK_DIR/lib/write-env.py" .env "$REPO_UID" "$REPO_GID" "$FINGERPRINT"
+
+# Preserve the operator's settings and replace only the three setup outputs.
+# mktemp creates a private file; rename it after the complete update succeeds.
+ENV_FILE=$(mktemp "$FRAMEWORK_DIR/.env-XXXXXX")
+trap 'rm -f -- "$ENV_FILE"' EXIT
+awk '
+    /^[[:space:]]*(export[[:space:]]+)?(REPO_UID|REPO_GID|GPG_KEY)[[:space:]]*=/ { next }
+    { print }
+' "$FRAMEWORK_DIR/.env" > "$ENV_FILE"
+printf 'REPO_UID=%s\nREPO_GID=%s\nGPG_KEY=%s\n' \
+    "$REPO_UID" "$REPO_GID" "$FINGERPRINT" >> "$ENV_FILE"
+mv -- "$ENV_FILE" "$FRAMEWORK_DIR/.env"
+
 sudo -u "$REPO_USER" gpg --batch --homedir "$BASE_DIR/gnupg" \
     --armor --export "$FINGERPRINT" > repo-pubkey.asc
 chmod 644 repo-pubkey.asc

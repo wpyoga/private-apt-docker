@@ -3,8 +3,10 @@ set -Eeuo pipefail
 
 : "${FRAMEWORK_DIR:?FRAMEWORK_DIR must point to the framework root}"
 export FRAMEWORK_DIR
+
 # shellcheck source=lib/repository.sh
 source "$FRAMEWORK_DIR/lib/repository.sh"
+
 validate_repository_config
 : "${CHECK_INTERVAL:?CHECK_INTERVAL must be set and non-empty}"
 
@@ -14,6 +16,7 @@ case "$CHECK_INTERVAL" in
         exit 1
         ;;
 esac
+
 # Normalize leading zeros before Bash arithmetic.
 CHECK_INTERVAL=$((10#$CHECK_INTERVAL))
 if (( CHECK_INTERVAL < 3600 )); then
@@ -27,6 +30,7 @@ while :; do
     else
         echo 'Update cycle failed; retry next interval' >&2
     fi
+
     sleep "$CHECK_INTERVAL" &
     wait $!
 done

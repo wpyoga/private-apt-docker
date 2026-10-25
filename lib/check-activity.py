@@ -36,4 +36,4 @@ def check(adapter, workspace):
 
 
 if __name__ == "__main__":
-    check(Path(sys.argv[1]), Path(sys.argv[2]))
+    check(Path(os.environ["ADAPTER_DIR"]), Path(os.environ["WORKSPACE"]))
