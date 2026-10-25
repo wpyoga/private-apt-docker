@@ -24,7 +24,8 @@ COPY lib/ ./lib/
 COPY packages/ ./packages/
 RUN chmod 755 entrypoint.sh update.sh packages/*/query packages/*/build
 
-ENV REPO_DIR=/repo \
+ENV FRAMEWORK_DIR=/opt/apt-publisher \
+    REPO_DIR=/repo \
     CHECK_INTERVAL=21600 \
     ARCHES="amd64 arm64" \
     CODENAME=trixie

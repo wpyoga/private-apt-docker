@@ -1,14 +1,18 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-adapter_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-workspace=$1
-package_version=$2
-arch=$3
-output="$4/codex-cli_${package_version}_${arch}.deb"
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${PUBLISHER_STREAM:?PUBLISHER_STREAM must be set and non-empty}"
+: "${BUILD_INPUTS_SHA256:?BUILD_INPUTS_SHA256 must be set and non-empty}"
+
+PACKAGE_VERSION="$1"
+ARCHITECTURE="$2"
+OUTPUT_DIR="$3"
+OUTPUT="$OUTPUT_DIR/codex-cli_${PACKAGE_VERSION}_${ARCHITECTURE}.deb"
 
 # Metadata stays private to this adapter; the shared runner only knows targets.tsv.
-mapfile -t asset < <(python3 - "$workspace/assets.json" "$arch" <<'PY'
+mapfile -t ASSET_DETAILS < <(python3 - "$WORKSPACE/assets.json" "$ARCHITECTURE" <<'PY'
 import json
 import sys
 
@@ -18,45 +22,46 @@ for key in ("version", "name", "url", "sha256"):
     print(asset[key])
 PY
 )
-[[ ${#asset[@]} == 4 && "${asset[0]}" == "${package_version%-*}" ]] || {
+if [[ ${#ASSET_DETAILS[@]} != 4 || "${ASSET_DETAILS[0]}" != "${PACKAGE_VERSION%-*}" ]]; then
     echo 'Missing or inconsistent Codex build metadata' >&2
     exit 1
-}
-version=${asset[0]}
-name=${asset[1]}
-url=${asset[2]}
-sha=${asset[3]}
-archive="$workspace/$name"
+fi
+UPSTREAM_VERSION=${ASSET_DETAILS[0]}
+ASSET_NAME=${ASSET_DETAILS[1]}
+DOWNLOAD_URL=${ASSET_DETAILS[2]}
+ARCHIVE_SHA256=${ASSET_DETAILS[3]}
+ARCHIVE_PATH="$WORKSPACE/$ASSET_NAME"
 
-curl -fLsS --retry 3 "$url" -o "$archive"
-printf '%s  %s\n' "$sha" "$archive" | sha256sum -c -
-mkdir -p "$workspace/extract-$arch"
-src=$(python3 "$adapter_dir/archive.py" "$archive" "$workspace/extract-$arch" "$version")
+curl -fLsS --retry 3 "$DOWNLOAD_URL" -o "$ARCHIVE_PATH"
+printf '%s  %s\n' "$ARCHIVE_SHA256" "$ARCHIVE_PATH" | sha256sum -c -
+mkdir -p "$WORKSPACE/extract-$ARCHITECTURE"
+SOURCE_DIR=$(python3 "$ADAPTER_DIR/archive.py" \
+    "$ARCHIVE_PATH" "$WORKSPACE/extract-$ARCHITECTURE" "$UPSTREAM_VERSION")
 
-pkg="$workspace/pkg-$arch"
-root="$pkg/usr/lib/openai-codex"
-mkdir -p "$root" "$pkg/usr/bin" "$pkg/DEBIAN"
-cp -a "$src/." "$root/"
+PACKAGE_DIR="$WORKSPACE/pkg-$ARCHITECTURE"
+PACKAGE_ROOT="$PACKAGE_DIR/usr/lib/openai-codex"
+mkdir -p "$PACKAGE_ROOT" "$PACKAGE_DIR/usr/bin" "$PACKAGE_DIR/DEBIAN"
+cp -a "$SOURCE_DIR/." "$PACKAGE_ROOT/"
 
 # Keep upstream relative paths while using distro-managed tools.
-rm -f "$root/codex-resources/bwrap" "$root/codex-path/rg"
-mkdir -p "$root/codex-resources" "$root/codex-path"
-printf '%s\n' '#!/bin/sh' 'exec /usr/bin/bwrap "$@"' > "$root/codex-resources/bwrap"
-printf '%s\n' '#!/bin/sh' 'exec /usr/bin/rg "$@"' > "$root/codex-path/rg"
-chmod 755 "$root/codex-resources/bwrap" "$root/codex-path/rg"
-chmod 755 "$root/bin/codex" "$root/bin/codex-code-mode-host"
-for binary in "$root"/bin/*; do
-    [[ -f "$binary" && -x "$binary" ]] || continue
-    binary_name=$(basename "$binary")
-    ln -s "../lib/openai-codex/bin/$binary_name" "$pkg/usr/bin/$binary_name"
+rm -f "$PACKAGE_ROOT/codex-resources/bwrap" "$PACKAGE_ROOT/codex-path/rg"
+mkdir -p "$PACKAGE_ROOT/codex-resources" "$PACKAGE_ROOT/codex-path"
+printf '%s\n' '#!/bin/sh' 'exec /usr/bin/bwrap "$@"' > "$PACKAGE_ROOT/codex-resources/bwrap"
+printf '%s\n' '#!/bin/sh' 'exec /usr/bin/rg "$@"' > "$PACKAGE_ROOT/codex-path/rg"
+chmod 755 "$PACKAGE_ROOT/codex-resources/bwrap" "$PACKAGE_ROOT/codex-path/rg"
+chmod 755 "$PACKAGE_ROOT/bin/codex" "$PACKAGE_ROOT/bin/codex-code-mode-host"
+for BINARY in "$PACKAGE_ROOT"/bin/*; do
+    [[ -f "$BINARY" && -x "$BINARY" ]] || continue
+    BINARY_NAME=$(basename "$BINARY")
+    ln -s "../lib/openai-codex/bin/$BINARY_NAME" "$PACKAGE_DIR/usr/bin/$BINARY_NAME"
 done
 
-cat > "$pkg/DEBIAN/control" <<CONTROL
+cat > "$PACKAGE_DIR/DEBIAN/control" <<CONTROL
 Package: codex-cli
-Version: $package_version
+Version: $PACKAGE_VERSION
 Section: devel
 Priority: optional
-Architecture: $arch
+Architecture: $ARCHITECTURE
 X-Build-Inputs-SHA256: $BUILD_INPUTS_SHA256
 X-Publisher-Stream: $PUBLISHER_STREAM
 Maintainer: Private APT Repository <repo@localhost>
@@ -66,4 +71,4 @@ Description: OpenAI Codex CLI (precompiled, Debian system tools)
  Upstream Codex binaries and metadata with Debian bubblewrap and ripgrep.
 CONTROL
 
-dpkg-deb --build --root-owner-group -Zgzip "$pkg" "$output"
+dpkg-deb --build --root-owner-group -Zgzip "$PACKAGE_DIR" "$OUTPUT"

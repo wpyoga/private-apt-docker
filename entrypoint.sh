@@ -1,8 +1,9 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-: "${CHECK_INTERVAL:=21600}"
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must point to the framework root}"
+export FRAMEWORK_DIR
+CHECK_INTERVAL=${CHECK_INTERVAL:-21600}
 
 case "$CHECK_INTERVAL" in
     ''|*[!0-9]*)
@@ -18,7 +19,7 @@ if (( CHECK_INTERVAL < 3600 )); then
 fi
 
 while :; do
-    if bash "$script_dir/update.sh"; then
+    if bash "$FRAMEWORK_DIR/update.sh"; then
         echo 'Update cycle complete'
     else
         echo 'Update cycle failed; retry next interval' >&2

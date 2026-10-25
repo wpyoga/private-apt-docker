@@ -2,54 +2,55 @@
 set -Eeuo pipefail
 umask 077
 
-script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-cd "$script_dir"
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must point to the framework root}"
+export FRAMEWORK_DIR
+cd "$FRAMEWORK_DIR"
 
-: "${REPO_USER:=codexrepo}"
-: "${REPO_DATA_DIR:=/srv/apt/codex}"
-BASEDIR=$(realpath -m -- "$REPO_DATA_DIR")
-: "${GPG_KEY_NAME:=Private APT Repository <repo@localhost>}"
-: "${GPG_KEY_TYPE:=ed25519}"
-: "${GPG_KEY_VALIDITY:=20y}"
+REPO_USER=${REPO_USER:-codexrepo}
+REPO_DATA_DIR=${REPO_DATA_DIR:-/srv/apt/codex}
+BASE_DIR=$(realpath -m -- "$REPO_DATA_DIR")
+GPG_KEY_NAME=${GPG_KEY_NAME:-Private APT Repository <repo@localhost>}
+GPG_KEY_TYPE=${GPG_KEY_TYPE:-ed25519}
+GPG_KEY_VALIDITY=${GPG_KEY_VALIDITY:-20y}
 
 if ! id "$REPO_USER" >/dev/null 2>&1; then
     sudo useradd --system --no-create-home --shell /usr/sbin/nologin "$REPO_USER"
 fi
-repo_uid=$(id -u "$REPO_USER")
-repo_gid=$(id -g "$REPO_USER")
-sudo install -d -o "$repo_uid" -g "$repo_gid" -m 755 "$BASEDIR" "$BASEDIR/repo"
-sudo install -d -o "$repo_uid" -g "$repo_gid" -m 700 "$BASEDIR/gnupg"
+REPO_UID=$(id -u "$REPO_USER")
+REPO_GID=$(id -g "$REPO_USER")
+sudo install -d -o "$REPO_UID" -g "$REPO_GID" -m 755 "$BASE_DIR" "$BASE_DIR/repo"
+sudo install -d -o "$REPO_UID" -g "$REPO_GID" -m 700 "$BASE_DIR/gnupg"
 
 list_keys() {
-    sudo -u "$REPO_USER" gpg --batch --homedir "$BASEDIR/gnupg" \
-        --list-secret-keys --with-colons "${@}"
+    sudo -u "$REPO_USER" gpg --batch --homedir "$BASE_DIR/gnupg" \
+        --list-secret-keys --with-colons "$@"
 }
 
-keys=$(list_keys)
-if ! awk -F: '$1 == "sec" { found = 1 } END { exit !found }' <<< "$keys"; then
-    sudo -u "$REPO_USER" gpg --batch --homedir "$BASEDIR/gnupg" \
+KEYS=$(list_keys)
+if ! awk -F: '$1 == "sec" { FOUND = 1 } END { exit !FOUND }' <<< "$KEYS"; then
+    sudo -u "$REPO_USER" gpg --batch --homedir "$BASE_DIR/gnupg" \
         --pinentry-mode loopback --passphrase "" \
         --quick-generate-key "$GPG_KEY_NAME" "$GPG_KEY_TYPE" sign "$GPG_KEY_VALIDITY"
-    keys=$(list_keys)
+    KEYS=$(list_keys)
 fi
 if [[ -n "${GPG_KEY:-}" ]]; then
-    keys=$(list_keys "$GPG_KEY")
+    KEYS=$(list_keys "$GPG_KEY")
 fi
 # Select primary fingerprints only; signing subkeys have their own fpr records.
-mapfile -t fingerprints < <(awk -F: '
-    $1 == "sec" { primary = 1; next }
-    primary && $1 == "fpr" { print $10; primary = 0 }
-' <<< "$keys")
-if (( ${#fingerprints[@]} != 1 )); then
+mapfile -t FINGERPRINTS < <(awk -F: '
+    $1 == "sec" { IS_PRIMARY = 1; next }
+    IS_PRIMARY && $1 == "fpr" { print $10; IS_PRIMARY = 0 }
+' <<< "$KEYS")
+if (( ${#FINGERPRINTS[@]} != 1 )); then
     echo 'Expected one primary secret key; set GPG_KEY explicitly to select an existing key' >&2
     exit 1
 fi
-fingerprint=${fingerprints[0]}
-python3 "$script_dir/lib/write-env.py" .env "$repo_uid" "$repo_gid" "$fingerprint"
-sudo -u "$REPO_USER" gpg --batch --homedir "$BASEDIR/gnupg" \
-    --armor --export "$fingerprint" > repo-pubkey.asc
+FINGERPRINT=${FINGERPRINTS[0]}
+python3 "$FRAMEWORK_DIR/lib/write-env.py" .env "$REPO_UID" "$REPO_GID" "$FINGERPRINT"
+sudo -u "$REPO_USER" gpg --batch --homedir "$BASE_DIR/gnupg" \
+    --armor --export "$FINGERPRINT" > repo-pubkey.asc
 chmod 644 repo-pubkey.asc
 
-printf 'Setup complete. Public key: %s/repo-pubkey.asc\n' "$script_dir"
-printf 'Signing-key fingerprint: %s\n' "$fingerprint"
+printf 'Setup complete. Public key: %s/repo-pubkey.asc\n' "$FRAMEWORK_DIR"
+printf 'Signing-key fingerprint: %s\n' "$FINGERPRINT"
 printf 'Start the publisher with: docker compose up -d --build\n'

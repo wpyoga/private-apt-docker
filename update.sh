@@ -2,29 +2,33 @@
 set -Eeuo pipefail
 umask 022
 
-script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must point to the framework root}"
+export FRAMEWORK_DIR
 # shellcheck source=lib/repository.sh
-source "$script_dir/lib/repository.sh"
+source "$FRAMEWORK_DIR/lib/repository.sh"
 
 export REPO_DIR=${REPO_DIR:-/repo}
 export CODENAME=${CODENAME:-trixie}
 export GNUPGHOME=${GNUPGHOME:-/gnupg}
 export ARCHES=${ARCHES:-amd64 arm64}
-export PACKAGES_DIR=${PACKAGES_DIR:-$script_dir/packages}
+export PACKAGES_DIR=${PACKAGES_DIR:-$FRAMEWORK_DIR/packages}
 : "${GPG_KEY:?Missing GPG_KEY}"
 
-read -r -a architectures <<< "${ARCHES//$'\n'/ }"
-if (( ${#architectures[@]} == 0 )); then
+read -r -a ARCHITECTURES <<< "${ARCHES//$'\n'/ }"
+if (( ${#ARCHITECTURES[@]} == 0 )); then
     echo 'ARCHES must not be empty' >&2
     exit 1
 fi
-for arch in "${architectures[@]}"; do
-    case "$arch" in
+for ARCHITECTURE in "${ARCHITECTURES[@]}"; do
+    case "$ARCHITECTURE" in
         amd64|arm64) ;;
-        *) echo "Unsupported architecture: $arch" >&2; exit 1 ;;
+        *)
+            echo "Unsupported architecture: $ARCHITECTURE" >&2
+            exit 1
+            ;;
     esac
 done
-ARCHES="${architectures[*]}"
+ARCHES="${ARCHITECTURES[*]}"
 PACKAGES_DIR=$(cd -- "$PACKAGES_DIR" && pwd)
 
 mkdir -p "$REPO_DIR/.state"
@@ -34,34 +38,40 @@ if ! flock -n 9; then
     exit 0
 fi
 initialize_repository
-work=$(mktemp -d)
-trap 'rm -rf -- "$work"' EXIT
-status=0
+WORK_DIR=$(mktemp -d)
+trap 'rm -rf -- "$WORK_DIR"' EXIT
+STATUS=0
 
-declare -A seen_streams=()
+declare -A SEEN_STREAMS=()
 shopt -s nullglob
-for directory in "$PACKAGES_DIR"/*/; do
-    if ! configuration=$(bash "$script_dir/lib/config.sh" "$directory"); then
-        status=1
+for ADAPTER_DIR in "$PACKAGES_DIR"/*/; do
+    ADAPTER_DIR=${ADAPTER_DIR%/}
+    export ADAPTER_DIR
+    if ! CONFIGURATION=$(bash "$FRAMEWORK_DIR/lib/config.sh" "$ADAPTER_DIR"); then
+        STATUS=1
         continue
     fi
-    stream=${configuration%%$'\n'*}
-    if [[ -v seen_streams[$stream] ]]; then
-        echo "Duplicate release_stream: $stream" >&2
-        status=1
+    STREAM=${CONFIGURATION%%$'\n'*}
+    if [[ -v SEEN_STREAMS[$STREAM] ]]; then
+        echo "Duplicate RELEASE_STREAM: $STREAM" >&2
+        STATUS=1
         continue
     fi
-    seen_streams[$stream]=1
+    SEEN_STREAMS[$STREAM]=1
+    export PUBLISHER_STREAM="$STREAM"
+    export BINARY_PACKAGES=${CONFIGURATION#*$'\n'}
+    export WORKSPACE="$WORK_DIR/streams/$STREAM"
+
     # A fresh Bash process keeps each stream's failures isolated.
-    if bash "$script_dir/lib/update-package.sh" "$directory" "$work/streams/$stream"; then
-        echo "[$stream] Update complete"
+    if bash "$FRAMEWORK_DIR/lib/update-package.sh"; then
+        echo "[$STREAM] Update complete"
     else
-        echo "[$stream] Update failed; continuing with remaining streams" >&2
-        status=1
+        echo "[$STREAM] Update failed; continuing with remaining streams" >&2
+        STATUS=1
     fi
 done
-if ! bash "$script_dir/lib/publish.sh" "$work/publication"; then
+if ! bash "$FRAMEWORK_DIR/lib/publish.sh" "$WORK_DIR/publication"; then
     echo 'Repository publication failed; retry next cycle' >&2
-    status=1
+    STATUS=1
 fi
-exit "$status"
+exit "$STATUS"

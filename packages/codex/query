@@ -1,13 +1,14 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-adapter_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-workspace=$1
-: "${ARCHES:=amd64}"
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${ARCHES:?ARCHES must be set and non-empty}"
 
 curl -fLsS --retry 3 \
     -H 'Accept: application/vnd.github+json' \
     -H 'User-Agent: private-apt-publisher' \
     https://api.github.com/repos/openai/codex/releases/latest \
-    -o "$workspace/release.json"
-python3 "$adapter_dir/release.py" "$workspace" "$ARCHES"
+    -o "$WORKSPACE/release.json"
+
+python3 "$ADAPTER_DIR/release.py" "$WORKSPACE" "$ARCHES"

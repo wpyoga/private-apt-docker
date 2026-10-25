@@ -57,9 +57,10 @@ rebuild uses the next revision and establishes the metadata, for example `-3` to
 ## First-time setup
 
 The host needs Docker Compose, GnuPG, Python 3, sudo, and the usual core utilities.
-Run:
+Run from the project directory:
 
 ```sh
+export FRAMEWORK_DIR="$PWD"
 ./codex-repo-setup.sh
 docker compose up -d --build
 docker compose logs -f
@@ -124,15 +125,15 @@ stale-after-days   Optional: inactivity warning threshold
 For Codex, `config` contains:
 
 ```sh
-release_stream=codex
-binary_packages=codex-cli
+RELEASE_STREAM=codex
+BINARY_PACKAGES=codex-cli
 ```
 
 A build producing several packages can use:
 
 ```sh
-release_stream=example-stable
-binary_packages="example-cli example-common"
+RELEASE_STREAM=example-stable
+BINARY_PACKAGES="example-cli example-common"
 ```
 
 Configuration is parsed as data, never sourced as shell code. Use one `key=value`
@@ -155,9 +156,11 @@ To add or remove an adapter, change its directory and rebuild the container imag
 Previously published packages remain available. Incomplete adapters report an
 error without blocking the other adapters. There is no central package registry.
 
-Existing custom adapters must replace `package-name` with `config` and adopt the
-output-directory build interface below. Set `release_stream` to the previous
-stream directory name to retain existing package metadata identity. Configuration
+Existing custom adapters must replace `package-name` with `config` and use the
+uppercase keys `RELEASE_STREAM` and `BINARY_PACKAGES`; lowercase keys are no longer
+accepted. They must also adopt the
+environment-based context and output-directory build interface below. Set
+`RELEASE_STREAM` to the previous stream directory name to retain existing package metadata identity. Configuration
 and build recipe changes allocate a new revision; existing artifacts stay intact.
 
 ## Query and build hooks
@@ -165,13 +168,14 @@ and build recipe changes allocate a new revision; existing artifacts stay intact
 The hook interface is:
 
 ```sh
-query WORKDIR
-build WORKDIR VERSION ARCH OUTPUT_DIR
+query
+build VERSION ARCH OUTPUT_DIR
 ```
 
-`query` writes `WORKDIR/targets.tsv`. Each row contains a version, a tab, an
+`query` writes `WORKSPACE/targets.tsv`. Each row contains a version, a tab, an
 architecture, and a newline. Return at most one current version per requested
-architecture. Use `printf '%s\t%s\n' "$version" "$arch"` to produce actual tabs.
+architecture. Use `printf '%s\t%s\n' "$VERSION" "$ARCHITECTURE"` to produce
+actual tabs.
 An empty file means no eligible artifacts are available.
 
 Query versions are upstream versions; the runner always assigns Debian revisions:
@@ -188,13 +192,29 @@ publishes it, warns about arm64, retains any previous arm64 package, and checks
 again during the next cycle. Do not invent rows for missing downloads. Actual
 query errors should return a nonzero exit status.
 
-The build hook receives these environment variables:
+The framework exports the context below before calling query and build hooks.
+Hooks are part of the framework: they must use `ADAPTER_DIR` to locate their files,
+and must not rediscover their directory from `$0` or `BASH_SOURCE`. Production entry
+scripts require a non-empty `FRAMEWORK_DIR`, without directory-discovery fallbacks.
+Docker sets it to `/opt/apt-publisher`; on the host, export `FRAMEWORK_DIR="$PWD"`
+from the project directory before running shell entry points. The runner
+exports a fresh `WORKSPACE` for each adapter. Query hooks take no arguments;
+build hooks take only the changing version, architecture, and output directory.
+Declare required context with `: "${WORKSPACE:?WORKSPACE must be set and non-empty}"`
+(and the same check for other required inputs). This fails before work begins if
+an input is missing or empty. Do not add standalone fallbacks. Shell
+variables use `UPPER_CASE`; functions retain descriptive lowercase names.
+
+Query and build hooks receive these environment variables:
 
 | Variable | Meaning |
 | --- | --- |
-| `PUBLISHER_STREAM` | Configured `release_stream` |
+| `ADAPTER_DIR` | Absolute path to the current adapter directory |
+| `FRAMEWORK_DIR` | Absolute path to the framework root |
+| `WORKSPACE` | Absolute path to this adapter’s temporary working directory |
+| `PUBLISHER_STREAM` | Configured `RELEASE_STREAM` |
 | `BINARY_PACKAGES` | Configured binary package names, separated by spaces |
-| `BUILD_INPUTS_SHA256` | Current packaging-input checksum |
+| `BUILD_INPUTS_SHA256` | Current packaging-input checksum; provided before build |
 | `ARCHES` | Architectures selected for this cycle |
 
 Include these fields in the binary package control file:
@@ -275,7 +295,7 @@ changed base image or dependency version; pin those inputs when needed.
 
 Put a positive day count in a stream's `stale-after-days` file to enable monitoring.
 There is no universal threshold. The query should then write the latest matching
-upstream release's publication timestamp to `WORKDIR/release-date`, for example:
+upstream release's publication timestamp to `WORKSPACE/release-date`, for example:
 
 ```text
 2026-10-23T08:00:00Z
@@ -341,6 +361,7 @@ Generated files belong under ignored `build/`. Manual local repository data uses
 `build/local/repo` and `build/local/gnupg`:
 
 ```sh
+export FRAMEWORK_DIR="$PWD"
 export REPO_DATA_DIR="$PWD/build/local"
 ./codex-repo-setup.sh
 docker compose up -d --build
@@ -350,7 +371,19 @@ Keep the variable exported for subsequent Compose commands, or save its absolute
 path in `.env`. Setup updates `.env` for the chosen repository; use a separate
 checkout if you also manage a production deployment from here.
 
-Run the offline regression suite:
+From the project root, run every check with:
+
+```sh
+bash tests/run.sh
+```
+
+The master script runs the regression suite and then the signing/APT check.
+Both suites can also be run independently. Tests establish their own context and
+temporary fixtures; you do not need to export `FRAMEWORK_DIR` or other settings.
+The shell test entry points use the project-root working directory explicitly,
+rather than searching for it or depending on production environment variables.
+
+To run only the offline regression suite:
 
 ```sh
 python3 -m unittest discover -s tests -v

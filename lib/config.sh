@@ -2,36 +2,60 @@
 # Parse adapter configuration as data; never execute its contents.
 set -Eeuo pipefail
 
-config=$1/config
-release_stream=
-binary_packages=
-declare -A seen=()
-[[ -f "$config" ]] || { echo "Missing config: $config" >&2; exit 1; }
-while IFS= read -r line || [[ -n "$line" ]]; do
-    [[ "$line" =~ ^[[:space:]]*$ || "$line" =~ ^[[:space:]]*# ]] && continue
-    [[ "$line" == *=* ]] || { echo "Invalid config line: $line" >&2; exit 1; }
-    key=${line%%=*}
-    value=${line#*=}
-    [[ "$key" == release_stream || "$key" == binary_packages ]] || {
-        echo "Unknown config key: $key" >&2; exit 1;
-    }
-    [[ ! -v seen[$key] ]] || { echo "Duplicate config key: $key" >&2; exit 1; }
-    seen[$key]=1
-    if [[ "$value" == \"*\" || "$value" == \'*\' ]]; then
-        value=${value:1:${#value}-2}
+CONFIG_FILE="$1/config"
+RELEASE_STREAM=
+BINARY_PACKAGES=
+declare -A SEEN_KEYS=()
+
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo "Missing config: $CONFIG_FILE" >&2
+    exit 1
+fi
+
+while IFS= read -r LINE || [[ -n "$LINE" ]]; do
+    if [[ "$LINE" =~ ^[[:space:]]*$ || "$LINE" =~ ^[[:space:]]*# ]]; then
+        continue
     fi
-    printf -v "$key" '%s' "$value"
-done < "$config"
-[[ "$release_stream" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || {
-    echo 'Invalid or missing release_stream' >&2; exit 1;
-}
-read -r -a packages <<< "$binary_packages"
-(( ${#packages[@]} > 0 )) || { echo 'Missing binary_packages' >&2; exit 1; }
-declare -A names=()
-for package in "${packages[@]}"; do
-    [[ "$package" =~ ^[a-z0-9][a-z0-9+.-]+$ && ! -v names[$package] ]] || {
-        echo "Invalid or duplicate binary package: $package" >&2; exit 1;
-    }
-    names[$package]=1
+    if [[ "$LINE" != *=* ]]; then
+        echo "Invalid config line: $LINE" >&2
+        exit 1
+    fi
+    KEY=${LINE%%=*}
+    VALUE=${LINE#*=}
+    if [[ "$KEY" != RELEASE_STREAM && "$KEY" != BINARY_PACKAGES ]]; then
+        echo "Unknown config key: $KEY" >&2
+        exit 1
+    fi
+    if [[ -v SEEN_KEYS[$KEY] ]]; then
+        echo "Duplicate config key: $KEY" >&2
+        exit 1
+    fi
+    SEEN_KEYS[$KEY]=1
+    if [[ "$VALUE" == \"*\" || "$VALUE" == \'*\' ]]; then
+        VALUE=${VALUE:1:${#VALUE}-2}
+    fi
+    case "$KEY" in
+        RELEASE_STREAM) RELEASE_STREAM=$VALUE ;;
+        BINARY_PACKAGES) BINARY_PACKAGES=$VALUE ;;
+    esac
+done < "$CONFIG_FILE"
+
+if [[ ! "$RELEASE_STREAM" =~ ^[a-z0-9][a-z0-9._-]*$ ]]; then
+    echo 'Invalid or missing RELEASE_STREAM' >&2
+    exit 1
+fi
+read -r -a PACKAGES <<< "$BINARY_PACKAGES"
+if (( ${#PACKAGES[@]} == 0 )); then
+    echo 'Missing BINARY_PACKAGES' >&2
+    exit 1
+fi
+
+declare -A SEEN_NAMES=()
+for PACKAGE in "${PACKAGES[@]}"; do
+    if [[ ! "$PACKAGE" =~ ^[a-z0-9][a-z0-9+.-]+$ || -v SEEN_NAMES[$PACKAGE] ]]; then
+        echo "Invalid or duplicate binary package: $PACKAGE" >&2
+        exit 1
+    fi
+    SEEN_NAMES[$PACKAGE]=1
 done
-printf '%s\n' "$release_stream" "${packages[*]}"
+printf '%s\n' "$RELEASE_STREAM" "${PACKAGES[*]}"

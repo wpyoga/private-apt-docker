@@ -2,13 +2,15 @@
 # Select the version written by the integration test.
 set -Eeuo pipefail
 
-stream_dir=$(cd -- "$(dirname -- "$0")" && pwd)
-workspace=$1
-version=${TEST_VERSION:-$(cat "$stream_dir/upstream-version")}
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${ARCHES:?ARCHES must be set and non-empty}"
 
-for architecture in $ARCHES; do
-    printf '%s\t%s\n' "$version" "$architecture"
-done > "$workspace/targets.tsv"
+VERSION=${TEST_VERSION:-$(cat "$ADAPTER_DIR/upstream-version")}
 
-release_date=${TEST_RELEASE_DATE:-2000-01-01T00:00:00Z}
-printf '%s\n' "$release_date" > "$workspace/release-date"
+for ARCHITECTURE in $ARCHES; do
+    printf '%s\t%s\n' "$VERSION" "$ARCHITECTURE"
+done > "$WORKSPACE/targets.tsv"
+
+RELEASE_DATE=${TEST_RELEASE_DATE:-2000-01-01T00:00:00Z}
+printf '%s\n' "$RELEASE_DATE" > "$WORKSPACE/release-date"

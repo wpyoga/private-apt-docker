@@ -1,33 +1,38 @@
 #!/bin/bash
-# Create a small, installable package without downloading anything.
+# Create small, installable packages without downloading anything.
 set -Eeuo pipefail
 
-stream_dir=$(cd -- "$(dirname -- "$0")" && pwd)
-workspace=$1
-version=$2
-architecture=$3
-output=$4
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${BINARY_PACKAGES:?BINARY_PACKAGES must be set and non-empty}"
+: "${PUBLISHER_STREAM:?PUBLISHER_STREAM must be set and non-empty}"
+: "${BUILD_INPUTS_SHA256:?BUILD_INPUTS_SHA256 must be set and non-empty}"
 
-if [[ "${TEST_FAIL_ARCH:-}" == "$architecture" ]]; then
-    echo "Fixture build failed for $architecture" >&2
+VERSION="$1"
+ARCHITECTURE="$2"
+OUTPUT_DIR="$3"
+
+if [[ "${TEST_FAIL_ARCH:-}" == "$ARCHITECTURE" ]]; then
+    echo "Fixture build failed for $ARCHITECTURE" >&2
     exit 7
 fi
 
-for package_name in $BINARY_PACKAGES; do
-package_dir="$workspace/package-$package_name-$architecture"
-mkdir -p "$package_dir/DEBIAN"
-mkdir -p "$package_dir/usr/share/$package_name"
-printf '%s\n' "$PUBLISHER_STREAM" > "$package_dir/usr/share/$package_name/stream"
+for PACKAGE_NAME in $BINARY_PACKAGES; do
+    PACKAGE_DIR="$WORKSPACE/package-$PACKAGE_NAME-$ARCHITECTURE"
+    mkdir -p "$PACKAGE_DIR/DEBIAN"
+    mkdir -p "$PACKAGE_DIR/usr/share/$PACKAGE_NAME"
+    printf '%s\n' "$PUBLISHER_STREAM" > "$PACKAGE_DIR/usr/share/$PACKAGE_NAME/stream"
 
-cat > "$package_dir/DEBIAN/control" <<CONTROL
-Package: $package_name
-Version: $version
-Architecture: $architecture
+    cat > "$PACKAGE_DIR/DEBIAN/control" <<CONTROL
+Package: $PACKAGE_NAME
+Version: $VERSION
+Architecture: $ARCHITECTURE
 Maintainer: Repository test <test@localhost>
 Description: Empty integration fixture
 X-Build-Inputs-SHA256: $BUILD_INPUTS_SHA256
 X-Publisher-Stream: $PUBLISHER_STREAM
 CONTROL
 
-dpkg-deb --build --root-owner-group "$package_dir" "$output/${package_name}_${version}_${architecture}.deb"
+    OUTPUT_FILE="$OUTPUT_DIR/${PACKAGE_NAME}_${VERSION}_${ARCHITECTURE}.deb"
+    dpkg-deb --build --root-owner-group "$PACKAGE_DIR" "$OUTPUT_FILE"
 done

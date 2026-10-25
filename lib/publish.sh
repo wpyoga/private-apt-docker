@@ -1,16 +1,20 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-stage=$1
-mkdir -p "$stage"
-stage=$(cd -- "$stage" && pwd)
+: "${REPO_DIR:?REPO_DIR must be set and non-empty}"
+: "${GPG_KEY:?GPG_KEY must be set and non-empty}"
+: "${GNUPGHOME:?GNUPGHOME must be set and non-empty}"
+
+STAGING_DIR="$1"
+mkdir -p "$STAGING_DIR"
+STAGING_DIR=$(cd -- "$STAGING_DIR" && pwd)
 cd -- "$REPO_DIR"
 
-for arch in $REPO_ARCHITECTURES; do
-    index="$stage/main/binary-$arch"
-    mkdir -p "$index"
-    dpkg-scanpackages --multiversion --arch "$arch" pool > "$index/Packages"
-    gzip -n -9 -c "$index/Packages" > "$index/Packages.gz"
+for ARCHITECTURE in $REPO_ARCHITECTURES; do
+    INDEX_DIR="$STAGING_DIR/main/binary-$ARCHITECTURE"
+    mkdir -p "$INDEX_DIR"
+    dpkg-scanpackages --multiversion --arch "$ARCHITECTURE" pool > "$INDEX_DIR/Packages"
+    gzip -n -9 -c "$INDEX_DIR/Packages" > "$INDEX_DIR/Packages.gz"
 done
 
 apt-ftparchive \
@@ -21,37 +25,42 @@ apt-ftparchive \
     -o "APT::FTPArchive::Release::Architectures=$REPO_ARCHITECTURES" \
     -o 'APT::FTPArchive::Release::Components=main' \
     -o "APT::FTPArchive::Release::Description=$REPO_DESCRIPTION" \
-    release "$stage" > "$stage.release"
-mv -- "$stage.release" "$stage/Release"
-printf '%s\n' 'Acquire-By-Hash: yes' >> "$stage/Release"
+    release "$STAGING_DIR" > "$STAGING_DIR.release"
+mv -- "$STAGING_DIR.release" "$STAGING_DIR/Release"
+printf '%s\n' 'Acquire-By-Hash: yes' >> "$STAGING_DIR/Release"
 
 gpg --batch --yes --local-user "$GPG_KEY" \
-    --armor --detach-sign --output "$stage/Release.gpg" "$stage/Release"
+    --armor --detach-sign --output "$STAGING_DIR/Release.gpg" "$STAGING_DIR/Release"
 gpg --batch --yes --local-user "$GPG_KEY" \
-    --clearsign --output "$stage/InRelease" "$stage/Release"
+    --clearsign --output "$STAGING_DIR/InRelease" "$STAGING_DIR/Release"
 
 # All generation and signing must succeed before changing any live index.
 install_metadata() {
-    local source=$1 destination=$2 temporary
-    mkdir -p -- "$(dirname -- "$destination")"
-    temporary=$(mktemp "$(dirname -- "$destination")/.metadata-XXXXXX")
-    install -m 644 -- "$source" "$temporary"
-    mv -f -- "$temporary" "$destination"
+    local SOURCE_FILE="$1"
+    local DESTINATION_FILE="$2"
+    local DESTINATION_DIR TEMPORARY_FILE
+
+    DESTINATION_DIR=$(dirname -- "$DESTINATION_FILE")
+    mkdir -p -- "$DESTINATION_DIR"
+    TEMPORARY_FILE=$(mktemp "$DESTINATION_DIR/.metadata-XXXXXX")
+    install -m 644 -- "$SOURCE_FILE" "$TEMPORARY_FILE"
+    mv -f -- "$TEMPORARY_FILE" "$DESTINATION_FILE"
 }
 
-distribution="dists/$CODENAME"
-for arch in $REPO_ARCHITECTURES; do
-    for name in Packages Packages.gz; do
-        source="$stage/main/binary-$arch/$name"
+DISTRIBUTION_DIR="dists/$CODENAME"
+for ARCHITECTURE in $REPO_ARCHITECTURES; do
+    for INDEX_NAME in Packages Packages.gz; do
+        SOURCE_FILE="$STAGING_DIR/main/binary-$ARCHITECTURE/$INDEX_NAME"
+        INDEX_DIR="$DISTRIBUTION_DIR/main/binary-$ARCHITECTURE"
         # Keep old hashes so clients holding an older Release can finish fetching.
-        for algorithm in 256 512; do
-            read -r digest _ < <("sha${algorithm}sum" "$source")
-            install_metadata "$source" "$distribution/main/binary-$arch/by-hash/SHA$algorithm/$digest"
+        for ALGORITHM in 256 512; do
+            read -r DIGEST _ < <("sha${ALGORITHM}sum" "$SOURCE_FILE")
+            install_metadata "$SOURCE_FILE" "$INDEX_DIR/by-hash/SHA$ALGORITHM/$DIGEST"
         done
-        install_metadata "$source" "$distribution/main/binary-$arch/$name"
+        install_metadata "$SOURCE_FILE" "$INDEX_DIR/$INDEX_NAME"
     done
 done
-for name in Release.gpg Release InRelease; do
-    install_metadata "$stage/$name" "$distribution/$name"
+for INDEX_NAME in Release.gpg Release InRelease; do
+    install_metadata "$STAGING_DIR/$INDEX_NAME" "$DISTRIBUTION_DIR/$INDEX_NAME"
 done
 echo "Published signed repository: $CODENAME"

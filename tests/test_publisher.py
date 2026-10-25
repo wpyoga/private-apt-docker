@@ -67,6 +67,7 @@ class PublisherTests(unittest.TestCase):
         self.env = {
             **os.environ,
             "PATH": f"{self.base / 'bin'}:{os.environ['PATH']}",
+            "FRAMEWORK_DIR": str(self.publisher),
             "REPO_DIR": str(self.base / "repo"),
             "PACKAGES_DIR": str(self.base / "adapters"),
             "ARCHES": "amd64 arm64",
@@ -95,7 +96,7 @@ class PublisherTests(unittest.TestCase):
         directory.mkdir()
         package_name = package or f"{name}-cli"
         (directory / "config").write_text(
-            f'release_stream={stream or name}\nbinary_packages="{package_name}"\n'
+            f'RELEASE_STREAM={stream or name}\nBINARY_PACKAGES="{package_name}"\n'
         )
         (directory / "upstream-version").write_text(version + "\n")
 
@@ -145,6 +146,65 @@ class PublisherTests(unittest.TestCase):
         subprocess.run(["dpkg-deb", "--build", str(root), str(destination)], check=True, capture_output=True)
         return destination
 
+    def test_entry_points_require_nonempty_framework_directory(self):
+        scripts = ("entrypoint.sh", "update.sh")
+        for script in scripts:
+            for value in (None, ""):
+                with self.subTest(script=script, value=value):
+                    environment = dict(self.env)
+                    environment.pop("FRAMEWORK_DIR", None)
+                    if value is not None:
+                        environment["FRAMEWORK_DIR"] = value
+                    result = subprocess.run(
+                        ["bash", str(ROOT / script)],
+                        env=environment,
+                        text=True,
+                        capture_output=True,
+                        timeout=3,
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("FRAMEWORK_DIR must", result.stderr)
+
+    def test_shell_test_entry_points_reject_wrong_working_directory(self):
+        environment = dict(self.env)
+        environment.pop("FRAMEWORK_DIR", None)
+        for script in ("tests/run.sh", "tests/test-signed-repo.sh"):
+            with self.subTest(script=script):
+                result = subprocess.run(
+                    ["bash", str(ROOT / script)],
+                    cwd=self.base,
+                    env=environment,
+                    text=True,
+                    capture_output=True,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Run tests from the project root", result.stderr)
+
+    def test_query_requires_nonempty_caller_context_before_downloading(self):
+        workspace = self.base / "query-workspace"
+        workspace.mkdir()
+        context = {
+            **self.env,
+            "ADAPTER_DIR": str(ROOT / "packages/codex"),
+            "WORKSPACE": str(workspace),
+        }
+        for variable in ("ADAPTER_DIR", "WORKSPACE", "ARCHES"):
+            for value in (None, ""):
+                with self.subTest(variable=variable, value=value):
+                    environment = dict(context)
+                    environment.pop(variable, None)
+                    if value is not None:
+                        environment[variable] = value
+                    result = subprocess.run(
+                        ["bash", str(ROOT / "packages/codex/query")],
+                        env=environment,
+                        text=True,
+                        capture_output=True,
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(f"{variable} must", result.stderr)
+                    self.assertFalse((workspace / "release.json").exists())
+
     def test_directory_discovery_is_sequential_and_ignores_old_registry(self):
         self.adapter("second")
         self.adapter("first")
@@ -158,6 +218,32 @@ class PublisherTests(unittest.TestCase):
         self.run_update()
         self.assertEqual(len(self.artifacts()), 4)
         self.assertFalse((self.base / "repo/.state/revisions").exists())
+
+    def test_framework_exports_adapter_directory_to_both_hooks(self):
+        directory = self.adapter("A directory with spaces", package="example-cli", stream="example-stable")
+        (directory / "expected-directory").write_text(str(directory) + "\n")
+        for hook in ("query", "build"):
+            path = directory / hook
+            script = path.read_text()
+            check = (
+                'EXPECTED_DIR=$(cat "$ADAPTER_DIR/expected-directory")\n'
+                '[[ "$ADAPTER_DIR" == "$EXPECTED_DIR" ]]\n'
+                '[[ -f "$FRAMEWORK_DIR/update.sh" ]]\n'
+                '[[ -d "$WORKSPACE" ]]\n'
+            )
+            expected_arguments = 0 if hook == "query" else 3
+            check += f'[[ "$#" == {expected_arguments} ]]\n'
+            script = script.replace("set -Eeuo pipefail\n", "set -Eeuo pipefail\n" + check, 1)
+            path.write_text(script)
+        result = subprocess.run(
+            ["bash", str(self.publisher / "update.sh")],
+            cwd=self.base / "downloads",
+            env=self.env,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(self.artifacts("example-stable")), 2)
 
     def test_directory_rename_does_not_change_identity_or_revision(self):
         directory = self.adapter("alice-bob-charlie", package="example-cli", stream="example-stable")
@@ -196,11 +282,12 @@ class PublisherTests(unittest.TestCase):
         directory = self.adapter()
         marker = self.base / "executed"
         invalid = [
-            f"release_stream=$(touch {marker})\nbinary_packages=first-cli\n",
-            "release_stream=first\nbinary_packages=first-cli first-cli\n",
-            "release_stream=first\nrelease_stream=second\nbinary_packages=first-cli\n",
-            "release_stream=first\nbinary_packages=first-cli\nunknown=value\n",
-            "release_stream=first\n",
+            "release_stream=first\nbinary_packages=first-cli\n",
+            f"RELEASE_STREAM=$(touch {marker})\nBINARY_PACKAGES=first-cli\n",
+            "RELEASE_STREAM=first\nBINARY_PACKAGES=first-cli first-cli\n",
+            "RELEASE_STREAM=first\nRELEASE_STREAM=second\nBINARY_PACKAGES=first-cli\n",
+            "RELEASE_STREAM=first\nBINARY_PACKAGES=first-cli\nunknown=value\n",
+            "RELEASE_STREAM=first\n",
         ]
         for config in invalid:
             with self.subTest(config=config):
@@ -214,13 +301,13 @@ class PublisherTests(unittest.TestCase):
         self.adapter("first", stream="shared-stable")
         self.adapter("second", stream="shared-stable")
         result = self.run_update(expected=1)
-        self.assertIn("Duplicate release_stream", result.stderr)
+        self.assertIn("Duplicate RELEASE_STREAM", result.stderr)
         self.assertNotIn("second/query", (self.base / "events").read_text())
 
     def test_incomplete_output_set_is_not_stored(self):
         directory = self.adapter(package="example-cli example-common")
         path = directory / "build"
-        path.write_text(path.read_text().replace('for package_name in $BINARY_PACKAGES;', 'for package_name in example-cli;'))
+        path.write_text(path.read_text().replace('for PACKAGE_NAME in $BINARY_PACKAGES;', 'for PACKAGE_NAME in example-cli;'))
         self.run_update(expected=1)
         self.assertEqual(self.artifacts(), [])
 
@@ -229,7 +316,7 @@ class PublisherTests(unittest.TestCase):
         path = directory / "build"
         path.write_text(path.read_text().replace(
             "X-Build-Inputs-SHA256: $BUILD_INPUTS_SHA256",
-            'X-Build-Inputs-SHA256: $(if [[ "$package_name" == example-common ]]; then echo invalid; else echo "$BUILD_INPUTS_SHA256"; fi)',
+            'X-Build-Inputs-SHA256: $(if [[ "$PACKAGE_NAME" == example-common ]]; then echo invalid; else echo "$BUILD_INPUTS_SHA256"; fi)',
         ))
         self.run_update(expected=1)
         self.assertEqual(self.artifacts(), [])
@@ -271,22 +358,22 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual(len(self.artifacts()), 2)
 
     def test_invalid_manifest_is_rejected_before_build(self):
-        self.adapter(query="printf '1.2.3\\tamd64\\n1.2.3\\tmips\\n' > \"$1/targets.tsv\"\n")
+        self.adapter(query="printf '1.2.3\\tamd64\\n1.2.3\\tmips\\n' > \"$WORKSPACE/targets.tsv\"\n")
         self.run_update(expected=1)
         self.assertEqual(self.artifacts(), [])
 
     def test_multiple_versions_per_architecture_are_rejected(self):
-        self.adapter(query="printf '1.2.3\\tamd64\\n1.2.4\\tamd64\\n' > \"$1/targets.tsv\"\n")
+        self.adapter(query="printf '1.2.3\\tamd64\\n1.2.4\\tamd64\\n' > \"$WORKSPACE/targets.tsv\"\n")
         self.run_update(expected=1)
         self.assertEqual(self.artifacts(), [])
 
     def test_unterminated_manifest_is_rejected(self):
-        self.adapter(query="printf '1.2.3\\tamd64' > \"$1/targets.tsv\"\n")
+        self.adapter(query="printf '1.2.3\\tamd64' > \"$WORKSPACE/targets.tsv\"\n")
         self.run_update(expected=1)
         self.assertEqual(self.artifacts(), [])
 
     def test_failed_build_does_not_store_leftover_artifact(self):
-        self.adapter(build='touch "$4"\nexit 7\n')
+        self.adapter(build='touch "$3/leftover.deb"\nexit 7\n')
         self.run_update(expected=1)
         self.assertEqual(self.artifacts(), [])
 
@@ -295,7 +382,7 @@ class PublisherTests(unittest.TestCase):
         path = directory / "build"
         original = path.read_text()
         invalid_builds = [
-            original.replace("Package: $package_name", "Package: wrong-cli"),
+            original.replace("Package: $PACKAGE_NAME", "Package: wrong-cli"),
             original.replace("$BUILD_INPUTS_SHA256", "wrong-checksum"),
         ]
         for replacement in invalid_builds:
@@ -320,13 +407,14 @@ class PublisherTests(unittest.TestCase):
         replacement = output / existing.name
         build_environment = {
             **self.env,
+            "ADAPTER_DIR": str(directory),
+            "WORKSPACE": str(workspace),
             "PUBLISHER_STREAM": "first",
             "BINARY_PACKAGES": "first-cli",
             "BUILD_INPUTS_SHA256": checksum,
         }
         subprocess.run([
-            str(directory / "build"), str(workspace), version,
-            architecture, str(output),
+            str(directory / "build"), version, architecture, str(output),
         ], env=build_environment, check=True, capture_output=True)
         package_dir = workspace / f"package-first-cli-{architecture}"
         payload = package_dir / "usr/share/first-cli/stream"
