@@ -150,7 +150,12 @@ stream selects upstream releases; the stream ID is an identity, not a channel
 name that the runner interprets. Codex follows GitHub's latest stable release and
 supports amd64 and arm64. Its `query` hook contains both the release download
 and JSON processing using Bash and `jq`, with no inline Python or separate
-release helper. Multiple adapters may declare the same Debian package name to
+release helper. Its build hook renders `@VARNAME@` placeholders in
+`control.template` using `sed`. Extraction and validation live in short functions
+inside the build hook. GNU tar handles extraction paths; packaging checks validate
+the layout and metadata, reject special files and escaping links, and discard
+privileged permissions. There is no Python code in the Codex adapter.
+Multiple adapters may declare the same Debian package name to
 publish different release streams. APT applies its normal version and priority
 rules; client-side pinning is needed to stay on an older stream.
 
@@ -392,8 +397,8 @@ python3 -m unittest discover -s tests -v
 ```
 
 It uses temporary directories under `build/`, fixture downloads, fake signatures,
-and real Debian package/index tools. Host requirements are Bash, Python 3.10+ with
-tarfile's data extraction filter, `dpkg-dev`, `apt-utils`, `jq`, and GnuPG.
+and real Debian package/index tools. Host requirements are Bash, GNU tar, Python
+3.10+, `dpkg-dev`, `apt-utils`, `jq`, and GnuPG.
 
 The real signing/APT integration check is a standalone Bash script:
 

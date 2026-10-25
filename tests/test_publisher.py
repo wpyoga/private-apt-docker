@@ -820,18 +820,143 @@ class PublisherTests(unittest.TestCase):
         self.run_update(expected=1)
         self.assertEqual(self.artifacts(), [])
 
-    def test_archive_path_traversal_is_rejected(self):
-        path = self.base / "unsafe.tar.gz"
-        with tarfile.open(path, "w:gz") as archive:
-            entry = tarfile.TarInfo("../escaped")
-            entry.size = 1
-            archive.addfile(entry, io.BytesIO(b"x"))
+    def test_codex_control_template_is_a_packaging_input(self):
+        self.codex_fixture()
+        self.run_update()
+        template = self.base / "adapters/codex/control.template"
+        template.write_text(template.read_text() + "Homepage: https://example.invalid\n")
+        self.run_update()
+        self.assertEqual(self.versions("codex"), {"1.2.3-1", "1.2.3-2"})
+        updated = [path for path in self.artifacts("codex") if "1.2.3-2" in path.name]
+        for artifact in updated:
+            self.assertEqual(fields(artifact)["homepage"], "https://example.invalid")
+
+    def archive_members(self):
+        files = {
+            "bin/codex": b"codex executable",
+            "bin/codex-code-mode-host": b"host executable",
+            "codex-package.json": b'{"version":"1.2.3","entrypoint":"bin/codex"}',
+        }
+        members = []
+        for name, content in files.items():
+            entry = tarfile.TarInfo(name)
+            entry.size = len(content)
+            entry.mode = 0o644
+            members.append((entry, content))
+        return members
+
+    def build_archive(self, members, success):
+        archive = self.base / "downloads/archive.tar.gz"
+        with tarfile.open(archive, "w:gz") as source:
+            for entry, content in members:
+                payload = io.BytesIO(content) if content is not None else None
+                source.addfile(entry, payload)
+
+        workspace = Path(tempfile.mkdtemp(prefix="archive-build-", dir=self.base))
+        output = workspace / "output"
+        output.mkdir()
+        downloads = {
+            "amd64": {
+                "version": "1.2.3",
+                "name": archive.name,
+                "url": "https://fixtures.invalid/" + archive.name,
+                "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+            }
+        }
+        (workspace / "assets.json").write_text(json.dumps(downloads))
+        environment = {
+            **self.env,
+            "ADAPTER_DIR": str(ROOT / "packages/codex"),
+            "WORKSPACE": str(workspace),
+            "PUBLISHER_STREAM": "codex",
+            "BUILD_INPUTS_SHA256": "a" * 64,
+        }
         result = subprocess.run([
-            "python3", str(ROOT / "packages/codex/archive.py"),
-            str(path), str(self.base / "extracted"), "1.2.3",
-        ], capture_output=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertFalse((self.base / "escaped").exists())
+            str(ROOT / "packages/codex/build"), "1.2.3-1", "amd64", str(output),
+        ], env=environment, capture_output=True, text=True)
+        if success:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((output / "codex-cli_1.2.3-1_amd64.deb").exists())
+        else:
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(list(output.iterdir()), [])
+        return workspace / "extract-amd64"
+
+    def test_archive_rejects_external_symlinks_before_touching_targets(self):
+        protected = self.base / "protected"
+        protected.write_text("unchanged")
+        protected.chmod(0o666)
+        link = tarfile.TarInfo("external-link")
+        link.type = tarfile.SYMTYPE
+        link.linkname = str(protected)
+        self.build_archive(self.archive_members() + [(link, None)], success=False)
+        self.assertEqual(protected.read_text(), "unchanged")
+        self.assertEqual(protected.stat().st_mode & 0o777, 0o666)
+
+    def test_archive_does_not_write_through_directory_symlinks(self):
+        outside = self.base / "outside"
+        outside.mkdir()
+        protected = outside / "protected"
+        protected.write_text("unchanged")
+        link = tarfile.TarInfo("escape")
+        link.type = tarfile.SYMTYPE
+        link.linkname = str(outside)
+        members = self.archive_members() + [(link, None)]
+        for name in ("escape/protected", "escape/new-file"):
+            entry = tarfile.TarInfo(name)
+            entry.size = len(b"overwrite")
+            members.append((entry, b"overwrite"))
+        self.build_archive(members, success=False)
+        self.assertEqual(protected.read_text(), "unchanged")
+        self.assertFalse((outside / "new-file").exists())
+
+    def test_archive_rejects_external_hard_links(self):
+        protected = self.base / "protected"
+        protected.write_text("unchanged")
+        for target in (str(protected), "../../protected"):
+            with self.subTest(target=target):
+                link = tarfile.TarInfo("external-hard-link")
+                link.type = tarfile.LNKTYPE
+                link.linkname = target
+                destination = self.build_archive(
+                    self.archive_members() + [(link, None)], success=False
+                )
+                self.assertFalse((destination / "external-hard-link").exists())
+                self.assertEqual(protected.stat().st_nlink, 1)
+
+    def test_archive_allows_links_within_the_extraction_directory(self):
+        members = self.archive_members()
+        for name, kind in (("symbolic-link", tarfile.SYMTYPE), ("hard-link", tarfile.LNKTYPE)):
+            link = tarfile.TarInfo(name)
+            link.type = kind
+            link.linkname = "bin/codex"
+            members.append((link, None))
+        destination = self.build_archive(members, success=True)
+        for name in ("symbolic-link", "hard-link"):
+            self.assertEqual((destination / name).read_bytes(), b"codex executable")
+
+    def test_archive_rejects_special_files_before_extraction(self):
+        entry = tarfile.TarInfo("named-pipe")
+        entry.type = tarfile.FIFOTYPE
+        destination = self.build_archive(
+            self.archive_members() + [(entry, None)], success=False
+        )
+        self.assertFalse(destination.exists())
+
+    def test_archive_removes_privileged_permissions(self):
+        members = self.archive_members()
+        members[0][0].mode = 0o6777
+        destination = self.build_archive(members, success=True)
+        mode = (destination / "bin/codex").stat().st_mode
+        self.assertEqual(mode & 0o7000, 0)
+        self.assertEqual(mode & 0o022, 0)
+        self.assertEqual(mode & 0o700, 0o700)
+
+    def test_archive_path_traversal_is_rejected(self):
+        entry = tarfile.TarInfo("../escaped")
+        entry.size = 1
+        destination = self.build_archive([(entry, b"x")], success=False)
+        self.assertFalse((destination.parent / "escaped").exists())
 
     def test_env_updates_preserve_unrelated_settings(self):
         path = self.base / ".env"

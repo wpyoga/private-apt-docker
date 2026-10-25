@@ -11,6 +11,91 @@ ARCHITECTURE="$2"
 OUTPUT_DIR="$3"
 OUTPUT="$OUTPUT_DIR/codex-cli_${PACKAGE_VERSION}_${ARCHITECTURE}.deb"
 
+check_member_types() {
+    # Allow regular files (-), directories (d), symlinks (l), and hard links (h).
+    # Escaping names keeps one archive entry per line, even for unusual names.
+    tar --list --verbose --gzip --quoting-style=escape --file "$ARCHIVE_PATH" |
+        awk '
+            substr($0, 1, 1) !~ /^[-dlh]$/ {
+                print "Unsupported archive entry type" > "/dev/stderr"
+                exit 1
+            }
+        '
+}
+
+check_links() {
+    local LINK_PATH RESOLVED_PATH
+
+    while IFS= read -r -d '' LINK_PATH; do
+        RESOLVED_PATH=$(realpath --canonicalize-missing -- "$LINK_PATH")
+        case "$RESOLVED_PATH" in
+            "$DESTINATION_DIR"|"$DESTINATION_DIR"/*) ;;
+            *)
+                echo "Archive link escapes extraction directory: $LINK_PATH" >&2
+                exit 1
+                ;;
+        esac
+    done < <(find "$DESTINATION_DIR" -type l -print0)
+}
+
+find_package_root() {
+    local -a DIRECTORIES=()
+
+    SOURCE_DIR="$DESTINATION_DIR"
+    if [[ -f "$SOURCE_DIR/bin/codex" ]]; then
+        return
+    fi
+
+    # Accept one wrapper directory around the upstream package.
+    mapfile -d '' -t DIRECTORIES < <(
+        find -L "$DESTINATION_DIR" -mindepth 1 -maxdepth 1 -type d -print0
+    )
+    if (( ${#DIRECTORIES[@]} != 1 )); then
+        echo 'Unexpected package layout' >&2
+        exit 1
+    fi
+    SOURCE_DIR=${DIRECTORIES[0]}
+}
+
+check_package_files() {
+    local REQUIRED
+
+    for REQUIRED in bin/codex bin/codex-code-mode-host codex-package.json; do
+        if [[ ! -f "$SOURCE_DIR/$REQUIRED" ]]; then
+            echo "Missing $REQUIRED" >&2
+            exit 1
+        fi
+    done
+    if ! jq --exit-status --arg VERSION "$UPSTREAM_VERSION" \
+        '.version | tostring | startswith($VERSION)' \
+        "$SOURCE_DIR/codex-package.json" >/dev/null; then
+        echo "Package metadata version mismatch: expected $UPSTREAM_VERSION" >&2
+        exit 1
+    fi
+    if ! jq --exit-status '.entrypoint == "bin/codex"' \
+        "$SOURCE_DIR/codex-package.json" >/dev/null; then
+        echo 'Unexpected package entrypoint' >&2
+        exit 1
+    fi
+}
+
+extract_package() {
+    DESTINATION_DIR="$WORKSPACE/extract-$ARCHITECTURE"
+    check_member_types
+
+    mkdir -p "$DESTINATION_DIR"
+    DESTINATION_DIR=$(realpath -- "$DESTINATION_DIR")
+    # Use tar's path protections; never enable absolute names or dereferencing.
+    tar --extract --gzip --file "$ARCHIVE_PATH" --directory "$DESTINATION_DIR" \
+        --no-same-owner --no-same-permissions --keep-old-files
+
+    check_links
+    # Keep owner access; remove group/other write and setuid/setgid/sticky bits.
+    chmod -R u+rwX,go-w,a-s,a-t "$DESTINATION_DIR"
+    find_package_root
+    check_package_files
+}
+
 # Read the download selected by the query hook.
 ASSET=$(jq --compact-output --exit-status --arg ARCH "$ARCHITECTURE" \
     '.[$ARCH]' "$WORKSPACE/assets.json")
@@ -28,9 +113,7 @@ ARCHIVE_PATH="$WORKSPACE/$ASSET_NAME"
 
 curl -fLsS --retry 3 "$DOWNLOAD_URL" -o "$ARCHIVE_PATH"
 printf '%s  %s\n' "$ARCHIVE_SHA256" "$ARCHIVE_PATH" | sha256sum -c -
-mkdir -p "$WORKSPACE/extract-$ARCHITECTURE"
-SOURCE_DIR=$(python3 "$ADAPTER_DIR/archive.py" \
-    "$ARCHIVE_PATH" "$WORKSPACE/extract-$ARCHITECTURE" "$UPSTREAM_VERSION")
+extract_package
 
 PACKAGE_DIR="$WORKSPACE/pkg-$ARCHITECTURE"
 PACKAGE_ROOT="$PACKAGE_DIR/usr/lib/openai-codex"
@@ -50,19 +133,11 @@ for BINARY in "$PACKAGE_ROOT"/bin/*; do
     ln -s "../lib/openai-codex/bin/$BINARY_NAME" "$PACKAGE_DIR/usr/bin/$BINARY_NAME"
 done
 
-cat > "$PACKAGE_DIR/DEBIAN/control" <<CONTROL
-Package: codex-cli
-Version: $PACKAGE_VERSION
-Section: devel
-Priority: optional
-Architecture: $ARCHITECTURE
-X-Build-Inputs-SHA256: $BUILD_INPUTS_SHA256
-X-Publisher-Stream: $PUBLISHER_STREAM
-Maintainer: Private APT Repository <repo@localhost>
-Depends: bubblewrap, ripgrep
-Recommends: git
-Description: OpenAI Codex CLI (precompiled, Debian system tools)
- Upstream Codex binaries and metadata with Debian bubblewrap and ripgrep.
-CONTROL
+sed \
+    -e "s/@PACKAGE_VERSION@/$PACKAGE_VERSION/g" \
+    -e "s/@ARCHITECTURE@/$ARCHITECTURE/g" \
+    -e "s/@BUILD_INPUTS_SHA256@/$BUILD_INPUTS_SHA256/g" \
+    -e "s/@PUBLISHER_STREAM@/$PUBLISHER_STREAM/g" \
+    "$ADAPTER_DIR/control.template" > "$PACKAGE_DIR/DEBIAN/control"
 
 dpkg-deb --build --root-owner-group -Zgzip "$PACKAGE_DIR" "$OUTPUT"

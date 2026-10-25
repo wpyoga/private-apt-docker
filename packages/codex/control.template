@@ -1,0 +1,12 @@
+Package: codex-cli
+Version: @PACKAGE_VERSION@
+Section: devel
+Priority: optional
+Architecture: @ARCHITECTURE@
+X-Build-Inputs-SHA256: @BUILD_INPUTS_SHA256@
+X-Publisher-Stream: @PUBLISHER_STREAM@
+Maintainer: Private APT Repository <repo@localhost>
+Depends: bubblewrap, ripgrep
+Recommends: git
+Description: OpenAI Codex CLI (precompiled, Debian system tools)
+ Upstream Codex binaries and metadata with Debian bubblewrap and ripgrep.
