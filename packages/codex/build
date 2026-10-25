@@ -11,25 +11,19 @@ ARCHITECTURE="$2"
 OUTPUT_DIR="$3"
 OUTPUT="$OUTPUT_DIR/codex-cli_${PACKAGE_VERSION}_${ARCHITECTURE}.deb"
 
-# Metadata stays private to this adapter; the shared runner only knows targets.tsv.
-mapfile -t ASSET_DETAILS < <(python3 - "$WORKSPACE/assets.json" "$ARCHITECTURE" <<'PY'
-import json
-import sys
+# Read the download selected by the query hook.
+ASSET=$(jq --compact-output --exit-status --arg ARCH "$ARCHITECTURE" \
+    '.[$ARCH]' "$WORKSPACE/assets.json")
 
-with open(sys.argv[1]) as source:
-    asset = json.load(source)[sys.argv[2]]
-for key in ("version", "name", "url", "sha256"):
-    print(asset[key])
-PY
-)
-if [[ ${#ASSET_DETAILS[@]} != 4 || "${ASSET_DETAILS[0]}" != "${PACKAGE_VERSION%-*}" ]]; then
-    echo 'Missing or inconsistent Codex build metadata' >&2
+UPSTREAM_VERSION=$(jq --raw-output --exit-status '.version | strings' <<< "$ASSET")
+ASSET_NAME=$(jq --raw-output --exit-status '.name | strings' <<< "$ASSET")
+DOWNLOAD_URL=$(jq --raw-output --exit-status '.url | strings' <<< "$ASSET")
+ARCHIVE_SHA256=$(jq --raw-output --exit-status '.sha256 | strings' <<< "$ASSET")
+
+if [[ "$UPSTREAM_VERSION" != "${PACKAGE_VERSION%-*}" ]]; then
+    echo 'Inconsistent Codex build version' >&2
     exit 1
 fi
-UPSTREAM_VERSION=${ASSET_DETAILS[0]}
-ASSET_NAME=${ASSET_DETAILS[1]}
-DOWNLOAD_URL=${ASSET_DETAILS[2]}
-ARCHIVE_SHA256=${ASSET_DETAILS[3]}
 ARCHIVE_PATH="$WORKSPACE/$ASSET_NAME"
 
 curl -fLsS --retry 3 "$DOWNLOAD_URL" -o "$ARCHIVE_PATH"

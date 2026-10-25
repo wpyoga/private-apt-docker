@@ -664,6 +664,107 @@ class PublisherTests(unittest.TestCase):
             "published_at": "2000-01-01T00:00:00Z", "assets": assets,
         }))
 
+    def run_codex_query(self, success=True):
+        workspace = self.base / "codex-query"
+        workspace.mkdir(exist_ok=True)
+        adapter = self.base / "adapters/codex"
+        environment = {
+            **self.env,
+            "ADAPTER_DIR": str(adapter),
+            "WORKSPACE": str(workspace),
+        }
+        result = subprocess.run(
+            [str(adapter / "query")],
+            env=environment,
+            text=True,
+            capture_output=True,
+        )
+        if success:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        else:
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result
+
+    def test_codex_query_rejects_malformed_json(self):
+        self.codex_fixture()
+        (self.base / "downloads/release.json").write_text("{not valid JSON")
+        self.run_codex_query(success=False)
+        self.assertFalse((self.base / "codex-query/targets.tsv").exists())
+
+    def test_codex_query_rejects_invalid_release_tags(self):
+        self.codex_fixture()
+        path = self.base / "downloads/release.json"
+        release = json.loads(path.read_text())
+        for tag in ("v1.2.3", "rust-v1.2", "rust-v1.2.3-beta"):
+            with self.subTest(tag=tag):
+                release["tag_name"] = tag
+                path.write_text(json.dumps(release))
+                result = self.run_codex_query(success=False)
+                self.assertIn("Unexpected release tag", result.stderr)
+
+    def test_codex_query_rejects_missing_or_invalid_digests(self):
+        self.codex_fixture()
+        path = self.base / "downloads/release.json"
+        original = path.read_text()
+        invalid_digests = (
+            None,
+            "sha256:abc",
+            "md5:" + "a" * 64,
+            "sha256:" + "a" * 64 + "\n",
+        )
+        for digest in invalid_digests:
+            with self.subTest(digest=digest):
+                release = json.loads(original)
+                asset = release["assets"][0]
+                if digest is None:
+                    del asset["digest"]
+                else:
+                    asset["digest"] = digest
+                path.write_text(json.dumps(release))
+                result = self.run_codex_query(success=False)
+                self.assertIn("Missing or invalid SHA256 digest", result.stderr)
+
+    def test_codex_query_rejects_invalid_download_urls(self):
+        self.codex_fixture()
+        path = self.base / "downloads/release.json"
+        release = json.loads(path.read_text())
+        invalid_urls = (
+            "http://fixtures.invalid/archive.tar.gz",
+            "https://fixtures.invalid/bad url.tar.gz",
+            "https://fixtures.invalid/archive.tar.gz\n",
+        )
+        for url in invalid_urls:
+            with self.subTest(url=url):
+                release["assets"][0]["browser_download_url"] = url
+                path.write_text(json.dumps(release))
+                result = self.run_codex_query(success=False)
+                self.assertIn("Invalid asset URL", result.stderr)
+
+    def test_codex_query_returns_only_requested_architectures(self):
+        self.codex_fixture()
+        self.env["ARCHES"] = "arm64"
+        self.run_codex_query()
+        workspace = self.base / "codex-query"
+        self.assertEqual((workspace / "targets.tsv").read_text(), "1.2.3\tarm64\n")
+        self.assertEqual((workspace / "release-date").read_text(), "2000-01-01T00:00:00Z\n")
+        downloads = json.loads((workspace / "assets.json").read_text())
+        self.assertEqual(set(downloads), {"arm64"})
+        self.assertEqual(downloads["arm64"]["version"], "1.2.3")
+        self.assertRegex(downloads["arm64"]["sha256"], r"^[a-f0-9]{64}$")
+
+    def test_codex_query_handles_no_matching_downloads(self):
+        self.codex_fixture()
+        path = self.base / "downloads/release.json"
+        release = json.loads(path.read_text())
+        release["assets"] = []
+        path.write_text(json.dumps(release))
+        result = self.run_codex_query()
+        self.assertIn("No upstream archive for amd64", result.stderr)
+        self.assertIn("No upstream archive for arm64", result.stderr)
+        workspace = self.base / "codex-query"
+        self.assertEqual((workspace / "targets.tsv").read_text(), "")
+        self.assertEqual(json.loads((workspace / "assets.json").read_text()), {})
+
     def test_codex_layout_dependencies_and_embedded_metadata(self):
         self.codex_fixture()
         self.run_update()

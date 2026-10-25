@@ -148,9 +148,11 @@ IDs report an error and the later adapter is skipped.
 One directory follows one configured release stream. The query hook owns how that
 stream selects upstream releases; the stream ID is an identity, not a channel
 name that the runner interprets. Codex follows GitHub's latest stable release and
-supports amd64 and arm64. Multiple adapters may declare the same Debian package
-name to publish different release streams. APT applies its normal version and
-priority rules; client-side pinning is needed to stay on an older stream.
+supports amd64 and arm64. Its `query` hook contains both the release download
+and JSON processing using Bash and `jq`, with no inline Python or separate
+release helper. Multiple adapters may declare the same Debian package name to
+publish different release streams. APT applies its normal version and priority
+rules; client-side pinning is needed to stay on an older stream.
 
 To add or remove an adapter, change its directory and rebuild the container image.
 Previously published packages remain available. Incomplete adapters report an
@@ -391,7 +393,7 @@ python3 -m unittest discover -s tests -v
 
 It uses temporary directories under `build/`, fixture downloads, fake signatures,
 and real Debian package/index tools. Host requirements are Bash, Python 3.10+ with
-tarfile's data extraction filter, `dpkg-dev`, `apt-utils`, and GnuPG.
+tarfile's data extraction filter, `dpkg-dev`, `apt-utils`, `jq`, and GnuPG.
 
 The real signing/APT integration check is a standalone Bash script:
 

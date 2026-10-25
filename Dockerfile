@@ -12,6 +12,7 @@ RUN apt-get update \
         file \
         gnupg \
         gzip \
+        jq \
         python3 \
         tar \
         util-linux \
