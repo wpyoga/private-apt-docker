@@ -20,6 +20,8 @@ class GhosttyTests(PublisherTestCase):
         package_architecture=None,
         missing_path=None,
         community_revision="ppa2",
+        installed_size=None,
+        payload_size=0,
     ):
         shutil.copytree(
             ROOT / "packages/ghostty",
@@ -48,6 +50,9 @@ class GhosttyTests(PublisherTestCase):
                 "X-Build-Inputs-SHA256: old-checksum\n"
             )
             postinst = root / "DEBIAN/postinst"
+            if installed_size is not None:
+                with (root / "DEBIAN/control").open("a") as control:
+                    control.write(f"Installed-Size: {installed_size}\n")
             postinst.write_text("#!/bin/sh\nexit 42\n")
             postinst.chmod(0o755)
 
@@ -61,6 +66,8 @@ class GhosttyTests(PublisherTestCase):
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_text("fixture\n")
                 if relative_path == "usr/bin/ghostty":
+                    with destination.open("ab") as binary:
+                        binary.write(b"x" * payload_size)
                     destination.chmod(0o755)
             if missing_path:
                 (root / missing_path).unlink()
@@ -100,6 +107,11 @@ class GhosttyTests(PublisherTestCase):
             self.assertEqual(metadata['maintainer'], self.env['MAINTAINER'])
             self.assertEqual(metadata['depends'], 'libgtk-4-1,')
             self.assertEqual(metadata['x-publisher-stream'], 'ghostty')
+            self.assertGreater(int(metadata['installed-size']), 0)
+            self.assertIn(
+                f"Installed-Size: {metadata['installed-size']}\n",
+                self.index(metadata['architecture']),
+            )
             self.assertRegex(metadata['x-build-inputs-sha256'], r'^[a-f0-9]{64}$')
             payload = subprocess.check_output(['dpkg-deb', '--fsys-tarfile', str(artifact)])
             with tarfile.open(fileobj=io.BytesIO(payload)) as archive:
@@ -110,6 +122,17 @@ class GhosttyTests(PublisherTestCase):
             self.assertEqual((control / 'postinst').read_text(), '#!/bin/sh\nexit 42\n')
         self.run_update()
         self.assertEqual(len(self.artifacts()), 2)
+
+    def test_installed_size_replaces_stale_upstream_value(self):
+        payload_size = 2 * 1024 * 1024
+        self.fixture(installed_size=1, payload_size=payload_size)
+        self.run_update()
+
+        for artifact in self.artifacts('ghostty'):
+            installed_size = int(fields(artifact)['installed-size'])
+            self.assertGreaterEqual(installed_size, payload_size // 1024)
+            self.assertLess(installed_size, payload_size // 1024 + 128)
+            self.assertLess(artifact.stat().st_size, installed_size * 1024)
 
     def test_missing_architecture_is_published_later(self):
         self.fixture(missing_arm64=True)
@@ -218,7 +241,7 @@ class GhosttyTests(PublisherTestCase):
         }
         subprocess.run(
             ["python3", str(ROOT / "packages/ghostty/rewrite-control.py"),
-             str(control), "1.3.1+0.ppa2-1"],
+             str(control), "1.3.1+0.ppa2-1", "2048"],
             env=environment,
             check=True,
         )
@@ -228,6 +251,7 @@ class GhosttyTests(PublisherTestCase):
         self.assertIn("Description: Preserved\n Continued description\n", rewritten)
         self.assertIn(f"Maintainer: {self.env['MAINTAINER']}\n", rewritten)
         self.assertIn("Version: 1.3.1+0.ppa2-1\n", rewritten)
+        self.assertIn("Installed-Size: 2048\n", rewritten)
 
     def test_community_rebuild_and_recipe_change_preserve_old_artifacts(self):
         self.fixture()

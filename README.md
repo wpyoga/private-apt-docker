@@ -276,6 +276,20 @@ X-Build-Inputs-SHA256: <value of BUILD_INPUTS_SHA256>
 X-Publisher-Stream: <value of PUBLISHER_STREAM>
 ```
 
+Every output package must also contain `Installed-Size`, the estimated unpacked
+disk usage in KiB used by APT. Calculate it from the final staged package tree,
+excluding the `DEBIAN/` metadata directory, before building the `.deb`:
+
+```bash
+INSTALLED_SIZE=$(du --summarize --block-size=1024 --exclude=DEBIAN "$PACKAGE_DIR" | cut -f1)
+```
+
+Write that integer into the control file as `Installed-Size: VALUE`. Recalculate
+the field for imported packages as well, replacing any upstream value.
+`dpkg-deb --build` does not calculate it automatically. Test both the final
+package field and the published index; importers must handle missing or stale
+upstream size metadata.
+
 Every adapter must expect a fixed layout inside its selected upstream artifact.
 Check the required paths and metadata before producing packages. If upstream moves
 or removes expected files, log an error naming the missing path and exit nonzero.

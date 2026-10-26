@@ -69,12 +69,16 @@ check_package_files() {
 }
 
 repackage() {
+    local INSTALLED_SIZE
+
     # Preserve upstream dependencies and integration without running its scripts.
     dpkg-deb --raw-extract "$DOWNLOAD_PATH" "$PACKAGE_DIR"
     check_package_files
 
+    # Recalculate after staging; upstream metadata may be missing or outdated.
+    INSTALLED_SIZE=$(du --summarize --block-size=1024 --exclude=DEBIAN "$PACKAGE_DIR" | cut -f1)
     python3 "$ADAPTER_DIR/rewrite-control.py" \
-        "$PACKAGE_DIR/DEBIAN/control" "$PACKAGE_VERSION"
+        "$PACKAGE_DIR/DEBIAN/control" "$PACKAGE_VERSION" "$INSTALLED_SIZE"
     dpkg-deb --build --root-owner-group -Zgzip "$PACKAGE_DIR" "$OUTPUT_PATH"
 }
 

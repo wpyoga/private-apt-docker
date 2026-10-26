@@ -124,7 +124,11 @@ changes can follow unexpected links.
 
 Write exactly one `NAME_VERSION_ARCH.deb` per declared binary package, with no
 extra outputs. Include `X-Build-Inputs-SHA256` and `X-Publisher-Stream` in control
-metadata. The framework validates the entire output set before storing any of it.
+metadata. Every adapter must calculate `Installed-Size` in KiB from each final
+staged package tree, excluding `DEBIAN/`, so APT can estimate disk usage. This
+also applies to imported `.deb` files: replace upstream size metadata after
+staging, even when upstream supplied a value. `dpkg-deb --build` does not generate
+the field. The framework validates the entire output set before storing any of it.
 If a resumed build regenerates an existing matching output, preserve the stored
 bytes and install only missing packages. Each new file is installed completely
 before it becomes visible, and an existing destination cannot be overwritten.
@@ -225,7 +229,9 @@ external alert delivery. Logs are the notification mechanism.
    external control template when generating metadata from scratch.
 5. Add offline fixtures and tests for selection, missing architectures, invalid
    metadata/digests, unexpected layouts, final package contents/dependencies, and
-   repeat updates. Exercise revision reuse or rebuilds where behavior changes.
+   repeat updates. Check `Installed-Size` in the package and published index;
+   importers must handle missing or stale upstream values. Exercise revision
+   reuse or rebuilds where behavior changes.
 6. Document the source, stream policy, packaging method, compatibility limits,
    and client installation name. Rebuild the container as a separate deployment
    step: adapters are copied into the image, not loaded live from the checkout.

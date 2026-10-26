@@ -29,6 +29,7 @@ def main():
     path = Path(sys.argv[1])
     replacements = {
         "Version": sys.argv[2],
+        "Installed-Size": sys.argv[3],
         "Maintainer": os.environ["MAINTAINER"],
         "X-Build-Inputs-SHA256": os.environ["BUILD_INPUTS_SHA256"],
         "X-Publisher-Stream": os.environ["PUBLISHER_STREAM"],

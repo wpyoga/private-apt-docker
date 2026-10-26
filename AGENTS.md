@@ -66,6 +66,13 @@ adapter closest to its packaging method, but do not assume every package should
 copy that method. Verify the upstream release source, checksums, architecture
 mapping, dependency requirements, and expected layout.
 
+Every binary package must include `Installed-Size` in its control metadata so
+APT can estimate disk usage. Calculate it in KiB from the final staged package
+tree, excluding `DEBIAN/`, before building the `.deb`. Recalculate it for imported
+packages too; do not trust an upstream value after repackaging. `dpkg-deb --build`
+does not generate this field. Cover the field and its published index value in
+adapter tests, including missing or stale upstream metadata for importers.
+
 Put reusable framework behavior in `lib/` only when it belongs to the publisher.
 Keep upstream-specific assumptions inside the adapter. Update documentation when
 changing the hook contract or design decisions.
