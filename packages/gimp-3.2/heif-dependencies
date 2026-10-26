@@ -1,7 +1,0 @@
-libheif1 (>= 1.19.8)
-libheif-plugin-aomenc (>= 1.19.8)
-libheif-plugin-dav1d (>= 1.19.8)
-libheif-plugin-j2kdec (>= 1.19.8)
-libheif-plugin-j2kenc (>= 1.19.8)
-libheif-plugin-libde265 (>= 1.19.8)
-libheif-plugin-x265 (>= 1.19.8)

@@ -82,7 +82,9 @@ The publisher does not implement stream migration.
 `ARCHES` selects which architectures to process this cycle. Separately,
 `REPO_ARCHITECTURES` selects which indexes to publish. This separation lets an
 amd64-only update retain an arm64 index. Supported architectures are amd64 and
-arm64; architecture-independent `all` outputs are not supported yet.
+arm64. A build may also emit architecture-independent `all` packages. They are
+stored once, satisfy completion checks for either architecture, and appear in
+both architecture indexes. Every build still returns its full declared set.
 
 ## The adapter boundary
 
@@ -150,13 +152,31 @@ This is per-file publication, not a transaction across all outputs.
 
 - **GIMP 3.2** selects the latest stable 3.2.x AppImages from GIMP's release
   metadata, verifies SHA256, and extracts SquashFS without executing upstream
-  code. Fixed GIMP-owned paths become five native packages. babl/GEGL remain
+  code. Fixed GIMP-owned paths and upstream HTML API documentation become eight
+  native packages, including developer tools, headers, and documentation. babl/GEGL remain
   private; known external SONAMEs map to explicit Debian dependencies. This map
   checks new upstream requirements without relying on installed host packages.
   Architecture checks, link/file-type validation and native ELF patching work
   for amd64 and arm64 without target execution. General notes and the deferred
-  TIFF-thumbnail issue live in [docs/gimp-3.2.md](docs/gimp-3.2.md), outside the
-  recipe checksum inputs.
+  TIFF-thumbnail issue live in [packages/gimp-3.2/gimp-3.2.md](packages/gimp-3.2/gimp-3.2.md).
+  This adapter-local documentation is intentionally part of its recipe checksum.
+
+- **GIMP help 3.2** imports every declared language and the matching common
+  package from Debian sid's precompiled 3.2 documentation. The adapter reads the
+  package index directly without changing any APT sources. It verifies SHA256,
+  fixed payload layout, architecture, and exact common-package dependencies.
+  It preserves upstream copyright notices, rewrites publisher metadata and
+  dependency versions, and recalculates Installed-Size. Debian's source package
+  revision is retained before appending the publisher revision, independently
+  of the GIMP application release. A changed language set requires review.
+
+- **Zed** selects official stable GitHub tarballs and verifies their SHA256.
+  It preserves the relative CLI/editor layout but replaces all bundled shared
+  libraries with Debian dependencies. ELF inspection validates architectures,
+  known SONAMEs, and the Trixie symbol baseline without target execution.
+  A wrapper disables the built-in updater for terminal and desktop launches.
+  [Zed packaging notes](docs/zed.md) record the bundled libXdmcp/libbsd dependency
+  difference and the desktop compatibility checks still needed on the laptop.
 
 These examples illustrate different methods. Document the actual source and
 compatibility requirements of a community package rather than presenting it as
@@ -273,5 +293,5 @@ application works on a target desktop.
 When resuming, inspect current files and working-tree changes first. This document
 records decisions, not a frozen task queue. The GIMP 3.2 adapter continues the
 native AppImage-repack investigation; its maintained design and deferred issues
-are recorded in [docs/gimp-3.2.md](docs/gimp-3.2.md). Generated investigation
+are recorded in [packages/gimp-3.2/gimp-3.2.md](packages/gimp-3.2/gimp-3.2.md). Generated investigation
 payloads and local dependency-root/native-root trees are not adapter inputs.

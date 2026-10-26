@@ -8,6 +8,7 @@ Homepage: https://www.gimp.org/
 Installed-Size: @INSTALLED_SIZE@
 Depends: @DEPENDS@
 @PROVIDES@
+@SUGGESTS@
 X-Build-Inputs-SHA256: @BUILD_INPUTS_SHA256@
 X-Publisher-Stream: @PUBLISHER_STREAM@
 Description: GIMP 3.2 native repack from the official AppImage

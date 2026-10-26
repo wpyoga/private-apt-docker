@@ -22,7 +22,8 @@ def fields(text):
 
 workspace = Path(sys.argv[1])
 assets = json.loads((workspace / "assets.json").read_text())
-names = {"gimp", "gimp-data", "libgimp-3.0-0", "gir1.2-gimp-3.0", "gimp-bundled-runtime"}
+names = {"gimp", "gimp-data", "libgimp-3.0-0", "gir1.2-gimp-3.0", "gimp-bundled-runtime",
+         "libgimp-3.0-bin", "libgimp-3.0-dev", "libgimp-3.0-doc"}
 fingerprints = set()
 for arch in ("amd64", "arm64"):
     output = workspace / "output" / arch
@@ -34,11 +35,11 @@ for arch in ("amd64", "arm64"):
              (fields(stanza) for stanza in index_text.strip().split("\n\n"))}
     assert set(index) == names, index.keys()
     archives = list(output.glob("*.deb"))
-    assert len(archives) == 5, archives
+    assert len(archives) == 8, archives
     for archive in archives:
         control = fields(subprocess.check_output(["dpkg-deb", "--field", archive], text=True))
         name = control["package"]
-        assert control["architecture"] == arch, control
+        assert control["architecture"] == ("all" if name == "libgimp-3.0-doc" else arch), control
         assert control["version"].rsplit("-", 1)[0] == assets[arch]["version"], control
         assert control["x-publisher-stream"] == "gimp-3.2", control
         digest = control["x-build-inputs-sha256"]
@@ -51,8 +52,8 @@ for arch in ("amd64", "arm64"):
         assert int(control["installed-size"]) == int(usage.split()[0]), (name, usage, control)
         for key in ("version", "architecture", "installed-size", "depends",
                     "x-publisher-stream", "x-build-inputs-sha256"):
-            assert control[key] == index[name][key], (name, key)
+            assert control.get(key) == index[name].get(key), (name, key)
         print(f"REAL_PACKAGE_CHECK_PASS: {name} {arch} {control['version']} "
               f"Installed-Size={control['installed-size']} KiB")
 assert len(fingerprints) == 1, fingerprints
-print("REAL_BUILD_CHECK_PASS: ten packages, one recipe fingerprint, matching index metadata")
+print("REAL_BUILD_CHECK_PASS: eight outputs per architecture, matching index metadata")

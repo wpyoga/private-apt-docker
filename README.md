@@ -309,8 +309,10 @@ Other adapters must explicitly handle any such entries their package needs.
 The runner calls `build` once per needed architecture, allowing one download or
 compilation to produce all declared binary packages. `OUTPUT_DIR` is an existing,
 empty directory. Write exactly one `NAME_VERSION_ARCH.deb` per declared package
-there, with no extra files. All outputs use the assigned version and requested
-architecture; architecture-independent (`all`) outputs are not supported yet.
+there, with no extra files. All outputs use the assigned version. Each output
+uses either the requested architecture or `all`, including the filename suffix.
+An `all` package is stored once and included in both architecture indexes. The
+hook still emits its complete declared set when another architecture needs a build.
 
 The runner validates the entire output set, including name, version, architecture,
 and the fields above, before storing any output. On a resumed build, matching
@@ -351,7 +353,10 @@ it does not execute AppRun, require FUSE, or run target binaries during builds.
 The packages target Debian 13 and retain the official binaries' CPU requirements.
 
 The stream produces `gimp`, `gimp-data`, `libgimp-3.0-0`, `gir1.2-gimp-3.0`,
-and `gimp-bundled-runtime`. Only babl/GEGL and their modules/typelibs remain
+`gimp-bundled-runtime`, `libgimp-3.0-bin`, `libgimp-3.0-dev`, and
+`libgimp-3.0-doc`. The development package includes matching private Babl/GEGL
+headers and pkg-config entries; the documentation package imports upstream's
+generated HTML API reference. Only babl/GEGL and their modules/typelibs remain
 private. Other libraries use Debian packages. GIMP depends explicitly on
 `libheif1` and its six codec plugins, including JPEG2000 encoding and decoding.
 The existing Debian babl/GEGL packages are not replaced.
@@ -363,9 +368,18 @@ plugins have not been validated. Existing package names and the GIMP 3 API's
 `3.0` directory names are preserved.
 
 An unresolved TIFF-thumbnail round-trip discrepancy is deferred; see
-[GIMP packaging and validation notes](docs/gimp-3.2.md). The adapter deliberately
+[GIMP packaging and validation notes](packages/gimp-3.2/gimp-3.2.md). The adapter deliberately
 fails on unexpected layouts, architectures, Debian baselines, or external SONAMEs.
 Adding a newer release series requires a separate adapter.
+
+`packages/gimp-help-3.2/` imports the precompiled GIMP 3.2 user manuals from
+Debian sid into this repository, including all declared languages and their
+matching common data. It reads package metadata directly and does not add sid
+to any APT configuration. Clients can install `gimp-help-en` or another language
+from this repository. Help has its own version, e.g. `3.2.0-3-1`, and is not tied
+to each GIMP application micro release. Missing languages, changed dependencies,
+or mixed documentation versions fail the stream rather than mixing packages.
+`gimp-data-extras` remains supplied by Debian stable.
 
 ## Checksums and Debian revisions
 
@@ -538,7 +552,7 @@ Container image builds and live upstream publication remain deployment checks.
 To validate real amd64 GIMP adapter outputs separately, run:
 
 ```sh
-bash tests/test-gimp-install.sh /absolute/path/to/the/five/amd64/debs
+bash tests/test-gimp-install.sh /absolute/path/to/the/eight/amd64/debs
 ```
 
 This optional Docker test checks clean APT installation, Debian GIMP removal

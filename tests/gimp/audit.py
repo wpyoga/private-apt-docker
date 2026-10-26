@@ -5,7 +5,7 @@ import subprocess
 
 
 files = subprocess.check_output([
-    "dpkg-query", "--listfiles", "gimp", "libgimp-3.0-0", "gimp-bundled-runtime",
+    "dpkg-query", "--listfiles", "gimp", "libgimp-3.0-0", "gimp-bundled-runtime", "libgimp-3.0-bin",
 ], text=True).splitlines()
 checked = 0
 failures = []

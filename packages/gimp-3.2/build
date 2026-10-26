@@ -52,6 +52,7 @@ OFFSET=$(python3 "$ADAPTER_DIR/inspect-bundle.py" offset "$ARCHIVE")
 unsquashfs -no-progress -no-xattrs -processors 1 -o "$OFFSET" \
     -d "$SOURCE_DIR" "$ARCHIVE" \
     usr/bin/gimp-3.2 usr/bin/gimp-console-3.2 usr/bin/gimp-script-fu-interpreter-3.0 \
+    usr/bin/gimptool-3.2 usr/include/gimp-3.0 usr/include/babl-0.1 usr/include/gegl-0.4 \
     usr/libexec/gimp-debug-tool-3.2 \
     "usr/lib/$MULTIARCH/gimp" "usr/lib/$MULTIARCH/babl-0.1" "usr/lib/$MULTIARCH/gegl-0.4" \
     "usr/lib/$MULTIARCH/libgimp*.so*" "usr/lib/$MULTIARCH/libbabl*.so*" \
@@ -59,12 +60,25 @@ unsquashfs -no-progress -no-xattrs -processors 1 -o "$OFFSET" \
     "usr/lib/$MULTIARCH/girepository-1.0/Babl-0.1.typelib" \
     "usr/lib/$MULTIARCH/girepository-1.0/Gegl-0.4.typelib" \
     "usr/lib/$MULTIARCH/pkgconfig/gimp-3.0.pc" "usr/lib/$MULTIARCH/pkgconfig/babl-0.1.pc" \
+    "usr/lib/$MULTIARCH/pkgconfig/gimpui-3.0.pc" "usr/lib/$MULTIARCH/pkgconfig/gimpthumb-3.0.pc" \
     "usr/lib/$MULTIARCH/pkgconfig/gegl-0.4.pc" \
     usr/etc/gimp usr/share/gimp usr/share/icons usr/share/locale \
     usr/share/applications/org.gimp.GIMP.Stable.desktop \
     usr/share/metainfo/org.gimp.GIMP.Stable.appdata.xml
 python3 "$ADAPTER_DIR/inspect-bundle.py" source
 bash "$ADAPTER_DIR/stage.sh"
+
+DOC_NAME="gimp-api-docs-$UPSTREAM_VERSION.tar.xz"
+DOC_ARCHIVE="$WORKSPACE/$DOC_NAME"
+if [[ ! -f "$DOC_ARCHIVE" ]]; then
+    curl -fLsS --retry 3 "https://download.gimp.org/gimp/v3.2/api-docs/$DOC_NAME" -o "$DOC_ARCHIVE"
+fi
+printf '%s  %s\n' "$(cat "$WORKSPACE/api-docs.sha256")" "$DOC_ARCHIVE" | sha256sum --check
+python3 "$ADAPTER_DIR/inspect-docs.py" "$DOC_ARCHIVE" "$UPSTREAM_VERSION"
+DOC_DIR="$STAGING_DIR/libgimp-3.0-doc/usr/share/doc/libgimp-3.0-doc"
+mkdir -p "$DOC_DIR"
+tar --extract --xz --file "$DOC_ARCHIVE" --strip-components=1 \
+    --no-same-owner --no-same-permissions --directory "$DOC_DIR"
 python3 "$ADAPTER_DIR/inspect-bundle.py" staged
 
 while IFS= read -r -d '' BINARY; do
@@ -75,26 +89,42 @@ while IFS= read -r -d '' BINARY; do
 done < "$WORKSPACE/elf-$ARCHITECTURE.paths0"
 
 RUNTIME_DEPENDS=$(
-    { cut -f 2 "$ADAPTER_DIR/runtime-libraries.tsv"; cat "$ADAPTER_DIR/runtime-extra-dependencies"; } \
+    awk -F '|' '!/^#/ && NF == 3 && $3 == "runtime" { print $1 }' "$ADAPTER_DIR/runtime-dependencies" \
         | sort -u | paste -sd,
 )
-HEIF_DEPENDS=$(paste -sd, "$ADAPTER_DIR/heif-dependencies")
+APPLICATION_DEPENDS=$(awk -F '|' '!/^#/ && NF == 3 && $3 == "gimp" { print $1 }' \
+    "$ADAPTER_DIR/runtime-dependencies" | sort -u | paste -sd,)
 MAINTAINER_SED=$(printf '%s' "$MAINTAINER" | sed 's/[\\&|]/\\&/g')
 
-for PACKAGE_NAME in gimp gimp-data libgimp-3.0-0 gir1.2-gimp-3.0 gimp-bundled-runtime; do
+for PACKAGE_NAME in gimp gimp-data libgimp-3.0-0 gir1.2-gimp-3.0 gimp-bundled-runtime \
+    libgimp-3.0-bin libgimp-3.0-dev libgimp-3.0-doc; do
     PACKAGE_DIR="$STAGING_DIR/$PACKAGE_NAME"
     DEPENDS="gimp-bundled-runtime (= $PACKAGE_VERSION)"
     PROVIDES=
+    SUGGESTS=
+    PACKAGE_ARCHITECTURE="$ARCHITECTURE"
     case "$PACKAGE_NAME" in
         gimp)
             DEPENDS+=", gimp-data (= $PACKAGE_VERSION), libgimp-3.0-0 (= $PACKAGE_VERSION)"
-            DEPENDS+=", gir1.2-gimp-3.0 (= $PACKAGE_VERSION), $HEIF_DEPENDS"
+            DEPENDS+=", gir1.2-gimp-3.0 (= $PACKAGE_VERSION), $APPLICATION_DEPENDS"
+            SUGGESTS='Suggests: gimp-data-extras, gimp-help-en | gimp-help'
             ;;
         gimp-data) DEPENDS=hicolor-icon-theme ;;
         gimp-bundled-runtime) DEPENDS="$RUNTIME_DEPENDS" ;;
         gir1.2-gimp-3.0)
             DEPENDS="libgimp-3.0-0 (= $PACKAGE_VERSION), gimp-bundled-runtime (= $PACKAGE_VERSION)"
             PROVIDES="Provides: gir1.2-gimpui-3.0 (= $PACKAGE_VERSION)"
+            ;;
+        libgimp-3.0-bin) DEPENDS="libc6" ;;
+        libgimp-3.0-dev)
+            DEPENDS="libgimp-3.0-0 (= $PACKAGE_VERSION), gir1.2-gimp-3.0 (= $PACKAGE_VERSION)"
+            DEPENDS+=", libgimp-3.0-bin (= $PACKAGE_VERSION), gimp-bundled-runtime (= $PACKAGE_VERSION)"
+            DEPENDS+=", libgtk-3-dev (>= 3.22.29), libgexiv2-dev (>= 0.14.0), libjson-glib-dev, liblcms2-dev, pkgconf"
+            SUGGESTS='Suggests: libgimp-3.0-doc'
+            ;;
+        libgimp-3.0-doc)
+            DEPENDS=
+            PACKAGE_ARCHITECTURE=all
             ;;
     esac
     mkdir -p "$PACKAGE_DIR/DEBIAN" "$PACKAGE_DIR/usr/share/doc/$PACKAGE_NAME"
@@ -113,18 +143,20 @@ for PACKAGE_NAME in gimp gimp-data libgimp-3.0-0 gir1.2-gimp-3.0 gimp-bundled-ru
     # Finish delayed allocation before measuring the final staged tree.
     sync -f "$PACKAGE_DIR"
     INSTALLED_SIZE=$(du --summarize --block-size=1024 --exclude=DEBIAN "$PACKAGE_DIR" | cut -f1)
+    SUGGESTS_SED=$(printf '%s' "$SUGGESTS" | sed 's/[\\&|]/\\&/g')
     sed \
         -e "s|@MAINTAINER@|$MAINTAINER_SED|g" \
         -e "s/@PACKAGE_NAME@/$PACKAGE_NAME/g" \
         -e "s/@PACKAGE_VERSION@/$PACKAGE_VERSION/g" \
-        -e "s/@ARCHITECTURE@/$ARCHITECTURE/g" \
+        -e "s/@ARCHITECTURE@/$PACKAGE_ARCHITECTURE/g" \
         -e "s/@INSTALLED_SIZE@/$INSTALLED_SIZE/g" \
         -e "s|@DEPENDS@|$DEPENDS|g" \
         -e "s|@PROVIDES@|$PROVIDES|g" \
+        -e "s|@SUGGESTS@|$SUGGESTS_SED|g" \
         -e "s/@BUILD_INPUTS_SHA256@/$BUILD_INPUTS_SHA256/g" \
         -e "s/@PUBLISHER_STREAM@/$PUBLISHER_STREAM/g" \
-        -e '/^$/d' \
+        -e '/^$/d' -e '/^Depends: $/d' \
         "$ADAPTER_DIR/control.in" > "$PACKAGE_DIR/DEBIAN/control"
     dpkg-deb --build --root-owner-group -Zgzip "$PACKAGE_DIR" \
-        "$OUTPUT_DIR/${PACKAGE_NAME}_${PACKAGE_VERSION}_${ARCHITECTURE}.deb"
+        "$OUTPUT_DIR/${PACKAGE_NAME}_${PACKAGE_VERSION}_${PACKAGE_ARCHITECTURE}.deb"
 done

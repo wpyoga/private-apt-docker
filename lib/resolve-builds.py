@@ -107,7 +107,7 @@ def find_package(packages, name, version, architecture):
         if (
             package.name == name
             and package.version == version
-            and package.architecture == architecture
+            and package.architecture in (architecture, "all")
         ):
             return package
     return None

@@ -81,3 +81,16 @@ for ARCHITECTURE in $ARCHES; do
     mv "$WORKSPACE/assets.tmp" "$WORKSPACE/assets.json"
     printf '%s\t%s\n' "$VERSION" "$ARCHITECTURE" >> "$WORKSPACE/targets.tsv"
 done
+
+if [[ -s "$WORKSPACE/targets.tsv" ]]; then
+    curl -fLsS --retry 3 https://download.gimp.org/gimp/v3.2/api-docs/SHA256SUMS \
+        -o "$WORKSPACE/SHA256SUMS"
+    DOC_NAME="gimp-api-docs-$VERSION.tar.xz"
+    DOC_SHA256=$(awk -v NAME="$DOC_NAME" '$2 == NAME || $2 == "*" NAME { print $1 }' \
+        "$WORKSPACE/SHA256SUMS")
+    if [[ ! "$DOC_SHA256" =~ ^[0-9a-fA-F]{64}$ ]]; then
+        echo "[gimp-3.2] Missing or ambiguous API documentation checksum: $DOC_NAME" >&2
+        exit 1
+    fi
+    printf '%s\n' "$DOC_SHA256" > "$WORKSPACE/api-docs.sha256"
+fi

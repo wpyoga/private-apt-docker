@@ -16,6 +16,14 @@ RUN apt-get --simulate install /test/debs/*.deb \
     && apt-get install -y --no-install-recommends /test/debs/*.deb \
     && dpkg --audit \
     && python3 /test/audit.py
+COPY sdk-test.c /test/
+RUN apt-get install -y --no-install-recommends build-essential \
+        libbabl-dev libgegl-dev \
+    && pkg-config --atleast-version=0.4.66 gimp-gegl-0.4 \
+    && pkg-config --atleast-version=0.1.116 gimp-babl-0.1 \
+    && gimptool --version \
+    && gcc /test/sdk-test.c -o /test/sdk-test $(pkg-config --cflags --libs gimpui-3.0) \
+    && /test/sdk-test
 RUN --network=none EXPECT_REPACK=1 GIMP_TEST_FORMATS=1 bash /test/smoke.sh
 
 FROM base AS reinstall

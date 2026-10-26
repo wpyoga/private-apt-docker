@@ -52,7 +52,7 @@ def appimage_offset(path):
     print(end)
 
 
-def check_tree(path, boundary):
+def check_tree(path, boundary, package_roots=()):
     entries = [path]
     if path.is_dir() and not path.is_symlink():
         entries.extend(path.rglob("*"))
@@ -65,7 +65,15 @@ def check_tree(path, boundary):
             try:
                 resolved = entry.resolve(strict=True)
             except (OSError, RuntimeError) as error:
-                fail(f"Broken payload link: {entry}: {error}")
+                resolved = None
+                installed = Path(os.path.normpath(entry.parent.relative_to(path) / target))
+                for package_root in package_roots:
+                    candidate = package_root / installed
+                    if candidate.is_file() and candidate.resolve().is_relative_to(boundary.resolve()):
+                        resolved = candidate.resolve()
+                        break
+                if resolved is None:
+                    fail(f"Broken payload link: {entry}: {error}")
             if not resolved.is_relative_to(boundary.resolve()):
                 fail(f"Payload link escapes its directory: {entry} -> {target}")
         elif not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
@@ -101,6 +109,7 @@ def check_source():
     library = "lib/" + os.environ["MULTIARCH"]
     files = [
         "bin/gimp-3.2", "bin/gimp-console-3.2", "bin/gimp-script-fu-interpreter-3.0",
+        "bin/gimptool-3.2",
         "libexec/gimp-debug-tool-3.2", "etc/gimp/3.0/gimprc",
         "share/applications/org.gimp.GIMP.Stable.desktop",
         "share/metainfo/org.gimp.GIMP.Stable.appdata.xml",
@@ -112,6 +121,7 @@ def check_source():
     for relative in (
         f"{library}/gimp/3.0", f"{library}/babl-0.1", f"{library}/gegl-0.4",
         "etc/gimp", "share/gimp/3.0", "share/icons", "share/locale",
+        "include/gimp-3.0", "include/babl-0.1", "include/gegl-0.4",
     ):
         required(root, relative, directory=True)
     versions = {}
@@ -139,14 +149,20 @@ def check_source():
 def check_staged():
     root = Path(os.environ["STAGING_DIR"])
     adapter = Path(os.environ["ADAPTER_DIR"])
-    providers = {line.split("\t")[0] for line in
-                 (adapter / "runtime-libraries.tsv").read_text().splitlines()}
+    providers = set()
+    for line in (adapter / "runtime-dependencies").read_text().splitlines():
+        if line and not line.startswith("#"):
+            dependency, sonames, owner = line.split("|")
+            if owner not in ("gimp", "runtime") or not dependency:
+                fail(f"Invalid runtime dependency row: {line}")
+            providers.update(sonames.split())
     own = set()
     dependencies = []
     elf_paths = []
     count = 0
     for package in root.iterdir():
-        check_tree(package, package)
+        # Development linker symlinks legitimately cross package boundaries.
+        check_tree(package, root, list(root.iterdir()))
         for path in package.rglob("*"):
             if path.is_symlink() or not path.is_file():
                 continue

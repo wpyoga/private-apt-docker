@@ -14,11 +14,12 @@ OUTPUT_DIR="$3"
 check_package() {
     local PACKAGE_FILE="$1"
     local PACKAGE_NAME="$2"
+    local PACKAGE_ARCHITECTURE="$3"
     local FORMAT EXPECTED_METADATA ACTUAL_METADATA
 
     FORMAT='${Package}\n${Version}\n${Architecture}\n${X-Publisher-Stream}\n${X-Build-Inputs-SHA256}\n'
     EXPECTED_METADATA=$(printf '%s\n' \
-        "$PACKAGE_NAME" "$VERSION" "$ARCHITECTURE" "$PUBLISHER_STREAM" "$BUILD_INPUTS_SHA256")
+        "$PACKAGE_NAME" "$VERSION" "$PACKAGE_ARCHITECTURE" "$PUBLISHER_STREAM" "$BUILD_INPUTS_SHA256")
     ACTUAL_METADATA=$(dpkg-deb --show --showformat="$FORMAT" "$PACKAGE_FILE")
 
     if [[ "$ACTUAL_METADATA" != "$EXPECTED_METADATA" ]]; then
@@ -48,22 +49,28 @@ trap cleanup EXIT
 
 PENDING_FILES=()
 for PACKAGE_NAME in "${PACKAGE_NAMES[@]}"; do
+    PACKAGE_ARCHITECTURE="$ARCHITECTURE"
     FILENAME="${PACKAGE_NAME}_${VERSION}_${ARCHITECTURE}.deb"
     PACKAGE_FILE="$OUTPUT_DIR/$FILENAME"
+    if [[ ! -f "$PACKAGE_FILE" ]]; then
+        PACKAGE_ARCHITECTURE=all
+        FILENAME="${PACKAGE_NAME}_${VERSION}_all.deb"
+        PACKAGE_FILE="$OUTPUT_DIR/$FILENAME"
+    fi
     if [[ ! -f "$PACKAGE_FILE" ]]; then
         echo "Missing built package: $PACKAGE_FILE" >&2
         exit 1
     fi
-    check_package "$PACKAGE_FILE" "$PACKAGE_NAME"
+    check_package "$PACKAGE_FILE" "$PACKAGE_NAME" "$PACKAGE_ARCHITECTURE"
 
     # Older repository managers may omit the version's epoch from filenames.
-    LEGACY_FILENAME="${PACKAGE_NAME}_${VERSION#*:}_${ARCHITECTURE}.deb"
+    LEGACY_FILENAME="${PACKAGE_NAME}_${VERSION#*:}_${PACKAGE_ARCHITECTURE}.deb"
     find "$REPO_DIR/pool" -type f \
         \( -name "$FILENAME" -o -name "$LEGACY_FILENAME" \) -print0 > "$EXISTING_LIST"
     mapfile -d '' -t EXISTING_FILES < "$EXISTING_LIST"
 
     for EXISTING_FILE in "${EXISTING_FILES[@]}"; do
-        check_package "$EXISTING_FILE" "$PACKAGE_NAME"
+        check_package "$EXISTING_FILE" "$PACKAGE_NAME" "$PACKAGE_ARCHITECTURE"
     done
     if (( ${#EXISTING_FILES[@]} == 0 )); then
         PENDING_FILES+=("$PACKAGE_FILE")

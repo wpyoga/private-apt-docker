@@ -135,6 +135,28 @@ class PublisherTests(PublisherTestCase):
         self.run_update()
         self.assertEqual((self.base / "events").read_text().count("/build"), 3)
 
+    def test_architecture_independent_outputs_are_shared_and_resumed(self):
+        directory = self.adapter(package="example-cli example-common")
+        path = directory / "build"
+        script = path.read_text().replace(
+            'for PACKAGE_NAME in $BINARY_PACKAGES; do',
+            'for PACKAGE_NAME in $BINARY_PACKAGES; do\n'
+            '    PACKAGE_ARCHITECTURE="$ARCHITECTURE"\n'
+            '    if [[ "$PACKAGE_NAME" == example-common ]]; then PACKAGE_ARCHITECTURE=all; fi')
+        script = script.replace('Architecture: $ARCHITECTURE', 'Architecture: $PACKAGE_ARCHITECTURE')
+        script = script.replace('${VERSION}_${ARCHITECTURE}.deb', '${VERSION}_${PACKAGE_ARCHITECTURE}.deb')
+        path.write_text(script)
+        self.run_update()
+        self.assertEqual(len(self.artifacts()), 3)
+        common = next(path for path in self.artifacts() if fields(path)["architecture"] == "all")
+        for arch in ("amd64", "arm64"):
+            self.assertIn(common.name, self.index(arch))
+        common.unlink()
+        self.run_update()
+        self.assertEqual(len(self.artifacts()), 3)
+        self.run_update()
+        self.assertEqual(len(self.artifacts()), 3)
+
     def test_revision_allocation_considers_every_binary_package(self):
         self.adapter(package="example-cli example-common", stream="example-stable")
         self.legacy("example-common", "1.2.3-7", "amd64")
