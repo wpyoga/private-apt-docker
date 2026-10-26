@@ -65,6 +65,8 @@ def check_tree(path, boundary, package_roots=()):
             try:
                 resolved = entry.resolve(strict=True)
             except (OSError, RuntimeError) as error:
+                if not package_roots:
+                    fail(f"Broken payload link: {entry}: {error}")
                 resolved = None
                 installed = Path(os.path.normpath(entry.parent.relative_to(path) / target))
                 for package_root in package_roots:

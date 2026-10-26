@@ -24,6 +24,7 @@ workspace = Path(sys.argv[1])
 assets = json.loads((workspace / "assets.json").read_text())
 names = {"gimp", "gimp-data", "libgimp-3.0-0", "gir1.2-gimp-3.0", "gimp-bundled-runtime",
          "libgimp-3.0-bin", "libgimp-3.0-dev", "libgimp-3.0-doc"}
+names.update(json.loads((workspace / "help-assets.json").read_text()))
 fingerprints = set()
 for arch in ("amd64", "arm64"):
     output = workspace / "output" / arch
@@ -35,19 +36,24 @@ for arch in ("amd64", "arm64"):
              (fields(stanza) for stanza in index_text.strip().split("\n\n"))}
     assert set(index) == names, index.keys()
     archives = list(output.glob("*.deb"))
-    assert len(archives) == 8, archives
+    assert len(archives) == len(names), archives
     for archive in archives:
         control = fields(subprocess.check_output(["dpkg-deb", "--field", archive], text=True))
         name = control["package"]
-        assert control["architecture"] == ("all" if name == "libgimp-3.0-doc" else arch), control
+        independent = name == "libgimp-3.0-doc" or name.startswith("gimp-help-")
+        assert control["architecture"] == ("all" if independent else arch), control
         assert control["version"].rsplit("-", 1)[0] == assets[arch]["version"], control
         assert control["x-publisher-stream"] == "gimp-3.2", control
         digest = control["x-build-inputs-sha256"]
         assert re.fullmatch(r"[0-9a-f]{64}", digest), digest
         fingerprints.add(digest)
+        staged = workspace / f"staging-{arch}" / name
+        if name.startswith("gimp-help-"):
+            staged = workspace / "help-staging" / name
+            assert control["x-upstream-version"] == "3.2.0-3", control
         usage = subprocess.check_output([
             "du", "--summarize", "--block-size=1024", "--exclude=DEBIAN",
-            workspace / f"staging-{arch}" / name,
+            staged,
         ], text=True)
         assert int(control["installed-size"]) == int(usage.split()[0]), (name, usage, control)
         for key in ("version", "architecture", "installed-size", "depends",
@@ -56,4 +62,4 @@ for arch in ("amd64", "arm64"):
         print(f"REAL_PACKAGE_CHECK_PASS: {name} {arch} {control['version']} "
               f"Installed-Size={control['installed-size']} KiB")
 assert len(fingerprints) == 1, fingerprints
-print("REAL_BUILD_CHECK_PASS: eight outputs per architecture, matching index metadata")
+print(f"REAL_BUILD_CHECK_PASS: {len(names)} outputs per architecture, matching index metadata")

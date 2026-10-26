@@ -1,7 +1,6 @@
-"""Select and validate Debian's architecture-independent GIMP 3.2 manuals."""
+"""Read pinned Debian manuals and validate their repackaged metadata."""
 
 import json
-import lzma
 import os
 from pathlib import Path
 import re
@@ -25,43 +24,23 @@ def fields(text):
 
 
 def query():
-    names = set(os.environ["BINARY_PACKAGES"].split())
     selected = {}
-    with lzma.open(workspace / "Packages.xz", "rt") as stream:
-        # Debian's index is large; retain only one paragraph at a time.
-        paragraph = []
-        for line in stream:
-            if line.strip():
-                paragraph.append(line)
-                continue
-            row = fields("".join(paragraph))
-            paragraph = []
-            name = row.get("Package")
-            if name not in names or not re.fullmatch(r"3\.2\.\d+-[0-9]+", row.get("Version", "")):
-                continue
-            if name in selected:
-                raise SystemExit(f"Duplicate Debian help package: {name}")
-            filename = row.get("Filename", "")
-            if (row.get("Architecture") != "all"
-                    or not re.fullmatch(r"[0-9a-f]{64}", row.get("SHA256", ""))
-                    or filename != f"pool/main/g/gimp-help/{name}_{row['Version']}_all.deb"):
-                raise SystemExit(f"Unexpected Debian help metadata for {name}")
-            selected[name] = row
+    names = {name for name in os.environ["BINARY_PACKAGES"].split() if name.startswith("gimp-help-")}
+    manifest = Path(os.environ["ADAPTER_DIR"]) / "help-assets"
+    for line in manifest.read_text().splitlines():
+        name, version, digest, filename = line.split("|")
+        if (name in selected or name not in names
+                or not re.fullmatch(r"3\.2\.\d+-[0-9]+", version)
+                or not re.fullmatch(r"[0-9a-f]{64}", digest)
+                or filename != f"pool/main/g/gimp-help/{name}_{version}_all.deb"):
+            raise SystemExit(f"Unexpected pinned help asset: {line}")
+        selected[name] = {"Version": version, "Filename": filename, "SHA256": digest}
     if set(selected) != names:
-        raise SystemExit(f"Missing GIMP 3.2 help packages in sid: {sorted(names - set(selected))}")
+        raise SystemExit(f"Missing pinned GIMP help packages: {sorted(names - set(selected))}")
     versions = {row["Version"] for row in selected.values()}
     if len(versions) != 1:
         raise SystemExit(f"Debian help packages have inconsistent versions: {sorted(versions)}")
-    version = versions.pop()
-    for name, row in selected.items():
-        expected = "" if name == "gimp-help-common" else f"gimp-help-common (= {version})"
-        if row.get("Depends", "") != expected:
-            raise SystemExit(f"Changed help dependencies for {name}: {row.get('Depends')}")
     (workspace / "help-assets.json").write_text(json.dumps(selected) + "\n")
-    (workspace / "targets.tsv").write_text("".join(
-        f"{version}\t{arch}\n" for arch in os.environ["ARCHES"].split()))
-    # The Debian build timestamp is checked again after downloading the package.
-    # Do not invent a release date from today's metadata-query time.
 
 
 def rewrite():
@@ -75,6 +54,11 @@ def rewrite():
     expected = "" if package == "gimp-help-common" else f"gimp-help-common (= {upstream_version})"
     if row.get("Depends", "") != expected:
         raise SystemExit(f"Unexpected downloaded help dependencies: {package}")
+    # These four packages already ship the documentation symlinks themselves.
+    # Their legacy postinst migration scripts are unnecessary for this repack.
+    postinst = root / "DEBIAN/postinst"
+    if postinst.exists() and package in {"gimp-help-de", "gimp-help-en", "gimp-help-fr", "gimp-help-sv"}:
+        postinst.unlink()
     allowed_control = {"control", "md5sums"}
     if any(path.name not in allowed_control for path in (root / "DEBIAN").iterdir()):
         raise SystemExit(f"Unexpected maintainer files in help package: {package}")
@@ -97,11 +81,15 @@ def rewrite():
                     raise SystemExit(f"Unexpected executable in help package: {relative}")
         elif not path.is_dir():
             raise SystemExit(f"Unexpected help file type: {relative}")
-    if not (root / "usr/share/gimp/3.0/help").is_dir():
+    if package == "gimp-help-common":
+        if not (root / "usr/share/doc/gimp-help-common/copyright").is_file():
+            raise SystemExit("Missing Debian common-help copyright notice")
+    elif not (root / "usr/share/gimp/3.0/help").is_dir():
         raise SystemExit(f"Missing GIMP help directory: {package}")
     row["Version"] = version
     row["Maintainer"] = os.environ["MAINTAINER"]
     row["X-Publisher-Stream"] = os.environ["PUBLISHER_STREAM"]
+    row["X-Upstream-Version"] = upstream_version
     row["X-Build-Inputs-SHA256"] = os.environ["BUILD_INPUTS_SHA256"]
     if expected:
         row["Depends"] = f"gimp-help-common (= {version})"

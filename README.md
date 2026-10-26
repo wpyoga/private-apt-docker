@@ -391,13 +391,15 @@ An unresolved TIFF-thumbnail round-trip discrepancy is deferred; see
 fails on unexpected layouts, architectures, Debian baselines, or external SONAMEs.
 Adding a newer release series requires a separate adapter.
 
-`packages/gimp-help-3.2/` imports the precompiled GIMP 3.2 user manuals from
-Debian sid into this repository, including all declared languages and their
-matching common data. It reads package metadata directly and does not add sid
-to any APT configuration. Clients can install `gimp-help-en` or another language
-from this repository. Help has its own version, e.g. `3.2.0-3-1`, and is not tied
-to each GIMP application micro release. Missing languages, changed dependencies,
-or mixed documentation versions fail the stream rather than mixing packages.
+The same adapter imports the precompiled GIMP 3.2 user manuals from Debian sid,
+including all 32 declared languages and their matching common package. This
+brings the complete family to 41 packages per architecture build. The pinned
+help source versions and checksums live in `packages/gimp-3.2/help-assets`, so
+updating them changes the recipe checksum. No sid APT configuration is added.
+Clients can install `gimp-help-en` or another language from this repository.
+Help outputs share the application's assigned package version; their original
+Debian version is recorded in X-Upstream-Version. Missing declared languages,
+changed dependencies, or mixed manual source versions fail the build.
 `gimp-data-extras` remains supplied by Debian stable.
 
 ## Checksums and Debian revisions
@@ -533,6 +535,9 @@ bash tests/run.sh
 ```
 
 The master script runs the regression suite and then the signing/APT check.
+For package-specific work, run that package's regression and installation tests.
+Run the signing/APT check only when signing code changes or when intentionally
+running the full suite; it is not part of a package-specific test run.
 Both suites can also be run independently. Tests establish their own context and
 temporary fixtures; you do not need to export `FRAMEWORK_DIR` or other settings.
 The shell test entry points use the project-root working directory explicitly,
@@ -572,7 +577,7 @@ Container image builds and live upstream publication remain deployment checks.
 To validate real amd64 GIMP adapter outputs separately, run:
 
 ```sh
-bash tests/test-gimp-install.sh /absolute/path/to/the/eight/amd64/debs
+bash tests/test-gimp-install.sh /absolute/path/to/the/complete/amd64/output
 ```
 
 This optional Docker test checks clean APT installation, Debian GIMP removal

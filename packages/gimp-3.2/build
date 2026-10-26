@@ -115,7 +115,9 @@ for PACKAGE_NAME in gimp gimp-data libgimp-3.0-0 gir1.2-gimp-3.0 gimp-bundled-ru
             DEPENDS="libgimp-3.0-0 (= $PACKAGE_VERSION), gimp-bundled-runtime (= $PACKAGE_VERSION)"
             PROVIDES="Provides: gir1.2-gimpui-3.0 (= $PACKAGE_VERSION)"
             ;;
-        libgimp-3.0-bin) DEPENDS="libc6" ;;
+        libgimp-3.0-bin)
+            DEPENDS="libgimp-3.0-0 (= $PACKAGE_VERSION), libglib2.0-0t64, libc6"
+            ;;
         libgimp-3.0-dev)
             DEPENDS="libgimp-3.0-0 (= $PACKAGE_VERSION), gir1.2-gimp-3.0 (= $PACKAGE_VERSION)"
             DEPENDS+=", libgimp-3.0-bin (= $PACKAGE_VERSION), gimp-bundled-runtime (= $PACKAGE_VERSION)"
@@ -160,3 +162,5 @@ for PACKAGE_NAME in gimp gimp-data libgimp-3.0-0 gir1.2-gimp-3.0 gimp-bundled-ru
     dpkg-deb --build --root-owner-group -Zgzip "$PACKAGE_DIR" \
         "$OUTPUT_DIR/${PACKAGE_NAME}_${PACKAGE_VERSION}_${PACKAGE_ARCHITECTURE}.deb"
 done
+
+bash "$ADAPTER_DIR/build-help" "$PACKAGE_VERSION" "$ARCHITECTURE" "$OUTPUT_DIR"

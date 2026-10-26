@@ -5,6 +5,8 @@
 int main(void)
 {
     int major, minor, micro;
+    GimpParasite *parasite = gimp_parasite_new("sdk-test", 0, 0, NULL);
+    gimp_parasite_free(parasite);
 
     gegl_get_version(&major, &minor, &micro);
     if (major != 0 || minor != 4 || micro < 66) {

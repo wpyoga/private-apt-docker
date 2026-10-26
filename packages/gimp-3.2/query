@@ -93,4 +93,5 @@ if [[ -s "$WORKSPACE/targets.tsv" ]]; then
         exit 1
     fi
     printf '%s\n' "$DOC_SHA256" > "$WORKSPACE/api-docs.sha256"
+    python3 "$ADAPTER_DIR/help-metadata.py" query
 fi

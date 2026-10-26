@@ -8,7 +8,7 @@ gimp_versions.json, even after a newer series appears. It verifies each official
 AppImage's SHA256 and extracts SquashFS as data, without running AppRun or FUSE.
 It supports amd64/x86_64 and arm64/aarch64 and targets Debian 13.
 
-The eight binary packages are gimp, gimp-data, libgimp-3.0-0, gir1.2-gimp-3.0,
+The eight core binary packages are gimp, gimp-data, libgimp-3.0-0, gir1.2-gimp-3.0,
 gimp-bundled-runtime, libgimp-3.0-bin, libgimp-3.0-dev, and libgimp-3.0-doc.
 They share the framework-assigned GIMP version and
 revision. The 3.0 library/directory names are the GIMP 3 API, not application 3.0.
@@ -78,16 +78,44 @@ libgimp-3.0-doc contains generated HTML from the matching upstream
 gimp-api-docs-VERSION.tar.xz, verified against upstream SHA256SUMS. It has
 Architecture: all and is stored once for both binary indexes.
 
-The separate gimp-help-3.2 adapter imports all 32 current Debian sid language
-packages and gimp-help-common, verifies their SHA256 and fixed layout, preserves
-licenses, and rewrites exact common-package dependencies to the repack version.
-It uses its own release/revision, e.g. Debian 3.2.0-3 becomes 3.2.0-3-1. Clients
-need only our repository and Debian stable. No host or client sid sources are
-added. Source: https://deb.debian.org/debian/dists/sid/main/binary-amd64/Packages.xz.
-The all-architecture manuals are available there for either target architecture.
-The declared language list is static; missing or differently versioned packages
-fail rather than mixing releases. Upstream's current manual archive is source,
-not the generated HTML archive supplied for the API reference.
+The same gimp-3.2 adapter imports all 32 current Debian sid language packages and
+gimp-help-common, bringing the complete family to 41 packages per build (48 unique
+packages across amd64/arm64). It verifies SHA256 and fixed layout, preserves
+licenses, and rewrites exact common-package dependencies to the GIMP stream's
+assigned version, e.g. 3.2.6-1. X-Upstream-Version records the original manual
+package version, currently 3.2.0-3. The common package contains documentation and
+a link to the help directory, rather than owning the actual language files.
+Inspection of all 33 checksum-verified Debian 3.2.0-3 packages found postinst
+scripts only in de, en, fr, and sv. All four perform the same documentation
+symlink migration with their respective package name. The other 28 languages
+and common package have no maintainer scripts. At the user's request, discard
+these four legacy scripts. All four Debian package payloads already ship their
+documentation symlinks pointing to gimp-help-common; preserve those links.
+Binary inspection report: build/gimp-help-inspection/scripts.txt; download and
+verification log: build/gimp-expanded-logs/help-package-inspection.log.
+
+Potential Debian bug report (deferred, not submitted): gimp-help 3.2.0-3 still
+ships these four legacy postinst scripts. They unconditionally try to remove a
+real documentation directory with rmdir, so nonempty directories cause package
+configuration to fail under sh -e. They do not dispatch on maintainer-script
+arguments, and an existing dangling symlink passes ! -e but makes ln -s fail.
+Investigate whether the historical migration is still needed, given that the
+links are already shipped as package contents. Preserve the original
+scripts under build/gimp-help-inspection/control/ as evidence for that report.
+
+The AppImages, API reference archive, and user manual packages are separate
+source artifacts processed by one adapter, not separate release streams. The
+static help-assets manifest pins source versions, filenames, and SHA256 values
+from Debian sid metadata retrieved on 2026-10-26. Updating it changes the recipe
+checksum, ensuring a source-only manual update rebuilds the current GIMP family.
+Keep its package names synchronized with config's BINARY_PACKAGES. The source
+metadata was https://deb.debian.org/debian/dists/sid/main/binary-amd64/Packages.xz;
+packages are downloaded directly from the corresponding Debian pool paths.
+Clients need only our repository and Debian stable; no sid sources are added.
+Help packages are built once per workspace and reused for the second architecture.
+The declared language list is static; missing or differently versioned inputs
+fail rather than mixing manual releases. Upstream's current manual archive is
+source, not the generated HTML archive supplied for the API reference.
 
 Sources: https://docs.gimp.org/download.html,
 https://download.gimp.org/gimp/v3.2/api-docs/,

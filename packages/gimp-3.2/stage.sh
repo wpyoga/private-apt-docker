@@ -9,7 +9,10 @@ shopt -s nullglob
 
 for PACKAGE in gimp gimp-data libgimp-3.0-0 gir1.2-gimp-3.0 gimp-bundled-runtime \
     libgimp-3.0-bin libgimp-3.0-dev libgimp-3.0-doc; do
-    mkdir -p "$STAGING_DIR/$PACKAGE/usr/lib/$MULTIARCH"
+    mkdir -p "$STAGING_DIR/$PACKAGE"
+    if [[ "$PACKAGE" != libgimp-3.0-doc ]]; then
+        mkdir -p "$STAGING_DIR/$PACKAGE/usr/lib/$MULTIARCH"
+    fi
 done
 APPLICATION="$STAGING_DIR/gimp"
 DATA="$STAGING_DIR/gimp-data"
@@ -46,10 +49,15 @@ cp -a "$SOURCE_USR/include/gimp-3.0/." "$DEVELOPMENT/usr/include/gimp-3.0/"
 cp -a "$SOURCE_USR/include/babl-0.1" "$SOURCE_USR/include/gegl-0.4" \
     "$DEVELOPMENT/usr/include/gimp-3.0/bundled/"
 for LIBRARY in "$SOURCE_USR/lib/$MULTIARCH/"libgimp*.so; do
-    cp -a "$LIBRARY" "$DEVELOPMENT/usr/lib/$MULTIARCH/"
+    if [[ -L "$LIBRARY" ]]; then
+        cp -a "$LIBRARY" "$DEVELOPMENT/usr/lib/$MULTIARCH/"
+    fi
 done
 for LIBRARY in "$SOURCE_USR/lib/$MULTIARCH/"libbabl*.so "$SOURCE_USR/lib/$MULTIARCH/"libgegl*.so; do
-    cp -a "$LIBRARY" "$DEVELOPMENT/usr/lib/$MULTIARCH/gimp/bundled/"
+    # libgegl-npd has an unversioned runtime SONAME, not a development symlink.
+    if [[ -L "$LIBRARY" ]]; then
+        cp -a "$LIBRARY" "$DEVELOPMENT/usr/lib/$MULTIARCH/gimp/bundled/"
+    fi
 done
 for NAME in gimp-3.0 gimpui-3.0 gimpthumb-3.0; do
     sed -e 's/gegl-0.4/gimp-gegl-0.4/g' \

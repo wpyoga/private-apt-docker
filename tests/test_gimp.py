@@ -11,6 +11,7 @@ import tarfile
 import unittest
 
 from publisher_test_support import ROOT, PublisherTestCase, fields
+from test_gimp_help import create_help_fixtures
 
 
 TOOLS = all(shutil.which(name) for name in ("patchelf", "mksquashfs", "unsquashfs"))
@@ -21,6 +22,7 @@ class GimpTests(PublisherTestCase):
     def fixture(self, *, missing_arm64=False, mutation=None):
         adapter = self.base / "adapters/gimp-3.2"
         shutil.copytree(ROOT / "packages/gimp-3.2", adapter, dirs_exist_ok=True)
+        create_help_fixtures(self.base, adapter)
         assets = []
         for arch, target, multiarch, machine in (
             ("amd64", "x86_64", "x86_64-linux-gnu", 62),
@@ -69,6 +71,7 @@ class GimpTests(PublisherTestCase):
                 (lib / f"lib{name}.so").symlink_to(soname)
             for family in ("babl-0.1", "gegl-0.4"):
                 shutil.copyfile(lib / "libbabl-0.1.so.0.1", lib / family / "fixture.so")
+            shutil.copyfile(lib / "libbabl-0.1.so.0.1", lib / "libgegl-npd-0.4.so")
             for name in ("Gimp-3.0", "GimpUi-3.0", "Babl-0.1", "Gegl-0.4"):
                 (lib / "girepository-1.0" / f"{name}.typelib").write_text("fixture typelib\n")
             for name, version in (("gimp-3.0", "3.2.6"), ("babl-0.1", "0.1.128"),
@@ -130,6 +133,7 @@ class GimpTests(PublisherTestCase):
         workspace.mkdir(exist_ok=True)
         result = subprocess.run([self.base / "adapters/gimp-3.2/query"],
                                 env={**self.env, "ADAPTER_DIR": str(self.base / "adapters/gimp-3.2"),
+                                     "BINARY_PACKAGES": (self.base / "adapters/gimp-3.2/config").read_text().split('BINARY_PACKAGES="')[1].split('"')[0],
                                      "WORKSPACE": str(workspace)}, text=True, capture_output=True)
         self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
         return workspace, result
@@ -175,7 +179,7 @@ class GimpTests(PublisherTestCase):
         self.fixture()
         self.env["MAINTAINER"] = r"Release / Ops & Team | Name <test@example.invalid>"
         self.run_update()
-        self.assertEqual(len(self.artifacts()), 15)
+        self.assertEqual(len(self.artifacts()), 18)
         for artifact in self.artifacts():
             metadata = fields(artifact)
             name = metadata["package"]
@@ -220,31 +224,52 @@ class GimpTests(PublisherTestCase):
                 self.assertTrue((root / "usr/include/gimp-3.0/bundled/gegl-0.4/fixture.h").is_file())
                 self.assertIn("libgimp-3.0-bin (= 3.2.6-1)", metadata["depends"])
                 self.assertFalse((root / "usr/include/gegl-0.4").exists())
+                self.assertFalse((lib / "gimp/bundled/libgegl-npd-0.4.so").exists())
                 private_pc = (lib / "pkgconfig/gimp-gegl-0.4.pc").read_text()
                 self.assertIn(f"libdir=/usr/lib/{multiarch}/gimp/bundled", private_pc)
             if name == "libgimp-3.0-bin":
                 self.assertEqual(os.readlink(root / "usr/bin/gimptool"), "gimptool-3.2")
                 self.assertTrue((root / "usr/share/man/man1/gimptool-3.2.1.gz").is_file())
+                self.assertIn("libgimp-3.0-0 (= 3.2.6-1)", metadata["depends"])
             if name == "libgimp-3.0-doc":
                 self.assertEqual(arch, "all")
+                self.assertFalse((root / "usr/lib").exists())
                 self.assertTrue((root / "usr/share/doc/libgimp-3.0-doc/reference/libgimp-3.0/index.html").is_file())
             self.assertTrue((root / "usr/share/doc" / name / "copyright").is_file())
         self.run_update()
-        self.assertEqual(len(self.artifacts()), 15)
+        self.assertEqual(len(self.artifacts()), 18)
 
     def test_missing_architecture_can_be_published_later(self):
         self.fixture(missing_arm64=True)
         self.run_update()
-        self.assertEqual(len(self.artifacts()), 8)
+        self.assertEqual(len(self.artifacts()), 11)
         self.fixture()
         self.run_update()
-        self.assertEqual(len(self.artifacts()), 15)
+        self.assertEqual(len(self.artifacts()), 18)
 
     def test_digest_failure_stores_nothing(self):
         self.fixture()
         with (self.base / "downloads/GIMP-3.2.6-x86_64.AppImage").open("ab") as stream:
             stream.write(b"changed")
         self.env["ARCHES"] = "amd64"
+        self.run_update(expected=1)
+        self.assertEqual(self.artifacts(), [])
+
+    def test_documentation_digest_and_archive_layout_are_checked(self):
+        self.env["ARCHES"] = "amd64"
+        self.fixture(missing_arm64=True)
+        archive = self.base / "downloads/gimp-api-docs-3.2.6.tar.xz"
+        with archive.open("ab") as stream:
+            stream.write(b"changed")
+        self.run_update(expected=1)
+        self.assertEqual(self.artifacts(), [])
+
+        self.fixture(missing_arm64=True)
+        with tarfile.open(archive, "w:xz") as stream:
+            entry = tarfile.TarInfo("../escaped")
+            stream.addfile(entry)
+        (self.base / "downloads/SHA256SUMS").write_text(
+            hashlib.sha256(archive.read_bytes()).hexdigest() + "  " + archive.name + "\n")
         self.run_update(expected=1)
         self.assertEqual(self.artifacts(), [])
 

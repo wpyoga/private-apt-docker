@@ -161,14 +161,15 @@ This is per-file publication, not a transaction across all outputs.
   TIFF-thumbnail issue live in [packages/gimp-3.2/gimp-3.2.md](packages/gimp-3.2/gimp-3.2.md).
   This adapter-local documentation is intentionally part of its recipe checksum.
 
-- **GIMP help 3.2** imports every declared language and the matching common
-  package from Debian sid's precompiled 3.2 documentation. The adapter reads the
-  package index directly without changing any APT sources. It verifies SHA256,
+- The **same GIMP 3.2 adapter** also imports every declared language and the matching
+  common package from Debian sid's precompiled 3.2 documentation. Its pinned
+  source manifest is a recipe input; updating a manual source changes the recipe
+  checksum and rebuilds the family. It verifies SHA256,
   fixed payload layout, architecture, and exact common-package dependencies.
   It preserves upstream copyright notices, rewrites publisher metadata and
-  dependency versions, and recalculates Installed-Size. Debian's source package
-  revision is retained before appending the publisher revision, independently
-  of the GIMP application release. A changed language set requires review.
+  dependency versions, and recalculates Installed-Size. All outputs share the
+  GIMP stream's assigned version/revision, while X-Upstream-Version records the
+  original help version. A changed language set requires an explicit recipe update.
 
 - **Zed** selects official stable GitHub tarballs and verifies their SHA256.
   It preserves the relative CLI/editor layout but replaces all bundled shared

@@ -6,19 +6,24 @@ set -Eeuo pipefail
 : "${MAINTAINER:?MAINTAINER must be set and non-empty}"
 : "${PUBLISHER_STREAM:?PUBLISHER_STREAM must be set and non-empty}"
 : "${BUILD_INPUTS_SHA256:?BUILD_INPUTS_SHA256 must be set and non-empty}"
-: "${BINARY_PACKAGES:?BINARY_PACKAGES must be set and non-empty}"
 
 PACKAGE_VERSION=${1:?Package version is required}
 ARCHITECTURE=${2:?Architecture is required}
 OUTPUT_DIR=${3:?Output directory is required}
-UPSTREAM_VERSION=${PACKAGE_VERSION%-*}
-mkdir -p "$WORKSPACE/help-$ARCHITECTURE"
+mkdir -p "$WORKSPACE/help-staging" "$WORKSPACE/help-built"
 
-for PACKAGE_NAME in $BINARY_PACKAGES; do
+while IFS='|' read -r PACKAGE_NAME UPSTREAM_VERSION EXPECTED_SHA256 EXPECTED_FILENAME; do
+    CACHED_PACKAGE="$WORKSPACE/help-built/${PACKAGE_NAME}_${PACKAGE_VERSION}_all.deb"
+    if [[ -f "$CACHED_PACKAGE" ]]; then
+        cp --reflink=auto "$CACHED_PACKAGE" "$OUTPUT_DIR/"
+        continue
+    fi
     ASSET=$(jq --compact-output --exit-status --arg NAME "$PACKAGE_NAME" \
         '.[$NAME] | objects' "$WORKSPACE/help-assets.json")
-    if [[ $(jq --raw-output '.Version' <<< "$ASSET") != "$UPSTREAM_VERSION" ]]; then
-        echo "[gimp-help-3.2] Inconsistent selected version: $PACKAGE_NAME $PACKAGE_VERSION" >&2
+    if [[ $(jq --raw-output '.Version' <<< "$ASSET") != "$UPSTREAM_VERSION" \
+        || $(jq --raw-output '.SHA256' <<< "$ASSET") != "$EXPECTED_SHA256" \
+        || $(jq --raw-output '.Filename' <<< "$ASSET") != "$EXPECTED_FILENAME" ]]; then
+        echo "[gimp-3.2] Inconsistent selected help asset: $PACKAGE_NAME $PACKAGE_VERSION" >&2
         exit 1
     fi
     FILENAME=$(jq --raw-output '.Filename' <<< "$ASSET")
@@ -28,15 +33,15 @@ for PACKAGE_NAME in $BINARY_PACKAGES; do
         curl -fLsS --retry 3 "https://deb.debian.org/debian/$FILENAME" -o "$ARCHIVE"
     fi
     printf '%s  %s\n' "$SHA256" "$ARCHIVE" | sha256sum --check
-    PACKAGE_DIR="$WORKSPACE/help-$ARCHITECTURE/$PACKAGE_NAME"
+    PACKAGE_DIR="$WORKSPACE/help-staging/$PACKAGE_NAME"
     if [[ -e "$PACKAGE_DIR" ]]; then
-        echo "[gimp-help-3.2] Refusing to reuse staging tree: $PACKAGE_DIR" >&2
+        echo "[gimp-3.2] Refusing to reuse help staging tree: $PACKAGE_DIR" >&2
         exit 1
     fi
     dpkg-deb --raw-extract "$ARCHIVE" "$PACKAGE_DIR"
     sync -f "$PACKAGE_DIR"
-    python3 "$ADAPTER_DIR/metadata.py" rewrite "$PACKAGE_NAME" "$UPSTREAM_VERSION" \
+    python3 "$ADAPTER_DIR/help-metadata.py" rewrite "$PACKAGE_NAME" "$UPSTREAM_VERSION" \
         "$PACKAGE_VERSION" "$PACKAGE_DIR"
-    dpkg-deb --build --root-owner-group -Zgzip "$PACKAGE_DIR" \
-        "$OUTPUT_DIR/${PACKAGE_NAME}_${PACKAGE_VERSION}_all.deb"
-done
+    dpkg-deb --build --root-owner-group -Zgzip "$PACKAGE_DIR" "$CACHED_PACKAGE"
+    cp --reflink=auto "$CACHED_PACKAGE" "$OUTPUT_DIR/"
+done < "$ADAPTER_DIR/help-assets"

@@ -8,25 +8,28 @@ if [[ ! -d "$FRAMEWORK_DIR/tests/gimp" ]]; then
     echo 'Run tests from the project root.' >&2
     exit 1
 fi
-DEB_DIR=${1:?Supply the directory containing the eight real amd64 GIMP adapter outputs}
+DEB_DIR=${1:?Supply the directory containing the complete real amd64 GIMP adapter outputs}
 DEBS=("$DEB_DIR/"*.deb)
-if (( ${#DEBS[@]} != 8 )); then
-    echo "Expected eight GIMP packages in $DEB_DIR" >&2
+EXPECTED_PACKAGES=$(sed -n 's/^BINARY_PACKAGES="\(.*\)"$/\1/p' packages/gimp-3.2/config)
+read -r -a PACKAGE_NAMES <<< "$EXPECTED_PACKAGES"
+if (( ${#DEBS[@]} != ${#PACKAGE_NAMES[@]} )); then
+    echo "Expected ${#PACKAGE_NAMES[@]} GIMP family packages in $DEB_DIR" >&2
     exit 1
 fi
 mkdir -p "$FRAMEWORK_DIR/build"
 CONTEXT=$(mktemp -d "$FRAMEWORK_DIR/build/gimp-install-XXXXXX")
 mkdir -p "$CONTEXT/debs"
 cp "$FRAMEWORK_DIR/tests/gimp/"* "$CONTEXT/"
-cp "${DEBS[@]}" "$CONTEXT/debs/"
-if [[ -n "${2:-}" ]]; then
-    HELP_DEBS=("$2/"gimp-help-*.deb)
-    if (( ${#HELP_DEBS[@]} == 0 )); then
-        echo "No GIMP help packages in $2" >&2
-        exit 1
-    fi
-    cp "${HELP_DEBS[@]}" "$CONTEXT/debs/"
-fi
+# All language archives are checked during packaging. English exercises actual
+# help installation here without copying every translation into each test image.
+for PACKAGE_FILE in "${DEBS[@]}"; do
+    PACKAGE_NAME=$(dpkg-deb --field "$PACKAGE_FILE" Package)
+    case "$PACKAGE_NAME" in
+        gimp-help-common|gimp-help-en) cp "$PACKAGE_FILE" "$CONTEXT/debs/" ;;
+        gimp-help-*) ;;
+        *) cp "$PACKAGE_FILE" "$CONTEXT/debs/" ;;
+    esac
+done
 printf 'Preserved installation test context: %s\n' "$CONTEXT"
 TAG=${CONTEXT##*/}
 docker build --progress=plain --no-cache --target clean \
