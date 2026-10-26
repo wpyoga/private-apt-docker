@@ -1,0 +1,2 @@
+RELEASE_STREAM=gimp-3.2
+BINARY_PACKAGES="gimp gimp-data libgimp-3.0-0 gir1.2-gimp-3.0 gimp-bundled-runtime"

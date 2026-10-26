@@ -1,0 +1,22 @@
+GIMP @UPSTREAM_VERSION@, with private babl and GEGL from its official AppImage.
+Copyright: the GIMP, babl, GEGL and individual resource contributors.
+Authors and per-file notices are available in the corresponding upstream sources.
+
+The GIMP application is distributed under GNU GPL version 3 or later.
+Its libraries and babl/GEGL libraries also include GNU LGPL version 3 or later
+code; some GEGL operations and bundled resources use GPL or other upstream
+licenses. This repack preserves the upstream resource files and does not change
+their licensing. Debian-managed external libraries are not included here.
+
+Corresponding upstream source and notices:
+ https://download.gimp.org/gimp/v3.2/gimp-@UPSTREAM_VERSION@.tar.xz
+ https://download.gimp.org/babl/0.1/
+ https://download.gimp.org/gegl/0.4/
+The private runtime's exact versions are in upstream-versions in this directory.
+
+Repackaging changes: native ELF interpreter and search paths, native launchers,
+Debian filesystem integration, and replacement of external libraries by Debian
+dependencies. This is an unofficial repack, not an official Debian/GIMP package.
+
+The full GNU GPL v3 and LGPL v3 texts are installed on Debian systems at
+/usr/share/common-licenses/GPL-3 and /usr/share/common-licenses/LGPL-3.

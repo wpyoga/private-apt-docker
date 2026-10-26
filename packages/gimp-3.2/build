@@ -1,0 +1,111 @@
+#!/bin/bash
+set -Eeuo pipefail
+shopt -s nullglob
+
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${PUBLISHER_STREAM:?PUBLISHER_STREAM must be set and non-empty}"
+: "${BUILD_INPUTS_SHA256:?BUILD_INPUTS_SHA256 must be set and non-empty}"
+: "${MAINTAINER:?MAINTAINER must be set and non-empty}"
+
+PACKAGE_VERSION=${1:?Package version is required}
+ARCHITECTURE=${2:?Architecture is required}
+OUTPUT_DIR=${3:?Output directory is required}
+case "$ARCHITECTURE" in
+    amd64)
+        MULTIARCH=x86_64-linux-gnu
+        INTERPRETER=/lib64/ld-linux-x86-64.so.2
+        ;;
+    arm64)
+        MULTIARCH=aarch64-linux-gnu
+        INTERPRETER=/lib/ld-linux-aarch64.so.1
+        ;;
+    *) echo "[gimp-3.2] Unsupported architecture: $ARCHITECTURE" >&2; exit 1 ;;
+esac
+
+ASSET=$(jq --compact-output --exit-status --arg ARCH "$ARCHITECTURE" \
+    '.[$ARCH] | objects' "$WORKSPACE/assets.json")
+UPSTREAM_VERSION=$(jq --raw-output --exit-status '.version | strings' <<< "$ASSET")
+if [[ "$UPSTREAM_VERSION" != "${PACKAGE_VERSION%-*}" || ! "$UPSTREAM_VERSION" =~ ^3\.2\.[0-9]+$ ]]; then
+    echo "[gimp-3.2] Inconsistent selected version for $PACKAGE_VERSION $ARCHITECTURE" >&2
+    exit 1
+fi
+DOWNLOAD_URL=$(jq --raw-output --exit-status '.url | strings' <<< "$ASSET")
+DOWNLOAD_SHA256=$(jq --raw-output --exit-status '.sha256 | strings' <<< "$ASSET")
+ARCHIVE="$WORKSPACE/gimp-$ARCHITECTURE.AppImage"
+SOURCE_DIR="$WORKSPACE/source-$ARCHITECTURE"
+SOURCE_USR="$SOURCE_DIR/usr"
+STAGING_DIR="$WORKSPACE/staging-$ARCHITECTURE"
+PRIVATE_PATH="/usr/lib/$MULTIARCH/gimp/bundled"
+export SOURCE_USR STAGING_DIR MULTIARCH UPSTREAM_VERSION ARCHITECTURE
+
+curl -fLsS --retry 3 "$DOWNLOAD_URL" -o "$ARCHIVE"
+printf '%s  %s\n' "$DOWNLOAD_SHA256" "$ARCHIVE" | sha256sum --check
+OFFSET=$(python3 "$ADAPTER_DIR/inspect-bundle.py" offset "$ARCHIVE")
+# Extract data directly. Never execute AppRun, the AppImage runtime, or target ELF.
+unsquashfs -no-progress -no-xattrs -processors 1 -o "$OFFSET" \
+    -d "$SOURCE_DIR" "$ARCHIVE"
+python3 "$ADAPTER_DIR/inspect-bundle.py" source
+bash "$ADAPTER_DIR/stage.sh"
+python3 "$ADAPTER_DIR/inspect-bundle.py" staged
+
+while IFS= read -r -d '' BINARY; do
+    if [[ "$(head -c 4 "$BINARY")" != $'\177ELF' ]]; then
+        continue
+    fi
+    if patchelf --print-interpreter "$BINARY" >/dev/null 2>&1; then
+        patchelf --set-interpreter "$INTERPRETER" "$BINARY"
+    fi
+    patchelf --set-rpath "\$ORIGIN:$PRIVATE_PATH" "$BINARY"
+done < <(find "$STAGING_DIR" -type f -print0)
+
+RUNTIME_DEPENDS=$(
+    { cut -f 2 "$ADAPTER_DIR/runtime-libraries.tsv"; cat "$ADAPTER_DIR/runtime-extra-dependencies"; } \
+        | sort -u | paste -sd,
+)
+HEIF_DEPENDS=$(paste -sd, "$ADAPTER_DIR/heif-dependencies")
+MAINTAINER_SED=$(printf '%s' "$MAINTAINER" | sed 's/[\\&|]/\\&/g')
+
+for PACKAGE_NAME in gimp gimp-data libgimp-3.0-0 gir1.2-gimp-3.0 gimp-bundled-runtime; do
+    PACKAGE_DIR="$STAGING_DIR/$PACKAGE_NAME"
+    DEPENDS="gimp-bundled-runtime (= $PACKAGE_VERSION)"
+    PROVIDES=
+    case "$PACKAGE_NAME" in
+        gimp)
+            DEPENDS+=", gimp-data (= $PACKAGE_VERSION), libgimp-3.0-0 (= $PACKAGE_VERSION)"
+            DEPENDS+=", gir1.2-gimp-3.0 (= $PACKAGE_VERSION), $HEIF_DEPENDS"
+            ;;
+        gimp-data) DEPENDS=hicolor-icon-theme ;;
+        gimp-bundled-runtime) DEPENDS="$RUNTIME_DEPENDS" ;;
+        gir1.2-gimp-3.0)
+            DEPENDS="libgimp-3.0-0 (= $PACKAGE_VERSION), gimp-bundled-runtime (= $PACKAGE_VERSION)"
+            PROVIDES="Provides: gir1.2-gimpui-3.0 (= $PACKAGE_VERSION)"
+            ;;
+    esac
+    mkdir -p "$PACKAGE_DIR/DEBIAN" "$PACKAGE_DIR/usr/share/doc/$PACKAGE_NAME"
+    sed -e "s/@UPSTREAM_VERSION@/$UPSTREAM_VERSION/g" \
+        "$ADAPTER_DIR/copyright.in" > "$PACKAGE_DIR/usr/share/doc/$PACKAGE_NAME/copyright"
+    if [[ -d "$PACKAGE_DIR/etc" ]]; then
+        find "$PACKAGE_DIR/etc" -type f -printf '/etc/%P\n' \
+            | sort > "$PACKAGE_DIR/DEBIAN/conffiles"
+    fi
+    if [[ "$PACKAGE_NAME" == libgimp-3.0-0 ]]; then
+        printf 'activate-noawait ldconfig\n' > "$PACKAGE_DIR/DEBIAN/triggers"
+    fi
+    # Finish delayed allocation before measuring the final staged tree.
+    sync -f "$PACKAGE_DIR"
+    INSTALLED_SIZE=$(du --summarize --block-size=1024 --exclude=DEBIAN "$PACKAGE_DIR" | cut -f1)
+    sed \
+        -e "s|@MAINTAINER@|$MAINTAINER_SED|g" \
+        -e "s/@PACKAGE_NAME@/$PACKAGE_NAME/g" \
+        -e "s/@PACKAGE_VERSION@/$PACKAGE_VERSION/g" \
+        -e "s/@ARCHITECTURE@/$ARCHITECTURE/g" \
+        -e "s/@INSTALLED_SIZE@/$INSTALLED_SIZE/g" \
+        -e "s|@DEPENDS@|$DEPENDS|g" \
+        -e "s|@PROVIDES@|$PROVIDES|g" \
+        -e "s/@BUILD_INPUTS_SHA256@/$BUILD_INPUTS_SHA256/g" \
+        -e "s/@PUBLISHER_STREAM@/$PUBLISHER_STREAM/g" \
+        "$ADAPTER_DIR/control.in" > "$PACKAGE_DIR/DEBIAN/control"
+    dpkg-deb --build --root-owner-group -Zgzip "$PACKAGE_DIR" \
+        "$OUTPUT_DIR/${PACKAGE_NAME}_${PACKAGE_VERSION}_${ARCHITECTURE}.deb"
+done

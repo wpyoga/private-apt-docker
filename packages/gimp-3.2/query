@@ -1,0 +1,68 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${ARCHES:?ARCHES must be set and non-empty}"
+
+curl -fLsS --retry 3 https://www.gimp.org/gimp_versions.json \
+    -o "$WORKSPACE/gimp_versions.json"
+
+# A later 3.4 release must not move this adapter out of the 3.2 stream.
+RELEASE=$(jq --compact-output --exit-status '
+    .STABLE | arrays
+    | map(select(.version | strings | test("^3\\.2\\.[0-9]+$")))
+    | max_by(.version | split(".") | map(tonumber))
+    | objects
+' "$WORKSPACE/gimp_versions.json")
+VERSION=$(jq --raw-output '.version' <<< "$RELEASE")
+RELEASE_DATE=$(jq --raw-output --exit-status '.date | strings' <<< "$RELEASE")
+if [[ ! "$RELEASE_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+    echo "[gimp-3.2] Invalid release date for $VERSION: $RELEASE_DATE" >&2
+    exit 1
+fi
+date --utc --date="$RELEASE_DATE" '+%Y-%m-%dT00:00:00Z' > "$WORKSPACE/release-date"
+
+printf '{}\n' > "$WORKSPACE/assets.json"
+: > "$WORKSPACE/targets.tsv"
+for ARCHITECTURE in $ARCHES; do
+    case "$ARCHITECTURE" in
+        amd64) TARGET=x86_64 ;;
+        arm64) TARGET=aarch64 ;;
+        *)
+            echo "[gimp-3.2] Unsupported architecture: $ARCHITECTURE" >&2
+            exit 1
+            ;;
+    esac
+    NAME="GIMP-$VERSION-$TARGET.AppImage"
+    ASSETS=$(jq --compact-output --arg NAME "$NAME" '
+        [.appimage[]? | select(.filename == $NAME)]
+    ' <<< "$RELEASE")
+    COUNT=$(jq 'length' <<< "$ASSETS")
+    if (( COUNT == 0 )); then
+        echo "WARNING: [gimp-3.2] No upstream AppImage for $VERSION $ARCHITECTURE" >&2
+        continue
+    fi
+    if (( COUNT != 1 )); then
+        echo "[gimp-3.2] Duplicate release asset: $NAME" >&2
+        exit 1
+    fi
+    ASSET=$(jq --compact-output '.[0]' <<< "$ASSETS")
+    if ! jq --exit-status '
+        (.sha256 | strings | length == 64 and test("^[0-9a-fA-F]{64}$"))
+        and .["min-support"] == "Debian 13"
+        and (.revision // 0) == 0
+    ' <<< "$ASSET" >/dev/null; then
+        echo "[gimp-3.2] Invalid SHA256, changed Debian baseline, or unsupported rebuild: $NAME" >&2
+        exit 1
+    fi
+    jq --arg ARCH "$ARCHITECTURE" --arg VERSION "$VERSION" --arg NAME "$NAME" \
+        --arg SHA256 "$(jq --raw-output '.sha256' <<< "$ASSET")" '
+        .[$ARCH] = {
+            version: $VERSION, name: $NAME, sha256: $SHA256,
+            url: ("https://download.gimp.org/gimp/v3.2/linux/" + $NAME)
+        }
+    ' "$WORKSPACE/assets.json" > "$WORKSPACE/assets.tmp"
+    mv "$WORKSPACE/assets.tmp" "$WORKSPACE/assets.json"
+    printf '%s\t%s\n' "$VERSION" "$ARCHITECTURE" >> "$WORKSPACE/targets.tsv"
+done

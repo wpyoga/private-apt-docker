@@ -1,0 +1,9 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+export LD_LIBRARY_PATH=/usr/lib/@MULTIARCH@/gimp/bundled
+export BABL_PATH=/usr/lib/@MULTIARCH@/gimp/bundled/babl-0.1
+export GEGL_PATH=/usr/lib/@MULTIARCH@/gimp/bundled/gegl-0.4
+export GI_TYPELIB_PATH=/usr/lib/@MULTIARCH@/gimp/bundled/girepository-1.0
+
+exec /usr/bin/@EXECUTABLE@.bin "$@"

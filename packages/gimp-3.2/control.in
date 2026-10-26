@@ -1,0 +1,15 @@
+Package: @PACKAGE_NAME@
+Version: @PACKAGE_VERSION@
+Architecture: @ARCHITECTURE@
+Maintainer: @MAINTAINER@
+Section: graphics
+Priority: optional
+Homepage: https://www.gimp.org/
+Installed-Size: @INSTALLED_SIZE@
+Depends: @DEPENDS@
+@PROVIDES@
+X-Build-Inputs-SHA256: @BUILD_INPUTS_SHA256@
+X-Publisher-Stream: @PUBLISHER_STREAM@
+Description: GIMP 3.2 native repack from the official AppImage
+ Unofficial Debian 13 repackaging of GIMP's official binaries.
+ Uses Debian external libraries and a private babl/GEGL runtime.
