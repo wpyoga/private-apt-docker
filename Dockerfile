@@ -18,6 +18,7 @@ RUN apt-get update \
         squashfs-tools \
         tar \
         util-linux \
+        xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/apt-publisher

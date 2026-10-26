@@ -3,7 +3,8 @@
 This container checks upstream releases, builds Debian packages, and publishes
 one signed APT repository. It includes an unofficial repackaging of the official
 OpenAI Codex executables as `codex-cli`, community Ghostty Debian packages as
-`ghostty`, and native GIMP 3.2 packages from the official AppImages.
+`ghostty`, native GIMP 3.2 packages from the official AppImages, and the official
+Zed editor binaries repackaged with Debian shared libraries as `zed`.
 
 The container does not serve HTTP. Point an existing Caddy instance at `repo/`.
 
@@ -344,6 +345,24 @@ becomes `1.3.1+0.ppa2-1`. Missing architectures retain previously published pack
 After rebuilding the publisher image and publishing an update cycle, clients can
 install it with `sudo apt install ghostty`.
 
+## Zed
+
+`packages/zed/` follows the latest stable
+[official Zed release](https://github.com/zed-industries/zed/releases/latest)
+for amd64 and arm64. It verifies GitHub's SHA256 digest and repackages the fixed
+Linux archive layout for Debian 13. This is unofficial Debian packaging of
+official binaries, not an official Zed APT repository.
+
+The package uses Debian shared libraries instead of all nine upstream bundled
+libraries. A small `/usr/bin/zed` wrapper disables Zed's built-in updater and
+directs users to APT. Desktop launching uses the same wrapper. A working Vulkan
+GPU/driver and desktop portal backend are needed for desktop functionality.
+Install it with `sudo apt install zed` after rebuilding the publisher image and
+publishing an update cycle.
+
+See [Zed packaging and validation notes](docs/zed.md), particularly the
+`libXdmcp -> libbsd` dependency difference and pending laptop desktop checks.
+
 ## GIMP 3.2
 
 `packages/gimp-3.2/` selects the newest stable **3.2.x** release from GIMP's
@@ -530,7 +549,8 @@ and real Debian package/index tools. Host requirements are Bash, GNU tar, Python
 3.10+, `dpkg-dev`, `apt-utils`, `jq`, and GnuPG.
 
 The regression tests are grouped into `test_publisher.py`, `test_codex.py`,
-`test_ghostty.py`, `test_gimp.py`, and `test_setup.py`. GIMP's offline tests also
+`test_ghostty.py`, `test_zed.py`, `test_gimp.py`, and `test_setup.py`.
+Zed's tests require `patchelf` and `binutils`. GIMP's offline tests also
 require `patchelf` and `squashfs-tools`; they use real SquashFS fixtures and inspect
 both target architectures without executing their binaries. Their shared
 temporary fixtures live in `publisher_test_support.py`. The setup test uses fake sudo and GPG commands;

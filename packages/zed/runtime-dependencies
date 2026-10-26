@@ -1,0 +1,23 @@
+# SONAME | Debian dependency
+libc.so.6|libc6 (>= 2.41)
+libdl.so.2|libc6 (>= 2.41)
+libm.so.6|libc6 (>= 2.41)
+libpthread.so.0|libc6 (>= 2.41)
+ld-linux-x86-64.so.2|libc6 (>= 2.41)
+ld-linux-aarch64.so.1|libc6 (>= 2.41)
+libgcc_s.so.1|libgcc-s1 (>= 14)
+libstdc++.so.6|libstdc++6 (>= 14)
+libgio-2.0.so.0|libglib2.0-0t64 (>= 2.84)
+libgobject-2.0.so.0|libglib2.0-0t64 (>= 2.84)
+libglib-2.0.so.0|libglib2.0-0t64 (>= 2.84)
+libasound.so.2|libasound2t64
+libX11-xcb.so.1|libx11-xcb1
+libxcb.so.1|libxcb1
+libxkbcommon.so.0|libxkbcommon0
+libxkbcommon-x11.so.0|libxkbcommon-x11-0
+# These belong to the original bundle's dependency chain. Only add them
+# as direct dependencies if a retained Zed executable actually needs them.
+libXau.so.6|libxau6
+libXdmcp.so.6|libxdmcp6
+libxcb-xkb.so.1|libxcb-xkb1
+libbsd.so.0|libbsd0

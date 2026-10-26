@@ -1,0 +1,76 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${PUBLISHER_STREAM:?PUBLISHER_STREAM must be set and non-empty}"
+: "${BUILD_INPUTS_SHA256:?BUILD_INPUTS_SHA256 must be set and non-empty}"
+: "${MAINTAINER:?MAINTAINER must be set and non-empty}"
+
+export LC_ALL=C
+PACKAGE_VERSION="$1"
+ARCHITECTURE="$2"
+OUTPUT_DIR="$3"
+SOURCE_DIR="$WORKSPACE/extract-$ARCHITECTURE"
+PACKAGE_DIR="$WORKSPACE/pkg-$ARCHITECTURE"
+PACKAGE_ROOT="$PACKAGE_DIR/usr/lib/zed"
+
+case "$ARCHITECTURE" in
+    amd64) TARGET=x86_64 ;;
+    arm64) TARGET=aarch64 ;;
+    *) echo "[zed] Unsupported architecture: $ARCHITECTURE" >&2; exit 1 ;;
+esac
+
+ASSET=$(jq --compact-output --exit-status --arg ARCH "$ARCHITECTURE" \
+    '.[$ARCH]' "$WORKSPACE/assets.json")
+UPSTREAM_VERSION=$(jq --raw-output --exit-status '.version | strings' <<< "$ASSET")
+ASSET_NAME=$(jq --raw-output --exit-status '.name | strings' <<< "$ASSET")
+DOWNLOAD_URL=$(jq --raw-output --exit-status '.url | strings' <<< "$ASSET")
+ARCHIVE_SHA256=$(jq --raw-output --exit-status '.sha256 | strings' <<< "$ASSET")
+
+if [[ "$UPSTREAM_VERSION" != "${PACKAGE_VERSION%-*}" || \
+      "$ASSET_NAME" != "zed-linux-$TARGET.tar.gz" ]]; then
+    echo "[zed] Inconsistent build asset for $PACKAGE_VERSION ($ARCHITECTURE): $ASSET_NAME" >&2
+    exit 1
+fi
+ARCHIVE_PATH="$WORKSPACE/$ASSET_NAME"
+curl -fLsS --retry 3 "$DOWNLOAD_URL" -o "$ARCHIVE_PATH"
+printf '%s  %s\n' "$ARCHIVE_SHA256" "$ARCHIVE_PATH" | sha256sum -c -
+
+python3 "$ADAPTER_DIR/inspect-bundle.py" archive "$ARCHIVE_PATH"
+mkdir -p "$SOURCE_DIR"
+tar --extract --gzip --file "$ARCHIVE_PATH" --directory "$SOURCE_DIR" \
+    --no-same-owner --no-same-permissions --keep-old-files
+chmod -R u+rwX,go-w,a-s,a-t "$SOURCE_DIR"
+BUNDLE_ROOT="$SOURCE_DIR/zed.app"
+DEPENDS=$(python3 "$ADAPTER_DIR/inspect-bundle.py" tree \
+    "$BUNDLE_ROOT" "$ARCHITECTURE" "$ADAPTER_DIR/runtime-dependencies")
+# Vulkan, Wayland and font discovery also load libraries at runtime.
+DEPENDS+=', ca-certificates, libfontconfig1, libfreetype6, libvulkan1, libwayland-client0, xdg-utils'
+
+mkdir -p "$PACKAGE_ROOT/bin" "$PACKAGE_ROOT/libexec" \
+    "$PACKAGE_DIR/usr/bin" "$PACKAGE_DIR/usr/share/doc/zed" "$PACKAGE_DIR/DEBIAN"
+install -m 755 "$BUNDLE_ROOT/bin/zed" "$PACKAGE_ROOT/bin/zed"
+install -m 755 "$BUNDLE_ROOT/libexec/zed-editor" "$PACKAGE_ROOT/libexec/zed-editor"
+# Drop upstream private-library search paths; use Debian's multiarch loader.
+patchelf --remove-rpath "$PACKAGE_ROOT/bin/zed"
+patchelf --remove-rpath "$PACKAGE_ROOT/libexec/zed-editor"
+install -m 755 "$ADAPTER_DIR/launcher.in" "$PACKAGE_DIR/usr/bin/zed"
+cp -a "$BUNDLE_ROOT/share/." "$PACKAGE_DIR/usr/share/"
+install -m 644 "$BUNDLE_ROOT/licenses.md" "$PACKAGE_DIR/usr/share/doc/zed/licenses.md"
+install -m 644 "$ADAPTER_DIR/copyright.in" "$PACKAGE_DIR/usr/share/doc/zed/copyright"
+
+INSTALLED_SIZE=$(du --summarize --block-size=1024 --exclude=DEBIAN "$PACKAGE_DIR" | cut -f1)
+MAINTAINER_SED=$(printf '%s' "$MAINTAINER" | sed 's/[\\&|]/\\&/g')
+sed \
+    -e "s|@MAINTAINER@|$MAINTAINER_SED|g" \
+    -e "s/@PACKAGE_VERSION@/$PACKAGE_VERSION/g" \
+    -e "s/@ARCHITECTURE@/$ARCHITECTURE/g" \
+    -e "s/@INSTALLED_SIZE@/$INSTALLED_SIZE/g" \
+    -e "s|@DEPENDS@|$DEPENDS|g" \
+    -e "s/@BUILD_INPUTS_SHA256@/$BUILD_INPUTS_SHA256/g" \
+    -e "s/@PUBLISHER_STREAM@/$PUBLISHER_STREAM/g" \
+    "$ADAPTER_DIR/control.in" > "$PACKAGE_DIR/DEBIAN/control"
+
+dpkg-deb --build --root-owner-group -Zgzip "$PACKAGE_DIR" \
+    "$OUTPUT_DIR/zed_${PACKAGE_VERSION}_${ARCHITECTURE}.deb"

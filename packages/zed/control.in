@@ -1,0 +1,15 @@
+Package: zed
+Version: @PACKAGE_VERSION@
+Section: editors
+Priority: optional
+Architecture: @ARCHITECTURE@
+Installed-Size: @INSTALLED_SIZE@
+Maintainer: @MAINTAINER@
+Homepage: https://zed.dev/
+Depends: @DEPENDS@
+Recommends: git, mesa-vulkan-drivers | vulkan-icd, xdg-desktop-portal, xdg-desktop-portal-backend
+X-Build-Inputs-SHA256: @BUILD_INPUTS_SHA256@
+X-Publisher-Stream: @PUBLISHER_STREAM@
+Description: Zed text editor (official binaries, Debian system libraries)
+ Unofficial Debian 13 repackaging of the official stable Zed binaries.
+ Uses Debian shared libraries and receives editor updates through APT.

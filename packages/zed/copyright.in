@@ -1,0 +1,11 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Zed
+Source: https://github.com/zed-industries/zed
+
+Files: *
+Copyright: Zed Industries, Inc. and contributors
+License: GPL-3+ and Apache-2.0 and other
+ The editor is licensed under GPL-3.0-or-later; GPUI is licensed under
+ Apache-2.0. Bundled component notices are preserved in licenses.md.
+ The full GPL version 3 is in /usr/share/common-licenses/GPL-3;
+ Apache License 2.0 is in /usr/share/common-licenses/Apache-2.0.

@@ -1,0 +1,6 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+export ZED_UPDATE_EXPLANATION='Update Zed using APT.'
+
+exec /usr/lib/zed/bin/zed "$@"
