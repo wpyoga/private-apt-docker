@@ -114,12 +114,16 @@ for BINARY in "$PACKAGE_ROOT"/bin/*; do
     ln -s "../lib/openai-codex/bin/$BINARY_NAME" "$PACKAGE_DIR/usr/bin/$BINARY_NAME"
 done
 
+# APT needs the unpacked size in KiB; DEBIAN contains package metadata only.
+INSTALLED_SIZE=$(du --summarize --block-size=1024 --exclude=DEBIAN "$PACKAGE_DIR" | cut -f1)
+
 # Escape replacement characters in the maintainer's human-entered name.
 MAINTAINER_SED=$(printf '%s' "$MAINTAINER" | sed 's/[\\&|]/\\&/g')
 sed \
     -e "s|@MAINTAINER@|$MAINTAINER_SED|g" \
     -e "s/@PACKAGE_VERSION@/$PACKAGE_VERSION/g" \
     -e "s/@ARCHITECTURE@/$ARCHITECTURE/g" \
+    -e "s/@INSTALLED_SIZE@/$INSTALLED_SIZE/g" \
     -e "s/@BUILD_INPUTS_SHA256@/$BUILD_INPUTS_SHA256/g" \
     -e "s/@PUBLISHER_STREAM@/$PUBLISHER_STREAM/g" \
     "$ADAPTER_DIR/control.in" > "$PACKAGE_DIR/DEBIAN/control"

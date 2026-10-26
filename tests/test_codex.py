@@ -21,6 +21,7 @@ class CodexTests(PublisherTestCase):
         metadata_version="1.2.3",
         corrupt_digest=False,
         missing_arm64=False,
+        payload_size=0,
     ):
         shutil.copytree(
             ROOT / "packages/codex",
@@ -45,6 +46,8 @@ class CodexTests(PublisherTestCase):
                     "entrypoint": "bin/codex",
                 }).encode(),
             }
+            if payload_size:
+                files["bin/codex"] += b"x" * payload_size
             with tarfile.open(path, "w:gz") as archive:
                 for relative, data in files.items():
                     entry = tarfile.TarInfo(prefix + relative)
@@ -185,6 +188,22 @@ class CodexTests(PublisherTestCase):
                 expected = f'#!/bin/sh\nexec /usr/bin/{executable} "$@"\n'
                 self.assertEqual(wrapper.read(), expected.encode())
         self.assertIn(metadata["x-build-inputs-sha256"], self.index())
+
+    def test_codex_installed_size_includes_unpacked_payload(self):
+        payload_size = 2 * 1024 * 1024
+        self.codex_fixture(payload_size=payload_size)
+        self.run_update()
+
+        for artifact in self.artifacts("codex"):
+            metadata = fields(artifact)
+            installed_size = int(metadata["installed-size"])
+            self.assertGreaterEqual(installed_size, payload_size // 1024)
+            self.assertLess(installed_size, payload_size // 1024 + 128)
+            self.assertLess(artifact.stat().st_size, installed_size * 1024)
+            self.assertIn(
+                f"Installed-Size: {installed_size}\n",
+                self.index(metadata["architecture"]),
+            )
 
     def test_codex_missing_architecture_can_be_published_later(self):
         self.codex_fixture(missing_arm64=True)

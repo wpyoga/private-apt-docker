@@ -3,6 +3,7 @@ Version: @PACKAGE_VERSION@
 Section: devel
 Priority: optional
 Architecture: @ARCHITECTURE@
+Installed-Size: @INSTALLED_SIZE@
 X-Build-Inputs-SHA256: @BUILD_INPUTS_SHA256@
 X-Publisher-Stream: @PUBLISHER_STREAM@
 Maintainer: @MAINTAINER@
