@@ -87,6 +87,9 @@ tests, or copy operator secrets into documentation or fixtures.
 
 Run checks appropriate to the change from the project root:
 
+Package-specific runs should cover that package. Run the signing test only when
+signing code changes or when intentionally running the full test suite.
+
 ```bash
 python3 -m unittest discover -s tests -v
 bash tests/test-signed-repo.sh
