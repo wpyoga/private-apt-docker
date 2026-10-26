@@ -9,12 +9,29 @@ curl -fLsS --retry 3 https://www.gimp.org/gimp_versions.json \
     -o "$WORKSPACE/gimp_versions.json"
 
 # A later 3.4 release must not move this adapter out of the 3.2 stream.
-RELEASE=$(jq --compact-output --exit-status '
+if ! jq --exit-status '
+    (.STABLE | type == "array") and
+    all(.STABLE[]; (.version | type == "string"))
+' "$WORKSPACE/gimp_versions.json" >/dev/null; then
+    echo '[gimp-3.2] Invalid stable release metadata' >&2
+    exit 1
+fi
+RELEASE=$(jq --compact-output '
     .STABLE | arrays
     | map(select(.version | strings | test("^3\\.2\\.[0-9]+$")))
     | max_by(.version | split(".") | map(tonumber))
-    | objects
+    | select(. != null)
 ' "$WORKSPACE/gimp_versions.json")
+printf '{}\n' > "$WORKSPACE/assets.json"
+: > "$WORKSPACE/targets.tsv"
+if [[ -z "$RELEASE" ]]; then
+    echo 'WARNING: [gimp-3.2] No stable 3.2 release is available' >&2
+    exit 0
+fi
+if ! jq --exit-status '(.appimage // []) | type == "array"' <<< "$RELEASE" >/dev/null; then
+    echo '[gimp-3.2] Invalid AppImage asset list' >&2
+    exit 1
+fi
 VERSION=$(jq --raw-output '.version' <<< "$RELEASE")
 RELEASE_DATE=$(jq --raw-output --exit-status '.date | strings' <<< "$RELEASE")
 if [[ ! "$RELEASE_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
@@ -23,8 +40,6 @@ if [[ ! "$RELEASE_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
 fi
 date --utc --date="$RELEASE_DATE" '+%Y-%m-%dT00:00:00Z' > "$WORKSPACE/release-date"
 
-printf '{}\n' > "$WORKSPACE/assets.json"
-: > "$WORKSPACE/targets.tsv"
 for ARCHITECTURE in $ARCHES; do
     case "$ARCHITECTURE" in
         amd64) TARGET=x86_64 ;;

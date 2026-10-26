@@ -148,6 +148,16 @@ This is per-file publication, not a transaction across all outputs.
   during repackaging; preserved scripts can run when clients install the package.
   Community rebuild identifiers are included in the tracked upstream version.
 
+- **GIMP 3.2** selects the latest stable 3.2.x AppImages from GIMP's release
+  metadata, verifies SHA256, and extracts SquashFS without executing upstream
+  code. Fixed GIMP-owned paths become five native packages. babl/GEGL remain
+  private; known external SONAMEs map to explicit Debian dependencies. This map
+  checks new upstream requirements without relying on installed host packages.
+  Architecture checks, link/file-type validation and native ELF patching work
+  for amd64 and arm64 without target execution. General notes and the deferred
+  TIFF-thumbnail issue live in [docs/gimp-3.2.md](docs/gimp-3.2.md), outside the
+  recipe checksum inputs.
+
 These examples illustrate different methods. Document the actual source and
 compatibility requirements of a community package rather than presenting it as
 an official binary.
@@ -261,8 +271,7 @@ are separate deployment verification; offline tests do not establish that a GUI
 application works on a target desktop.
 
 When resuming, inspect current files and working-tree changes first. This document
-records decisions, not a frozen task queue. As of 2026-10-25, adding GIMP 3.2 was
-explicitly deferred to a separate session. No GIMP adapter or packaging method
-was implemented here; preliminary AppImage research did not settle the packaging
-method. Check current upstream artifacts and the repository before continuing
-that task.
+records decisions, not a frozen task queue. The GIMP 3.2 adapter continues the
+native AppImage-repack investigation; its maintained design and deferred issues
+are recorded in [docs/gimp-3.2.md](docs/gimp-3.2.md). Generated investigation
+payloads and local dependency-root/native-root trees are not adapter inputs.

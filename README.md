@@ -2,7 +2,8 @@
 
 This container checks upstream releases, builds Debian packages, and publishes
 one signed APT repository. It includes an unofficial repackaging of the official
-OpenAI Codex executables as `codex-cli`, and community Ghostty Debian packages as `ghostty`.
+OpenAI Codex executables as `codex-cli`, community Ghostty Debian packages as
+`ghostty`, and native GIMP 3.2 packages from the official AppImages.
 
 The container does not serve HTTP. Point an existing Caddy instance at `repo/`.
 
@@ -341,6 +342,31 @@ becomes `1.3.1+0.ppa2-1`. Missing architectures retain previously published pack
 After rebuilding the publisher image and publishing an update cycle, clients can
 install it with `sudo apt install ghostty`.
 
+## GIMP 3.2
+
+`packages/gimp-3.2/` selects the newest stable **3.2.x** release from GIMP's
+[official release metadata](https://www.gimp.org/gimp_versions.json). It checks
+the official SHA256 digest and extracts the amd64 or arm64 AppImage as data;
+it does not execute AppRun, require FUSE, or run target binaries during builds.
+The packages target Debian 13 and retain the official binaries' CPU requirements.
+
+The stream produces `gimp`, `gimp-data`, `libgimp-3.0-0`, `gir1.2-gimp-3.0`,
+and `gimp-bundled-runtime`. Only babl/GEGL and their modules/typelibs remain
+private. Other libraries use Debian packages. GIMP depends explicitly on
+`libheif1` and its six codec plugins, including JPEG2000 encoding and decoding.
+The existing Debian babl/GEGL packages are not replaced.
+
+After rebuilding the publisher image and completing an update cycle, clients
+can use `sudo apt install gimp`. The tested replacement sequence removes Debian
+GIMP without purging before installing this repack. Direct upgrades and third-party
+plugins have not been validated. Existing package names and the GIMP 3 API's
+`3.0` directory names are preserved.
+
+An unresolved TIFF-thumbnail round-trip discrepancy is deferred; see
+[GIMP packaging and validation notes](docs/gimp-3.2.md). The adapter deliberately
+fails on unexpected layouts, architectures, Debian baselines, or external SONAMEs.
+Adding a newer release series requires a separate adapter.
+
 ## Checksums and Debian revisions
 
 Our input checksum answers whether the packaging recipe changed. It covers:
@@ -490,8 +516,10 @@ and real Debian package/index tools. Host requirements are Bash, GNU tar, Python
 3.10+, `dpkg-dev`, `apt-utils`, `jq`, and GnuPG.
 
 The regression tests are grouped into `test_publisher.py`, `test_codex.py`,
-`test_ghostty.py`, and `test_setup.py`. Their shared temporary fixtures live in
-`publisher_test_support.py`. The setup test uses fake sudo and GPG commands;
+`test_ghostty.py`, `test_gimp.py`, and `test_setup.py`. GIMP's offline tests also
+require `patchelf` and `squashfs-tools`; they use real SquashFS fixtures and inspect
+both target architectures without executing their binaries. Their shared
+temporary fixtures live in `publisher_test_support.py`. The setup test uses fake sudo and GPG commands;
 it does not change host users, production configuration, or signing keys.
 
 The real signing/APT integration check is a standalone Bash script:
@@ -506,3 +534,16 @@ into the test directory and never installs packages on the host. GPG agent start
 requires permission to bind a local socket, even with a writable temporary homedir. Both checks clean up their test data.
 
 Container image builds and live upstream publication remain deployment checks.
+
+To validate real amd64 GIMP adapter outputs separately, run:
+
+```sh
+bash tests/test-gimp-install.sh /absolute/path/to/the/five/amd64/debs
+```
+
+This optional Docker test checks clean APT installation, Debian GIMP removal
+without purging followed by repack installation, configuration preservation,
+system babl/GEGL coexistence, ELF relocation, and headless/Xvfb codec round trips.
+It requires network access to Debian during setup and disables it during image
+tests. Redirect output to a log if desired; failed test contexts are retained
+under `build/`. It neither installs host packages nor publishes a repository.

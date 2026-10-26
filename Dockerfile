@@ -13,7 +13,9 @@ RUN apt-get update \
         gnupg \
         gzip \
         jq \
+        patchelf \
         python3 \
+        squashfs-tools \
         tar \
         util-linux \
     && rm -rf /var/lib/apt/lists/*
