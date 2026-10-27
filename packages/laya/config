@@ -1,0 +1,2 @@
+RELEASE_STREAM=laya
+BINARY_PACKAGES="python3-laya laya-cli laya-http"

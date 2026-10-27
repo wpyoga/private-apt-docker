@@ -4,7 +4,10 @@ This container checks upstream releases, builds Debian packages, and publishes
 one signed APT repository. It includes an unofficial repackaging of the official
 OpenAI Codex executables as `codex-cli`, community Ghostty Debian packages as
 `ghostty`, native GIMP 3.2 packages from the official AppImages, and the official
-Zed editor binaries repackaged with Debian shared libraries as `zed`.
+Zed editor binaries repackaged with Debian shared libraries as `zed`, and
+[Laya's Python library, CLI, and HTTP server](docs/laya.md) as `python3-laya`,
+`laya-cli`, and `laya-http`. Laya uses selected Debian Forky dependencies and
+privately bundled Click; its client setup is documented separately.
 
 The container does not serve HTTP. Point an existing Caddy instance at `repo/`.
 

@@ -1,0 +1,9 @@
+Laya
+Source: https://github.com/NandhaKishorM/laya
+Copyright: Convai Innovations and contributors
+License: Apache-2.0; the complete upstream notice is in laya-LICENSE.
+
+Bundled Click
+Source: https://github.com/pallets/click
+Copyright: Pallets and contributors
+License: BSD-3-Clause; the complete upstream notice is in click-LICENSE.

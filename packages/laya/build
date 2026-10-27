@@ -1,0 +1,106 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${PUBLISHER_STREAM:?PUBLISHER_STREAM must be set and non-empty}"
+: "${BUILD_INPUTS_SHA256:?BUILD_INPUTS_SHA256 must be set and non-empty}"
+: "${MAINTAINER:?MAINTAINER must be set and non-empty}"
+
+PACKAGE_VERSION="$1"
+ARCHITECTURE="$2"
+OUTPUT_DIR="$3"
+case "$ARCHITECTURE" in
+    amd64|arm64) ;;
+    *) echo "Unsupported Laya architecture: $ARCHITECTURE" >&2; exit 1 ;;
+esac
+
+UPSTREAM_VERSION=$(jq -er '.version | strings' "$WORKSPACE/assets.json")
+if [[ "$UPSTREAM_VERSION" != "${PACKAGE_VERSION%-*}" ]]; then
+    echo "Laya build version $PACKAGE_VERSION does not match selected $UPSTREAM_VERSION" >&2
+    exit 1
+fi
+
+download_wheel() {
+    local METADATA NAME URL SHA256
+    METADATA="$1"
+    NAME=$(jq -er '.name | strings' "$METADATA")
+    URL=$(jq -er '.url | strings' "$METADATA")
+    SHA256=$(jq -er '.sha256 | strings' "$METADATA")
+    if [[ ! "$NAME" =~ ^(laya|click)-[0-9]+\.[0-9]+\.[0-9]+-py3-none-any\.whl$ ||
+          ! "$SHA256" =~ ^[0-9a-f]{64}$ ||
+          "$URL" != https://files.pythonhosted.org/* ||
+          "$URL" =~ [[:space:]] ]]; then
+        echo "Invalid Laya wheel download metadata: $METADATA" >&2
+        exit 1
+    fi
+
+    if [[ -f "$WORKSPACE/downloads/$NAME" ]] &&
+       printf '%s  %s\n' "$SHA256" "$WORKSPACE/downloads/$NAME" | sha256sum -c -; then
+        return
+    fi
+    curl -fLsS --retry 3 --max-time 120 "$URL" -o "$WORKSPACE/downloads/$NAME.part"
+    printf '%s  %s\n' "$SHA256" "$WORKSPACE/downloads/$NAME.part" | sha256sum -c -
+    mv -- "$WORKSPACE/downloads/$NAME.part" "$WORKSPACE/downloads/$NAME"
+}
+
+mkdir -p "$WORKSPACE/downloads"
+download_wheel "$WORKSPACE/assets.json"
+download_wheel "$ADAPTER_DIR/click.json"
+
+STAGING=$(mktemp -d "$WORKSPACE/stage-$ARCHITECTURE-XXXXXX")
+python3 "$ADAPTER_DIR/stage.py" "$WORKSPACE/assets.json" "$ADAPTER_DIR/click.json" \
+    "$WORKSPACE/downloads" "$STAGING"
+
+find "$STAGING" -type d -exec chmod 755 {} +
+find "$STAGING" -type f -exec chmod 644 {} +
+
+MAINTAINER_SED=$(printf '%s' "$MAINTAINER" | sed 's/[\\&|]/\\&/g')
+for PACKAGE in python3-laya laya-cli laya-http; do
+    PACKAGE_DIR="$STAGING/$PACKAGE"
+    mkdir -p "$PACKAGE_DIR/DEBIAN"
+    chmod 755 "$PACKAGE_DIR/DEBIAN"
+    RECOMMENDS=''
+    case "$PACKAGE" in
+        python3-laya)
+            DEPENDS='python3 (>= 3.10), python3-torch (>= 2.0), python3-transformers (>= 4.48), python3-safetensors (>= 0.4), python3-huggingface-hub (>= 0.20), python3-numpy (>= 1.20), python3-pydantic (>= 2.0)'
+            RECOMMENDS='python3-accelerate (>= 1.1)'
+            SUMMARY='Laya decision engine Python library with private Click'
+            DETAIL='CPU inference and structured decisions; model weights download on first use.'
+            ;;
+        laya-cli)
+            DEPENDS="python3-laya (= $PACKAGE_VERSION)"
+            SUMMARY='Laya decision engine command line interface'
+            DETAIL='Provides the laya command with privately bundled Click.'
+            sed 's/@MODULE@/laya.cli/g' "$ADAPTER_DIR/launcher.in" > "$PACKAGE_DIR/usr/bin/laya"
+            chmod 755 "$PACKAGE_DIR/usr/bin/laya"
+            ;;
+        laya-http)
+            DEPENDS="python3-laya (= $PACKAGE_VERSION), python3-fastapi (>= 0.110), python3-uvicorn (>= 0.27), python3-python-multipart (>= 0.0.9)"
+            SUMMARY='Laya decision engine HTTP server'
+            DETAIL='Provides laya-serve; configure and start the server explicitly.'
+            sed 's/@MODULE@/laya.serve/g' "$ADAPTER_DIR/launcher.in" > "$PACKAGE_DIR/usr/bin/laya-serve"
+            chmod 755 "$PACKAGE_DIR/usr/bin/laya-serve"
+            ;;
+    esac
+
+    INSTALLED_SIZE=$(du --summarize --block-size=1024 --exclude=DEBIAN "$PACKAGE_DIR" | cut -f1)
+    sed \
+        -e "s|@MAINTAINER@|$MAINTAINER_SED|g" \
+        -e "s|@PACKAGE@|$PACKAGE|g" \
+        -e "s|@PACKAGE_VERSION@|$PACKAGE_VERSION|g" \
+        -e "s|@INSTALLED_SIZE@|$INSTALLED_SIZE|g" \
+        -e "s|@BUILD_INPUTS_SHA256@|$BUILD_INPUTS_SHA256|g" \
+        -e "s|@PUBLISHER_STREAM@|$PUBLISHER_STREAM|g" \
+        -e "s|@DEPENDS@|$DEPENDS|g" \
+        -e "s|@RECOMMENDS@|$RECOMMENDS|g" \
+        -e "s|@SUMMARY@|$SUMMARY|g" \
+        -e "s|@DETAIL@|$DETAIL|g" \
+        -e '/^Recommends: $/d' \
+        "$ADAPTER_DIR/control.in" > "$PACKAGE_DIR/DEBIAN/control"
+    dpkg-deb --build --root-owner-group -Zgzip "$PACKAGE_DIR" \
+        "$OUTPUT_DIR/${PACKAGE}_${PACKAGE_VERSION}_all.deb"
+done
+
+# Keep failed stages for inspection; remove only this successful temporary tree.
+rm -r -- "$STAGING"

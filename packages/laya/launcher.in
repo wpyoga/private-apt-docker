@@ -1,0 +1,11 @@
+#!/usr/bin/python3
+"""Use Laya's private Click without replacing Debian's system library."""
+
+import sys
+
+sys.path.insert(0, "/usr/lib/laya/vendor")
+
+from @MODULE@ import main
+
+if __name__ == "__main__":
+    sys.exit(main())

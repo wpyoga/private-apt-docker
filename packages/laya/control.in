@@ -1,0 +1,14 @@
+Package: @PACKAGE@
+Version: @PACKAGE_VERSION@
+Section: python
+Priority: optional
+Architecture: all
+Installed-Size: @INSTALLED_SIZE@
+Maintainer: @MAINTAINER@
+X-Build-Inputs-SHA256: @BUILD_INPUTS_SHA256@
+X-Publisher-Stream: @PUBLISHER_STREAM@
+Homepage: https://github.com/NandhaKishorM/laya
+Depends: @DEPENDS@
+Recommends: @RECOMMENDS@
+Description: @SUMMARY@
+ @DETAIL@

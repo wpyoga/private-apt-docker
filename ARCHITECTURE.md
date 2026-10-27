@@ -138,6 +138,13 @@ This is per-file publication, not a transaction across all outputs.
 
 ### Existing packaging examples
 
+- **Laya** repackages the stable PyPI universal wheel into a Python library,
+  CLI, and HTTP interface. It validates wheel metadata, dependencies, RECORD
+  hashes, and fixed paths without executing upstream code. Click is pinned and
+  bundled privately for its launchers; other dependencies come from Debian
+  Trixie and selected Forky packages. [Laya packaging notes](docs/laya.md) explain
+  client APT preferences, optional features, and verification limits.
+
 - **Codex** queries GitHub's latest stable release with Bash and jq, verifies its
   archive digest, and expects `bin/` and `codex-package.json` at the archive root.
   It replaces bundled bubblewrap/ripgrep paths with wrappers for Debian tools and

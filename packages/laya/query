@@ -1,0 +1,52 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${ARCHES:?ARCHES must be set and non-empty}"
+
+mkdir -p "$WORKSPACE/downloads"
+RELEASE_FILE="$WORKSPACE/downloads/laya.json"
+curl -fLsS --retry 3 --max-time 60 \
+    https://pypi.org/pypi/laya/json -o "$RELEASE_FILE"
+
+VERSION=$(jq -er '.info.version | strings' "$RELEASE_FILE")
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Unexpected stable Laya version from PyPI: $VERSION" >&2
+    exit 1
+fi
+
+ASSET_NAME="laya-$VERSION-py3-none-any.whl"
+if ! jq -e --arg NAME "$ASSET_NAME" '
+    .info.name == "laya" and
+    ([.urls[] | select(.filename == $NAME and .yanked == false)] | length == 1)
+' "$RELEASE_FILE" >/dev/null; then
+    echo "Expected one non-yanked Laya universal wheel: $ASSET_NAME" >&2
+    exit 1
+fi
+
+jq --arg NAME "$ASSET_NAME" --arg VERSION "$VERSION" '
+    .urls[] | select(.filename == $NAME and .yanked == false) |
+    {version: $VERSION, name: .filename, url: .url,
+     sha256: .digests.sha256, published_at: .upload_time_iso_8601}
+' "$RELEASE_FILE" > "$WORKSPACE/assets.json"
+
+if ! jq -e '
+    (.sha256 | strings | test("^[0-9a-f]{64}$")) and
+    (.url | strings | startswith("https://files.pythonhosted.org/") and
+        (test("\\s") | not))
+' "$WORKSPACE/assets.json" >/dev/null; then
+    echo "Invalid Laya SHA256 or download URL: $ASSET_NAME" >&2
+    exit 1
+fi
+
+: > "$WORKSPACE/targets.tmp"
+for ARCHITECTURE in $ARCHES; do
+    case "$ARCHITECTURE" in
+        amd64|arm64) ;;
+        *) echo "Unsupported Laya architecture: $ARCHITECTURE" >&2; exit 1 ;;
+    esac
+    printf '%s\t%s\n' "$VERSION" "$ARCHITECTURE" >> "$WORKSPACE/targets.tmp"
+done
+mv -- "$WORKSPACE/targets.tmp" "$WORKSPACE/targets.tsv"
+jq -r '.published_at // empty' "$WORKSPACE/assets.json" > "$WORKSPACE/release-date"
