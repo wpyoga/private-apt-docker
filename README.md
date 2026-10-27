@@ -580,6 +580,26 @@ To validate real amd64 GIMP adapter outputs separately, run:
 bash tests/test-gimp-install.sh /absolute/path/to/the/complete/amd64/output
 ```
 
+Run this coordinator directly as your host user. Docker performs package
+installation as root inside image layers; running the coordinator itself as
+container root would create root-owned directories through a bind mount.
+Its temporary directories intentionally use mode 700. Containers writing build
+workspaces must use the host UID/GID.
+
+To reuse an existing host-owned context and run only the replacement test:
+
+```sh
+GIMP_TEST_CONTEXT="$PWD/build/gimp-install-IoF2og" \
+    bash tests/test-gimp-install.sh build/gimp-expanded-live/gimp/output/amd64 reinstall
+```
+
+Batch development commands with stdout/stderr redirected to log files, wait for
+completion or a bounded timeout, then read the logs. Do not stream logs for
+progress monitoring. Retain failure evidence and useful verified downloads;
+reuse successful builds and remove obsolete temporary staging trees when no
+open investigation requires them. Stored repository packages and keys are not
+part of this temporary-data cleanup policy.
+
 This optional Docker test checks clean APT installation, Debian GIMP removal
 without purging followed by repack installation, configuration preservation,
 system babl/GEGL coexistence, ELF relocation, and headless/Xvfb codec round trips.

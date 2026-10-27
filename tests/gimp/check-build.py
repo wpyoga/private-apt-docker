@@ -5,10 +5,12 @@ The workspace is the one supplied to the adapter's query/build hooks.
 """
 
 import json
+import io
 from pathlib import Path
 import re
 import subprocess
 import sys
+import tarfile
 
 
 def fields(text):
@@ -22,11 +24,13 @@ def fields(text):
 
 workspace = Path(sys.argv[1])
 assets = json.loads((workspace / "assets.json").read_text())
+help_assets = json.loads((workspace / "help-assets.json").read_text())
 names = {"gimp", "gimp-data", "libgimp-3.0-0", "gir1.2-gimp-3.0", "gimp-bundled-runtime",
          "libgimp-3.0-bin", "libgimp-3.0-dev", "libgimp-3.0-doc"}
-names.update(json.loads((workspace / "help-assets.json").read_text()))
+names.update(help_assets)
 fingerprints = set()
 for arch in ("amd64", "arm64"):
+    owners = {}
     output = workspace / "output" / arch
     index_text = subprocess.check_output([
         "dpkg-scanpackages", "--multiversion", ".", "/dev/null",
@@ -50,7 +54,24 @@ for arch in ("amd64", "arm64"):
         staged = workspace / f"staging-{arch}" / name
         if name.startswith("gimp-help-"):
             staged = workspace / "help-staging" / name
-            assert control["x-upstream-version"] == "3.2.0-3", control
+            assert control["x-upstream-version"] == help_assets[name]["Version"], control
+            if name != "gimp-help-common":
+                assert control["depends"] == f"gimp-help-common (= {control['version']})", control
+            control_tar = subprocess.check_output(["dpkg-deb", "--ctrl-tarfile", archive])
+            with tarfile.open(fileobj=io.BytesIO(control_tar)) as stream:
+                assert not any(member.name.removeprefix("./") in
+                               {"preinst", "postinst", "prerm", "postrm"} for member in stream), name
+        process = subprocess.Popen(["dpkg-deb", "--fsys-tarfile", archive], stdout=subprocess.PIPE)
+        with tarfile.open(fileobj=process.stdout, mode="r|") as stream:
+            for member in stream:
+                if member.isdir():
+                    continue
+                path = member.name.removeprefix("./")
+                assert path not in owners, (arch, path, owners.get(path), name)
+                owners[path] = name
+        process.stdout.read()
+        process.stdout.close()
+        assert process.wait() == 0, archive
         usage = subprocess.check_output([
             "du", "--summarize", "--block-size=1024", "--exclude=DEBIAN",
             staged,
