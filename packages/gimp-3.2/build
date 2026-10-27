@@ -49,7 +49,9 @@ if [[ -e "$SOURCE_DIR" || -e "$STAGING_DIR" ]]; then
 fi
 OFFSET=$(python3 "$ADAPTER_DIR/inspect-bundle.py" offset "$ARCHIVE")
 # Extract data directly. Never execute AppRun, the AppImage runtime, or target ELF.
-unsquashfs -no-progress -no-xattrs -processors 1 -o "$OFFSET" \
+# Each default cache can grow to 256 MiB, exceeding the container's memory limit.
+unsquashfs -no-progress -no-xattrs -processors 1 \
+    -data-queue 16 -frag-queue 16 -o "$OFFSET" \
     -d "$SOURCE_DIR" "$ARCHIVE" \
     usr/bin/gimp-3.2 usr/bin/gimp-console-3.2 usr/bin/gimp-script-fu-interpreter-3.0 \
     usr/bin/gimptool-3.2 usr/include/gimp-3.0 usr/include/babl-0.1 usr/include/gegl-0.4 \
