@@ -52,7 +52,9 @@ Version relationships follow Debian's approach: matching runtime, typelib,
 tool, and development packages use exact (= package-version) dependencies.
 External distro packages use minimum versions where a supported floor is known.
 The static runtime-dependencies file contains Debian dependency expressions,
-expected SONAMEs, and the owning package (gimp or runtime), separated by pipes.
+expected SONAMEs, and ownership, separated by pipes. "auto" assigns linked
+requirements from ELF inspection; a binary package name assigns indirect
+requirements.
 It consolidates the former three dependency files, including HEIF. Blank SONAME
 fields describe dependencies loaded indirectly or required by scripts/resources.
 The libheif floor is 1.19.8; libappstream5 uses the tested Trixie floor 1.0.5.
@@ -184,3 +186,31 @@ Third-party plugin compatibility and arm64 desktop execution require separate
 validation. The investigation's dependency-root/native-root directories are test
 filesystems, not shipped payloads. No production publishing or host package
 installation is part of adapter development.
+
+## Native package defaults and dependency ownership
+
+APT supplies application updates. The packaged /etc/gimp/3.0/gimprc sets
+(check-updates no), and gimp-release sets package.check-update=false so an
+existing user preference cannot re-enable the upstream update channel.
+Welcome-dialog preferences remain user-owned and are not changed by this recipe.
+
+Debian 3.0's -Djavascript=disabled and -Dlua=false omit the JavaScript/Lua goat
+examples. This repack removes those exact example scripts and their extension
+plug-in-path entries instead of recompiling. C, Vala and Python examples remain.
+The JS interpreter dependency is no longer needed. This does not prevent users
+from installing their own JavaScript/Lua plug-ins and interpreters.
+
+Each binary package declares dependencies for its own staged ELF files,
+including dynamically loaded modules' DT_NEEDED entries. runtime-dependencies
+maps SONAMEs to Debian expressions with owner "auto"; blank SONAME rows specify
+reviewed indirect dependencies and their actual binary-package owner. Shared
+requirements may appear in multiple binary packages. Unknown external SONAMEs
+fail the build. Source review and targeted runtime tests remain necessary for
+dlopen, GI typelibs, scripts and codec backends; ELF inspection cannot prove that
+all runtime dependencies have been found. gvfs-backends is suggested for remote
+file access and is not needed for an APT-managed update check.
+
+MNG remains enabled with Debian's libmng1; no upstream MNG library is retained.
+The inspected official 3.2.6 payloads do not contain file-iff (ILBM).
+The recipe does not remove format plug-ins or claim to enable absent features.
+Compiler options, compiled URLs and upstream source patches are unchanged.

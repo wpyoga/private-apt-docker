@@ -84,7 +84,8 @@ class GimpTests(PublisherTestCase):
                     f"Cflags: -I${{includedir}}/{name}\n")
             for name in ("gimp-3.0", "babl-0.1", "gegl-0.4"):
                 (usr / "include" / name / "fixture.h").write_text("/* fixture header */\n")
-            (usr / "etc/gimp/3.0/gimprc").write_text("# configuration fixture\n")
+            (usr / "etc/gimp/3.0/gimprc").write_text(
+                "# configuration fixture\n(check-updates yes)\n")
             (lib / "gimp/3.0/environ/native-runtime.env").write_text("LIBHEIF_PLUGIN_PATH=/bad\n")
             (usr / "share/gimp/3.0/resource").write_bytes(b"x" * 16384)
             (usr / "share/applications/org.gimp.GIMP.Stable.desktop").write_text(
@@ -95,6 +96,30 @@ class GimpTests(PublisherTestCase):
             (usr / "share/locale/en/LC_MESSAGES/gimp30.mo").write_bytes(b"fixture translation")
             # External bundle libraries must not leak into our private runtime.
             (lib / "libssl.so.3").write_bytes(b"discard this external library")
+
+            extension = lib / "gimp/3.0/extensions/org.gimp.extension.goat-exercises"
+            extension.mkdir(parents=True)
+            for example in ("goat-exercise-gjs.js", "goat-exercise-lua.lua", "goat-exercise-py3.py"):
+                (extension / example).write_text("# example fixture\n")
+            (extension / "org.gimp.extension.goat-exercises.metainfo.xml").write_text(
+                '<component><custom><value key="GIMP::plug-in-path">'
+                'goat-exercise-py3.py:goat-exercise-gjs.js:goat-exercise-lua.lua'
+                '</value></custom></component>\n')
+            mng = lib / "gimp/3.0/plug-ins/file-mng/file-mng"
+            mng.parent.mkdir(parents=True)
+            shutil.copyfile(usr / "bin/gimp-3.2", mng)
+            subprocess.run(["patchelf", "--add-needed", "libmng.so.1", mng],
+                           check=True, capture_output=True)
+            subprocess.run(["patchelf", "--add-needed", "libpng16.so.16",
+                            lib / "libbabl-0.1.so.0.1"], check=True, capture_output=True)
+            (usr / "share/gimp/3.0/gimp-release").write_text(
+                "[package]\nrevision=7\ncheck-update=true\n")
+
+            for path, soname in ((lib / "libgimp-3.0.so.0.1", "libpng16.so.16"),
+                                 (usr / "bin/gimp-3.2", "libheif.so.1")):
+                subprocess.run(["patchelf", "--add-needed", soname, path],
+                               check=True, capture_output=True)
+
             if mutation:
                 mutation(source, lib, arch)
 
@@ -207,6 +232,19 @@ class GimpTests(PublisherTestCase):
                                  else "/lib/ld-linux-aarch64.so.1")
                 for dependency in ("libheif1 (>= 1.19.8)", "libheif-plugin-j2kdec (>= 1.19.8)"):
                     self.assertIn(dependency, metadata["depends"])
+
+                extension = lib / "gimp/3.0/extensions/org.gimp.extension.goat-exercises"
+                self.assertFalse((extension / "goat-exercise-gjs.js").exists())
+                self.assertFalse((extension / "goat-exercise-lua.lua").exists())
+                self.assertTrue((extension / "goat-exercise-py3.py").is_file())
+                self.assertNotIn("goat-exercise-gjs.js", (extension / "org.gimp.extension.goat-exercises.metainfo.xml").read_text())
+                self.assertNotIn("goat-exercise-lua.lua", (extension / "org.gimp.extension.goat-exercises.metainfo.xml").read_text())
+                self.assertTrue((lib / "gimp/3.0/plug-ins/file-mng/file-mng").is_file())
+                self.assertIn("libmng1", metadata["depends"])
+                self.assertIn("libc6", metadata["depends"])
+                self.assertNotIn("gjs", metadata["depends"].split(", "))
+                self.assertIn("gvfs-backends", metadata["suggests"])
+
                 self.assertIn("gimp-data-extras", metadata["suggests"])
                 self.assertNotIn("LIBHEIF_PLUGIN_PATH", (lib / "gimp/3.0/environ/native-runtime.env").read_text())
             if name == "gimp-bundled-runtime":
@@ -217,6 +255,13 @@ class GimpTests(PublisherTestCase):
             if name == "gimp-data":
                 self.assertEqual((root / "DEBIAN/conffiles").read_text(), "/etc/gimp/3.0/gimprc\n")
                 self.assertIn("Icon=gimp\n", (root / "usr/share/applications/org.gimp.GIMP.Stable.desktop").read_text())
+                configuration = (root / "etc/gimp/3.0/gimprc").read_text()
+                self.assertIn("(check-updates no)", configuration)
+                self.assertNotIn("(check-updates yes)", configuration)
+                self.assertNotIn("show-welcome-dialog", configuration)
+                release = (root / "usr/share/gimp/3.0/gimp-release").read_text()
+                self.assertIn("check-update = false", release)
+                self.assertIn("revision = 7", release)
                 self.assertGreaterEqual(size, 16)
             if name == "libgimp-3.0-0":
                 self.assertEqual((root / "DEBIAN/triggers").read_text(), "activate-noawait ldconfig\n")
@@ -294,3 +339,52 @@ class GimpTests(PublisherTestCase):
                 self.fixture(missing_arm64=True, mutation=mutate)
                 self.run_update(expected=1)
                 self.assertEqual(self.artifacts(), [])
+
+    def test_dependency_ownership_includes_loaded_modules_and_explicit_requirements(self):
+        self.fixture()
+        self.run_update()
+        by_name = {}
+        for artifact in self.artifacts():
+            metadata = fields(artifact)
+            if metadata["architecture"] == "amd64":
+                by_name[metadata["package"]] = metadata
+        runtime = by_name["gimp-bundled-runtime"]["depends"]
+        self.assertIn("libpng16-16t64", runtime)
+        self.assertIn("libssl3t64", runtime)
+        self.assertNotIn("libmng1", runtime)
+        self.assertNotIn("python3-gi", runtime)
+        application = by_name["gimp"]["depends"]
+        self.assertIn("libmng1", application)
+        self.assertIn("python3-gi", application)
+        self.assertIn("libheif-plugin-j2kdec (>= 1.19.8)", application)
+        self.assertIn("libpng16-16t64", by_name["libgimp-3.0-0"]["depends"])
+        self.assertNotIn("gjs", application)
+        for arch in ("amd64", "arm64"):
+            self.assertIn("libmng1", self.index(arch))
+
+    def test_unknown_dependency_in_loaded_module_fails(self):
+        def mutate(source, lib, arch):
+            subprocess.run(["patchelf", "--add-needed", "libfuture-module.so.99",
+                            lib / "gegl-0.4/fixture.so"], check=True, capture_output=True)
+        self.fixture(missing_arm64=True, mutation=mutate)
+        self.env["ARCHES"] = "amd64"
+        result = self.run_update(expected=1)
+        self.assertIn("libfuture-module.so.99", result.stdout + result.stderr)
+        self.assertEqual(self.artifacts(), [])
+
+    def test_invalid_release_metadata_fails(self):
+        def mutate(source, lib, arch):
+            (source / "usr/share/gimp/3.0/gimp-release").write_text("[other]\nrevision=1\n")
+        self.fixture(missing_arm64=True, mutation=mutate)
+        self.env["ARCHES"] = "amd64"
+        self.run_update(expected=1)
+        self.assertEqual(self.artifacts(), [])
+
+    def test_invalid_extension_metadata_fails(self):
+        def mutate(source, lib, arch):
+            extension = lib / "gimp/3.0/extensions/org.gimp.extension.goat-exercises"
+            (extension / "org.gimp.extension.goat-exercises.metainfo.xml").write_text("<component/>\n")
+        self.fixture(missing_arm64=True, mutation=mutate)
+        self.env["ARCHES"] = "amd64"
+        self.run_update(expected=1)
+        self.assertEqual(self.artifacts(), [])

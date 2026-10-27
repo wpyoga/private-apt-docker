@@ -90,12 +90,6 @@ while IFS= read -r -d '' BINARY; do
     patchelf --set-rpath "\$ORIGIN:$PRIVATE_PATH" "$BINARY"
 done < "$WORKSPACE/elf-$ARCHITECTURE.paths0"
 
-RUNTIME_DEPENDS=$(
-    awk -F '|' '!/^#/ && NF == 3 && $3 == "runtime" { print $1 }' "$ADAPTER_DIR/runtime-dependencies" \
-        | sort -u | paste -sd,
-)
-APPLICATION_DEPENDS=$(awk -F '|' '!/^#/ && NF == 3 && $3 == "gimp" { print $1 }' \
-    "$ADAPTER_DIR/runtime-dependencies" | sort -u | paste -sd,)
 MAINTAINER_SED=$(printf '%s' "$MAINTAINER" | sed 's/[\\&|]/\\&/g')
 
 for PACKAGE_NAME in gimp gimp-data libgimp-3.0-0 gir1.2-gimp-3.0 gimp-bundled-runtime \
@@ -108,17 +102,17 @@ for PACKAGE_NAME in gimp gimp-data libgimp-3.0-0 gir1.2-gimp-3.0 gimp-bundled-ru
     case "$PACKAGE_NAME" in
         gimp)
             DEPENDS+=", gimp-data (= $PACKAGE_VERSION), libgimp-3.0-0 (= $PACKAGE_VERSION)"
-            DEPENDS+=", gir1.2-gimp-3.0 (= $PACKAGE_VERSION), $APPLICATION_DEPENDS"
-            SUGGESTS='Suggests: gimp-data-extras, gimp-help-en | gimp-help'
+            DEPENDS+=", gir1.2-gimp-3.0 (= $PACKAGE_VERSION)"
+            SUGGESTS='Suggests: gimp-data-extras, gimp-help-en | gimp-help, gvfs-backends'
             ;;
         gimp-data) DEPENDS=hicolor-icon-theme ;;
-        gimp-bundled-runtime) DEPENDS="$RUNTIME_DEPENDS" ;;
+        gimp-bundled-runtime) DEPENDS= ;;
         gir1.2-gimp-3.0)
             DEPENDS="libgimp-3.0-0 (= $PACKAGE_VERSION), gimp-bundled-runtime (= $PACKAGE_VERSION)"
             PROVIDES="Provides: gir1.2-gimpui-3.0 (= $PACKAGE_VERSION)"
             ;;
         libgimp-3.0-bin)
-            DEPENDS="libgimp-3.0-0 (= $PACKAGE_VERSION), libglib2.0-0t64, libc6"
+            DEPENDS="libgimp-3.0-0 (= $PACKAGE_VERSION)"
             ;;
         libgimp-3.0-dev)
             DEPENDS="libgimp-3.0-0 (= $PACKAGE_VERSION), gir1.2-gimp-3.0 (= $PACKAGE_VERSION)"
@@ -131,6 +125,15 @@ for PACKAGE_NAME in gimp gimp-data libgimp-3.0-0 gir1.2-gimp-3.0 gimp-bundled-ru
             PACKAGE_ARCHITECTURE=all
             ;;
     esac
+    EXTERNAL_DEPENDS=$(jq --raw-output --exit-status --arg NAME "$PACKAGE_NAME" \
+        '.[$NAME] | strings' "$WORKSPACE/dependencies-$ARCHITECTURE.json")
+    if [[ -n "$EXTERNAL_DEPENDS" ]]; then
+        if [[ -n "$DEPENDS" ]]; then
+            DEPENDS+=", $EXTERNAL_DEPENDS"
+        else
+            DEPENDS="$EXTERNAL_DEPENDS"
+        fi
+    fi
     mkdir -p "$PACKAGE_DIR/DEBIAN" "$PACKAGE_DIR/usr/share/doc/$PACKAGE_NAME"
     sed -e "s/@UPSTREAM_VERSION@/$UPSTREAM_VERSION/g" \
         "$ADAPTER_DIR/copyright.in" > "$PACKAGE_DIR/usr/share/doc/$PACKAGE_NAME/copyright"

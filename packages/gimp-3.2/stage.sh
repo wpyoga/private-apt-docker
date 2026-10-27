@@ -106,6 +106,7 @@ cp -a "$SOURCE_USR/lib/$MULTIARCH/girepository-1.0/Babl-0.1.typelib" \
 
 cp -a "$SOURCE_USR/share/gimp" "$DATA/usr/share/"
 cp -a "$SOURCE_USR/etc/gimp" "$DATA/etc/"
+python3 "$ADAPTER_DIR/configure-staging.py"
 ln -s ../../etc/gimp "$DATA/usr/etc/gimp"
 mkdir -p "$DATA/usr/share/applications" "$DATA/usr/share/metainfo"
 cp -a "$SOURCE_USR/share/applications/org.gimp.GIMP.Stable.desktop" "$DATA/usr/share/applications/"

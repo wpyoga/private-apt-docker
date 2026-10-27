@@ -113,6 +113,9 @@ def check_source():
         "bin/gimp-3.2", "bin/gimp-console-3.2", "bin/gimp-script-fu-interpreter-3.0",
         "bin/gimptool-3.2",
         "libexec/gimp-debug-tool-3.2", "etc/gimp/3.0/gimprc",
+        "share/gimp/3.0/gimp-release",
+        f"{library}/gimp/3.0/extensions/org.gimp.extension.goat-exercises/"
+        "org.gimp.extension.goat-exercises.metainfo.xml",
         "share/applications/org.gimp.GIMP.Stable.desktop",
         "share/metainfo/org.gimp.GIMP.Stable.appdata.xml",
     ]
@@ -151,20 +154,32 @@ def check_source():
 def check_staged():
     root = Path(os.environ["STAGING_DIR"])
     adapter = Path(os.environ["ADAPTER_DIR"])
-    providers = set()
+    packages = {path.name: path for path in root.iterdir()}
+    providers = {}
+    package_dependencies = {name: set() for name in packages}
     for line in (adapter / "runtime-dependencies").read_text().splitlines():
-        if line and not line.startswith("#"):
-            dependency, sonames, owner = line.split("|")
-            if owner not in ("gimp", "runtime") or not dependency:
-                fail(f"Invalid runtime dependency row: {line}")
-            providers.update(sonames.split())
+        if not line or line.startswith("#"):
+            continue
+        fields = line.split("|")
+        if len(fields) != 3:
+            fail(f"Invalid runtime dependency row: {line}")
+        dependency, sonames, owner = fields
+        if not dependency or (sonames and owner != "auto") or (
+                not sonames and owner not in packages):
+            fail(f"Invalid runtime dependency row: {line}")
+        for soname in sonames.split():
+            if soname in providers and providers[soname] != dependency:
+                fail(f"Conflicting Debian providers for {soname}")
+            providers[soname] = dependency
+        if not sonames:
+            package_dependencies[owner].add(dependency)
+
     own = set()
     dependencies = []
     elf_paths = []
-    count = 0
-    for package in root.iterdir():
+    for name, package in packages.items():
         # Development linker symlinks legitimately cross package boundaries.
-        check_tree(package, root, list(root.iterdir()))
+        check_tree(package, root, list(packages.values()))
         for path in package.rglob("*"):
             if path.is_symlink() or not path.is_file():
                 continue
@@ -175,16 +190,23 @@ def check_staged():
             elf_paths.append(path)
             dynamic = subprocess.check_output(["readelf", "--dynamic", "--wide", path], text=True)
             own.update(re.findall(r"\(SONAME\).*\[([^]]+)\]", dynamic))
-            dependencies.extend((path, name) for name in
+            dependencies.extend((name, path, soname) for soname in
                                 re.findall(r"\(NEEDED\).*\[([^]]+)\]", dynamic))
-            count += 1
+
     loader = {"amd64": "ld-linux-x86-64.so.2", "arm64": "ld-linux-aarch64.so.1"}[architecture]
-    for path, name in dependencies:
-        if name not in own and name not in providers and name != loader:
-            fail(f"Unknown external dependency {name} in {path}; update the adapter deliberately")
-    manifest = Path(os.environ["WORKSPACE"]) / f"elf-{architecture}.paths0"
+    for package, path, soname in dependencies:
+        if soname in own or soname == loader:
+            continue
+        if soname not in providers:
+            fail(f"Unknown external dependency {soname} in {path}; update the adapter deliberately")
+        package_dependencies[package].add(providers[soname])
+
+    workspace = Path(os.environ["WORKSPACE"])
+    manifest = workspace / f"elf-{architecture}.paths0"
     manifest.write_bytes(b"".join(os.fsencode(path) + b"\0" for path in elf_paths))
-    print(f"Validated {count} {architecture} ELF objects and declared dependencies")
+    report = {name: ", ".join(sorted(values)) for name, values in package_dependencies.items()}
+    (workspace / f"dependencies-{architecture}.json").write_text(json.dumps(report, indent=2) + "\n")
+    print(f"Validated {len(elf_paths)} {architecture} ELF objects and per-package dependencies")
 
 
 if sys.argv[1] == "offset":

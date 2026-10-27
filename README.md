@@ -378,7 +378,11 @@ headers and pkg-config entries; the documentation package imports upstream's
 generated HTML API reference. Only babl/GEGL and their modules/typelibs remain
 private. Other libraries use Debian packages. GIMP depends explicitly on
 `libheif1` and its six codec plugins, including JPEG2000 encoding and decoding.
-The existing Debian babl/GEGL packages are not replaced.
+The existing Debian babl/GEGL packages are not replaced. Each binary package
+declares its own linked and reviewed indirect dependencies. Updates come through
+APT; the package disables upstream update checks. JavaScript/Lua example plug-ins
+are omitted, while upstream format support (including MNG) is retained.
+Optional remote-file support is provided by the suggested gvfs-backends package.
 
 After rebuilding the publisher image and completing an update cycle, clients
 can use `sudo apt install gimp`. The tested replacement sequence removes Debian
