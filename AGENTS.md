@@ -85,6 +85,19 @@ tests, or copy operator secrets into documentation or fixtures.
 
 ## Verification
 
+Run commands in batches with stdout and stderr redirected to named log files.
+Wait for completion or a bounded timeout, then inspect the logs. Do not ingest
+real-time command output to monitor progress. Preserve failure logs for review.
+
+Run host-side test coordinators as the host user. Use the host UID/GID for
+containers writing bind-mounted workspaces; container root creates host-root-owned
+files. Keep root package installation confined to container image layers.
+
+Reuse verified downloads and successful builds while they remain useful. Remove
+superseded temporary extraction/staging trees and redundant artifacts once no
+pending issue needs them. Keep failure evidence and useful downloaded sources.
+These rules concern temporary build data, never stored repository packages or keys.
+
 Run checks appropriate to the change from the project root:
 
 Package-specific runs should cover that package. Run the signing test only when
