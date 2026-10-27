@@ -104,11 +104,17 @@ Package-specific runs should cover that package. Run the signing test only when
 signing code changes or when intentionally running the full test suite.
 
 ```bash
-python3 -m unittest discover -s tests -v
+bash tests/run.sh --offline
 bash tests/test-signed-repo.sh
 # Or run both:
 bash tests/run.sh
 ```
+
+Use `bash tests/run.sh PACKAGE_DIRECTORY` for one adapter's regression tests, or
+`bash tests/run.sh --framework` for framework/setup tests. Adapter tests mirror
+`packages/` under `tests/`; shared test-only helpers belong in `tests/lib/`.
+The full runner discovers stream directories explicitly, including hyphenated
+names. Ordinary recursive unittest discovery does not select every adapter.
 
 The regression suite uses offline fixtures and real Debian package tools. Add
 meaningful coverage for changed release selection, validation, or packaging

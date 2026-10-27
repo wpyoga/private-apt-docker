@@ -5,7 +5,7 @@ import hashlib
 import subprocess
 import unittest
 
-from publisher_test_support import KEY, ROOT, PublisherTestCase, fields
+from tests.lib.publisher_test_support import KEY, ROOT, PublisherTestCase, fields
 
 
 class PublisherTests(PublisherTestCase):
@@ -42,31 +42,6 @@ class PublisherTests(PublisherTestCase):
                 )
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("Run tests from the project root", result.stderr)
-
-    def test_query_requires_nonempty_caller_context_before_downloading(self):
-        workspace = self.base / "query-workspace"
-        workspace.mkdir()
-        context = {
-            **self.env,
-            "ADAPTER_DIR": str(ROOT / "packages/codex"),
-            "WORKSPACE": str(workspace),
-        }
-        for variable in ("ADAPTER_DIR", "WORKSPACE", "ARCHES"):
-            for value in (None, ""):
-                with self.subTest(variable=variable, value=value):
-                    environment = dict(context)
-                    environment.pop(variable, None)
-                    if value is not None:
-                        environment[variable] = value
-                    result = subprocess.run(
-                        ["bash", str(ROOT / "packages/codex/query")],
-                        env=environment,
-                        text=True,
-                        capture_output=True,
-                    )
-                    self.assertNotEqual(result.returncode, 0)
-                    self.assertIn(f"{variable} must", result.stderr)
-                    self.assertFalse((workspace / "release.json").exists())
 
     def test_directory_discovery_is_sequential_and_ignores_old_registry(self):
         self.adapter("second")

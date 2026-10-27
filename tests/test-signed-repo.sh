@@ -4,10 +4,12 @@ set -Eeuo pipefail
 umask 022
 
 export FRAMEWORK_DIR="$PWD"
-if [[ ! -f "$FRAMEWORK_DIR/update.sh" || ! -d "$FRAMEWORK_DIR/packages" ]]; then
+if [[ ! -f "$FRAMEWORK_DIR/tests/lib/common.sh" ]]; then
     echo 'Run tests from the project root.' >&2
     exit 1
 fi
+source "$FRAMEWORK_DIR/tests/lib/common.sh"
+require_project_root
 mkdir -p "$FRAMEWORK_DIR/build"
 WORK_DIR=$(mktemp -d "$FRAMEWORK_DIR/build/signed-test-XXXXXX")
 mkdir -p "$WORK_DIR/tmp"

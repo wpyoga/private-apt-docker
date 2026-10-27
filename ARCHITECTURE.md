@@ -273,17 +273,30 @@ New build dependencies in the Dockerfile affect every stream's checksum.
 
 ## Testing and resuming work
 
-Run tests from the project root. `python3 -m unittest discover -s tests -v` runs
+Run tests from the project root. `bash tests/run.sh --offline` runs
 offline regression tests using temporary repositories, fake downloads/signatures,
-and real Debian tools. Package-specific tests sit alongside publisher and setup
-tests and share fixtures from `tests/publisher_test_support.py`.
+and real Debian tools. Package-specific tests mirror adapter directories under
+`tests/`; publisher/setup/runner tests remain at the test root. Shared fixtures
+and shell helpers live in `tests/lib/`, separate from production `lib/`.
+Package-local helpers stay with their tests. Explicit per-directory discovery
+includes names such as `gimp-3.2`, which ordinary recursive discovery skips.
+`bash tests/run.sh gimp-3.2` selects that adapter's offline tests, while
+`--framework` selects only framework/setup tests. Unknown selectors fail early.
 
 `bash tests/test-signed-repo.sh` checks real signing and APT version selection
 using a throwaway key and redirected APT state. It simulates installs rather than
 installing host packages. `bash tests/run.sh` runs both suites. Tests establish
 their own context and clean up temporary data. GPG may need permission to bind a
 local socket. Run appropriate checks for the change; documentation-only edits do
-not need builds or signing tests.
+not need builds or signing tests. Package selections never run real signing or
+Docker tests implicitly; the GIMP installation coordinator is invoked explicitly
+from `tests/gimp-3.2/test-install.sh` with existing built packages.
+
+The shell helpers redirect command output to retained log files and enforce
+timeouts. Logs are examined after completion instead of streamed for progress.
+Test coordinators run as the host user, with matching UID/GID for containers
+writing bind-mounted workspaces. Reuse useful downloads and validated packages;
+remove obsolete temporary copies once no investigation needs them.
 
 Temporary artifacts belong under ignored `build/`. Manual local repository data
 uses `build/local/repo` and `build/local/gnupg`. Do not use production storage or

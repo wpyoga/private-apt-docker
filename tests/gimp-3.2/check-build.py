@@ -1,6 +1,6 @@
 """Verify real GIMP build metadata and inspection indexes for both architectures.
 
-Usage: python3 tests/gimp/check-build.py WORKSPACE
+Usage: python3 tests/gimp-3.2/check-build.py WORKSPACE
 The workspace is the one supplied to the adapter's query/build hooks.
 """
 

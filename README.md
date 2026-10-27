@@ -546,19 +546,28 @@ rather than searching for it or depending on production environment variables.
 To run only the offline regression suite:
 
 ```sh
-python3 -m unittest discover -s tests -v
+bash tests/run.sh --offline
 ```
 
 It uses temporary directories under `build/`, fixture downloads, fake signatures,
 and real Debian package/index tools. Host requirements are Bash, GNU tar, Python
 3.10+, `dpkg-dev`, `apt-utils`, `jq`, and GnuPG.
 
-The regression tests are grouped into `test_publisher.py`, `test_codex.py`,
-`test_ghostty.py`, `test_zed.py`, `test_gimp.py`, and `test_setup.py`.
+Framework, setup, runner, and signing tests stay directly under `tests/`.
+Adapter tests live in matching `tests/codex/`, `tests/ghostty/`,
+`tests/gimp-3.2/`, and `tests/zed/` directories. To select just one adapter,
+run `bash tests/run.sh gimp-3.2`; multiple adapter names are also accepted.
+Use `bash tests/run.sh --framework` for framework/setup tests only. These
+selected runs never invoke the real signing test or Docker installation tests.
+Unknown selectors fail before tests start. The runner discovers each adapter
+directory explicitly, so names such as `gimp-3.2` are not skipped by Python's
+ordinary recursive unittest discovery.
 Zed's tests require `patchelf` and `binutils`. GIMP's offline tests also
 require `patchelf` and `squashfs-tools`; they use real SquashFS fixtures and inspect
 both target architectures without executing their binaries. Their shared
-temporary fixtures live in `publisher_test_support.py`. The setup test uses fake sudo and GPG commands;
+temporary fixtures live in `tests/lib/publisher_test_support.py`; shared shell
+coordination is in `tests/lib/common.sh`, separate from production `lib/`.
+GIMP-specific fixtures stay in its test directory. The setup test uses fake sudo and GPG commands;
 it does not change host users, production configuration, or signing keys.
 
 The real signing/APT integration check is a standalone Bash script:
@@ -577,7 +586,7 @@ Container image builds and live upstream publication remain deployment checks.
 To validate real amd64 GIMP adapter outputs separately, run:
 
 ```sh
-bash tests/test-gimp-install.sh /absolute/path/to/the/complete/amd64/output
+bash tests/gimp-3.2/test-install.sh /absolute/path/to/the/complete/amd64/output
 ```
 
 Run this coordinator directly as your host user. Docker performs package
@@ -590,7 +599,7 @@ To reuse an existing host-owned context and run only the replacement test:
 
 ```sh
 GIMP_TEST_CONTEXT="$PWD/build/gimp-install-IoF2og" \
-    bash tests/test-gimp-install.sh build/gimp-expanded-live/gimp/output/amd64 reinstall
+    bash tests/gimp-3.2/test-install.sh build/gimp-expanded-live/gimp/output/amd64 reinstall
 ```
 
 Batch development commands with stdout/stderr redirected to log files, wait for
@@ -604,5 +613,5 @@ This optional Docker test checks clean APT installation, Debian GIMP removal
 without purging followed by repack installation, configuration preservation,
 system babl/GEGL coexistence, ELF relocation, and headless/Xvfb codec round trips.
 It requires network access to Debian during setup and disables it during image
-tests. Redirect output to a log if desired; failed test contexts are retained
+tests. Runner output is written to named logs with bounded timeouts; failed test contexts are retained
 under `build/`. It neither installs host packages nor publishes a repository.

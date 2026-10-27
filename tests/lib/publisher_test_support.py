@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import unittest
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 KEY = "A" * 40
 
 STUB = r'''#!/usr/bin/env python3

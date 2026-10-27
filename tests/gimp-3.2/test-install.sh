@@ -4,10 +4,12 @@ set -Eeuo pipefail
 shopt -s nullglob
 
 export FRAMEWORK_DIR="$PWD"
-if [[ ! -d "$FRAMEWORK_DIR/tests/gimp" ]]; then
+if [[ ! -f "$FRAMEWORK_DIR/tests/lib/common.sh" ]]; then
     echo 'Run tests from the project root.' >&2
     exit 1
 fi
+source "$FRAMEWORK_DIR/tests/lib/common.sh"
+require_project_root
 if (( EUID == 0 )); then
     echo 'Run this test coordinator as your host user; Docker performs package installation inside image layers.' >&2
     exit 1
@@ -36,7 +38,9 @@ else
     CONTEXT=$(mktemp -d "$FRAMEWORK_DIR/build/gimp-install-XXXXXX")
 fi
 mkdir -p "$CONTEXT/debs"
-cp "$FRAMEWORK_DIR/tests/gimp/"* "$CONTEXT/"
+for FILE in Dockerfile smoke.py smoke.sh audit.py sdk-test.c; do
+    cp "$FRAMEWORK_DIR/tests/gimp-3.2/$FILE" "$CONTEXT/"
+done
 # All language archives are checked during packaging. English exercises actual
 # help installation here without copying every translation into each test image.
 for PACKAGE_FILE in "${DEBS[@]}"; do
@@ -50,10 +54,10 @@ done
 printf 'Preserved installation test context: %s\n' "$CONTEXT"
 TAG=${CONTEXT##*/}
 if [[ "$TARGET" == all || "$TARGET" == clean ]]; then
-    timeout --kill-after=30s 30m docker build --progress=plain --target clean \
+    run_logged "$CONTEXT/clean.log" 30m docker build --progress=plain --target clean \
         -t "private-apt-gimp-test:clean-$TAG" "$CONTEXT"
 fi
 if [[ "$TARGET" == all || "$TARGET" == reinstall ]]; then
-    timeout --kill-after=30s 30m docker build --progress=plain --target reinstall \
+    run_logged "$CONTEXT/reinstall.log" 30m docker build --progress=plain --target reinstall \
         -t "private-apt-gimp-test:reinstall-$TAG" "$CONTEXT"
 fi

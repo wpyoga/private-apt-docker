@@ -11,7 +11,7 @@ import subprocess
 import tarfile
 import unittest
 
-from publisher_test_support import ROOT, PublisherTestCase, fields
+from tests.lib.publisher_test_support import ROOT, PublisherTestCase, fields
 
 
 LIBRARIES = (

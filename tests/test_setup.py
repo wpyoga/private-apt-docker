@@ -4,7 +4,7 @@ import os
 import subprocess
 import unittest
 
-from publisher_test_support import KEY, ROOT, PublisherTestCase
+from tests.lib.publisher_test_support import KEY, ROOT, PublisherTestCase
 
 
 class SetupTests(PublisherTestCase):

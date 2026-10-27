@@ -10,8 +10,8 @@ import subprocess
 import tarfile
 import unittest
 
-from publisher_test_support import ROOT, PublisherTestCase, fields
-from test_gimp_help import create_help_fixtures
+from tests.lib.publisher_test_support import ROOT, PublisherTestCase, fields
+from gimp_support import create_help_fixtures
 
 
 TOOLS = all(shutil.which(name) for name in ("patchelf", "mksquashfs", "unsquashfs"))
