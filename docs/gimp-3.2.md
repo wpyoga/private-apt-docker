@@ -1,8 +1,5 @@
 # GIMP 3.2 packaging and deferred investigation
 
-These notes intentionally live beside the adapter, as requested. Editing them
-changes the recipe checksum and can allocate a packaging revision.
-
 The gimp-3.2 adapter follows the latest stable 3.2.x entry in GIMP's official
 gimp_versions.json, even after a newer series appears. It verifies each official
 AppImage's SHA256 and extracts SquashFS as data, without running AppRun or FUSE.
@@ -80,23 +77,13 @@ libgimp-3.0-doc contains generated HTML from the matching upstream
 gimp-api-docs-VERSION.tar.xz, verified against upstream SHA256SUMS. It has
 Architecture: all and is stored once for both binary indexes.
 
-User manuals are published independently by the gimp-help-3.2 adapter.
-It discovers the declared architecture-independent language packages and common
-package from Debian sid metadata each cycle, requiring a consistent 3.2 release.
-Manual source changes and manual recipe changes rebuild only that stream.
-The application only suggests manuals. API documentation remains tied to the
-matching application release.
+User manuals are published independently by the gimp-help-3.2 adapter; see
+[GIMP help packaging and validation notes](gimp-help-3.2.md). The application
+only suggests manuals. API documentation remains tied to the matching
+application release.
 
-Manual versions use the form 1:3.2.0+deb3-1: the epoch allows upgrades from
-previous application-numbered manuals, Debian's source revision is retained,
-and the final revision belongs to this publisher. Old packages remain stored.
-The importer preserves licensing and payload links, removes the four known
-legacy documentation migration scripts, verifies layout and dependencies,
-and recalculates Installed-Size.
-
-Sources: https://docs.gimp.org/download.html,
+Sources:
 https://download.gimp.org/gimp/v3.2/api-docs/,
-https://packages.debian.org/sid/gimp-help-en,
 https://github.com/GNOME/gimp/blob/GIMP_3_2_6/docs/gimptool.1.in.
 
 copyright.in is a rendered licensing/source notice for newly assembled packages.

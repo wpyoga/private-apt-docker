@@ -417,20 +417,26 @@ plugins have not been validated. Existing package names and the GIMP 3 API's
 `3.0` directory names are preserved.
 
 An unresolved TIFF-thumbnail round-trip discrepancy is deferred; see
-[GIMP packaging and validation notes](packages/gimp-3.2/gimp-3.2.md). The adapter deliberately
+[GIMP packaging and validation notes](docs/gimp-3.2.md). The adapter deliberately
 fails on unexpected layouts, architectures, Debian baselines, or external SONAMEs.
 Adding a newer release series requires a separate adapter.
 
-The same adapter imports the precompiled GIMP 3.2 user manuals from Debian sid,
-including all 32 declared languages and their matching common package. This
-brings the complete family to 41 packages per architecture build. The pinned
-help source versions and checksums live in `packages/gimp-3.2/help-assets`, so
-updating them changes the recipe checksum. No sid APT configuration is added.
-Clients can install `gimp-help-en` or another language from this repository.
-Help outputs share the application's assigned package version; their original
-Debian version is recorded in X-Upstream-Version. Missing declared languages,
-changed dependencies, or mixed manual source versions fail the build.
-`gimp-data-extras` remains supplied by Debian stable.
+## GIMP help 3.2
+
+`packages/gimp-help-3.2/` independently imports the GIMP 3.2 user manuals from
+Debian sid. It selects a consistent release of all 32 declared language packages
+and their common package. Clients do not need sid configured and can install
+`gimp-help-en` or another language from this repository.
+
+All manuals are architecture-independent and appear in both supported indexes.
+Manual source updates and packaging changes rebuild this stream independently
+of the application. Versions such as `1:3.2.0+deb3-1` retain the Debian source
+revision and use an epoch to upgrade earlier application-numbered manuals.
+API documentation remains in the application stream; `gimp-data-extras` remains
+supplied by Debian stable.
+
+See [GIMP help packaging and validation notes](docs/gimp-help-3.2.md) for release
+selection, package validation, and verification limits.
 
 ## Checksums and Debian revisions
 
@@ -649,13 +655,3 @@ system babl/GEGL coexistence, ELF relocation, and headless/Xvfb codec round trip
 It requires network access to Debian during setup and disables it during image
 tests. Runner output is written to named logs with bounded timeouts; failed test contexts are retained
 under `build/`. It neither installs host packages nor publishes a repository.
-
-
-GIMP user manuals are maintained by the independent `gimp-help-3.2` stream.
-It automatically selects a consistent set of the declared 3.2 language packages
-from Debian sid's package index; clients do not need sid configured. New source
-versions and packaging checksum changes trigger builds independently of GIMP.
-All manuals are architecture-independent and appear in both supported indexes.
-Versions such as `1:3.2.0+deb3-1` retain the Debian source revision and use an
-epoch to upgrade earlier application-numbered manuals. API documentation remains
-in the application stream.

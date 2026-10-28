@@ -170,8 +170,7 @@ This is per-file publication, not a transaction across all outputs.
   checks new upstream requirements without relying on installed host packages.
   Architecture checks, link/file-type validation and native ELF patching work
   for amd64 and arm64 without target execution. General notes and the deferred
-  TIFF-thumbnail issue live in [packages/gimp-3.2/gimp-3.2.md](packages/gimp-3.2/gimp-3.2.md).
-  This adapter-local documentation is intentionally part of its recipe checksum.
+  TIFF-thumbnail issue live in [docs/gimp-3.2.md](docs/gimp-3.2.md).
 
 - **GIMP help 3.2** independently imports all declared language packages and
   their common package from Debian sid's package index. It selects a consistent
@@ -180,6 +179,7 @@ This is per-file publication, not a transaction across all outputs.
   Versions use an epoch to upgrade manuals formerly numbered after GIMP, retain
   Debian source revisions as upstream version components, and append the normal
   publisher revision. Its recipe checksum is independent of the application.
+  [GIMP help packaging notes](docs/gimp-help-3.2.md) describe selection and validation.
 
 - **Zed** selects official stable GitHub tarballs and verifies their SHA256.
   It preserves the relative CLI/editor layout but replaces all bundled shared
@@ -317,5 +317,5 @@ application works on a target desktop.
 When resuming, inspect current files and working-tree changes first. This document
 records decisions, not a frozen task queue. The GIMP 3.2 adapter continues the
 native AppImage-repack investigation; its maintained design and deferred issues
-are recorded in [packages/gimp-3.2/gimp-3.2.md](packages/gimp-3.2/gimp-3.2.md). Generated investigation
+are recorded in [docs/gimp-3.2.md](docs/gimp-3.2.md). Generated investigation
 payloads and local dependency-root/native-root trees are not adapter inputs.
