@@ -1,6 +1,10 @@
 """Offline imports of manuals within the GIMP 3.2 release family."""
 
+import json
+import lzma
+import resource
 import shutil
+import sys
 import subprocess
 
 from tests.lib.publisher_test_support import ROOT, PublisherTestCase, fields
@@ -24,6 +28,39 @@ class GimpHelpTests(PublisherTestCase):
             'cp "$ADAPTER_DIR/Packages.xz" "$WORKSPACE/Packages.xz"\n'
             'python3 "$ADAPTER_DIR/help-metadata.py" query\n'
         )
+
+    def test_query_large_index_with_limited_memory_and_final_unterminated_record(self):
+        self.fixture()
+        adapter = self.base / "adapters/gimp-help-3.2"
+        index = adapter / "Packages.xz"
+        help_records = lzma.decompress(index.read_bytes())
+        # Over 200 MiB decompressed; unrelated packages must not accumulate.
+        unrelated = b"Package: unrelated\nDescription: " + b"x" * 2048 + b"\n\n"
+        with lzma.open(index, "wb") as stream:
+            for _ in range(100000):
+                stream.write(unrelated)
+            stream.write(help_records.rstrip(b"\n"))
+
+        def limit_memory():
+            limit = 128 * 1024 * 1024
+            resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+
+        environment = {
+            **self.env,
+            "WORKSPACE": str(adapter),
+            "BINARY_PACKAGES": "gimp-help-common gimp-help-en gimp-help-de",
+            "ARCHES": "amd64 arm64",
+        }
+        result = subprocess.run(
+            [sys.executable, str(adapter / "help-metadata.py"), "query"],
+            env=environment, capture_output=True, text=True, timeout=60,
+            preexec_fn=limit_memory,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((adapter / "targets.tsv").read_text(),
+                         "1:3.2.0+deb3\tamd64\n1:3.2.0+deb3\tarm64\n")
+        self.assertEqual(set(json.loads((adapter / "help-assets.json").read_text())),
+                         {"gimp-help-common", "gimp-help-en", "gimp-help-de"})
 
     def test_import_all_packages_once_for_both_indexes_and_resume(self):
         self.check_import("999999")

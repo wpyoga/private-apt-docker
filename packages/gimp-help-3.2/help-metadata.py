@@ -1,6 +1,7 @@
 """Read pinned Debian manuals and validate their repackaged metadata."""
 
 import json
+import lzma
 import os
 from pathlib import Path
 import re
@@ -22,14 +23,24 @@ def fields(text):
     return result
 
 
+def package_records(path):
+    # Keep only one stanza in memory: the full sid index exceeds our memory limit.
+    with lzma.open(path, "rt") as stream:
+        record = []
+        for line in stream:
+            if line.strip():
+                record.append(line)
+            elif record:
+                yield fields("".join(record))
+                record = []
+        if record:
+            yield fields("".join(record))
+
+
 def query():
     selected = {}
     names = {name for name in os.environ["BINARY_PACKAGES"].split() if name.startswith("gimp-help-")}
-    import lzma
-
-    records = lzma.open(workspace / "Packages.xz", "rt").read().split("\n\n")
-    for record in records:
-        row = fields(record)
+    for row in package_records(workspace / "Packages.xz"):
         name = row.get("Package")
         version = row.get("Version", "")
         if name not in names or not re.fullmatch(r"3\.2\.\d+-[0-9]+", version):
