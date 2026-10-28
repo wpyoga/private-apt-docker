@@ -185,7 +185,20 @@ BINARY_PACKAGES="example-cli example-common"
 Adapter configuration is parsed as data, never sourced as shell code. Use one `key=value`
 per line, with no spaces around `=`. Blank lines and whole-line comments are
 allowed. Values may have matching single or double quotes; quotes are removed
-without shell expansion. Only the two keys above are accepted, each exactly once.
+without shell expansion. Declare `RELEASE_STREAM` and either `BINARY_PACKAGES`
+or both architecture-specific lists, with each key appearing once:
+
+```sh
+RELEASE_STREAM=usbimager
+BINARY_PACKAGES_AMD64=usbimager-gtk
+BINARY_PACKAGES_ARM64=usbimager-x11
+```
+
+The two forms cannot be mixed. Both architecture lists must be nonempty, even
+when a cycle selects just one architecture. A package name can occur in both
+lists, including a shared `Architecture: all` package. Every build must return
+exactly the names declared for its architecture. Revision allocation scans the
+union of both lists, keeping one revision across architecture variants.
 Package names form a space-separated list of distinct Debian package names.
 Stream IDs use lowercase letters, digits, dots, underscores, and hyphens, beginning
 with a letter or digit. They must be unique among adapters in a cycle; duplicate
@@ -269,7 +282,8 @@ Query and build hooks receive these environment variables:
 | `FRAMEWORK_DIR` | Absolute path to the framework root |
 | `WORKSPACE` | Absolute path to this adapter’s temporary working directory |
 | `PUBLISHER_STREAM` | Configured `RELEASE_STREAM` |
-| `BINARY_PACKAGES` | Configured binary package names, separated by spaces |
+| `BINARY_PACKAGES` | Query: union of configured names; build: names required for its architecture, separated by spaces |
+| `BINARY_PACKAGES_AMD64`, `BINARY_PACKAGES_ARM64` | Architecture-specific lists, or empty for a common `BINARY_PACKAGES` declaration |
 | `MAINTAINER` | Global Debian package maintainer from `.env` |
 | `BUILD_INPUTS_SHA256` | Current packaging-input checksum; provided before build |
 | `ARCHES` | Architectures selected for this cycle |
@@ -347,6 +361,15 @@ Community rebuilds remain part of the tracked version: release `1.3.1-0-ppa2`
 becomes `1.3.1+0.ppa2-1`. Missing architectures retain previously published packages.
 After rebuilding the publisher image and publishing an update cycle, clients can
 install it with `sudo apt install ghostty`.
+
+## USBImager
+
+`packages/usbimager/` imports the official GTK Debian package as `usbimager-gtk`
+on amd64 and repackages the official X11 archive with embedded Unifont as
+`usbimager-x11` on arm64. Both provide the virtual package `usbimager` and use
+`/usr/bin/usbimager`. Arm64 compatibility is maintained as an exercise; there is
+currently no arm64 consumer. See [packaging and verification notes](docs/usbimager.md)
+for dependencies, device permissions, release selection, and validation limits.
 
 ## Zed
 
@@ -559,6 +582,10 @@ bash tests/run.sh --offline
 It uses temporary directories under `build/`, fixture downloads, fake signatures,
 and real Debian package/index tools. Host requirements are Bash, GNU tar, Python
 3.10+, `dpkg-dev`, `apt-utils`, `jq`, and GnuPG.
+
+For tools used only by this checkout, see
+[project-local Debian tools](docs/local-tools.md). They can be extracted under
+ignored `build/tools/` and enabled for individual commands without sudo or Docker.
 
 Framework, setup, runner, and signing tests stay directly under `tests/`.
 Adapter tests live in matching `tests/codex/`, `tests/ghostty/`,

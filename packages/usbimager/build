@@ -1,0 +1,80 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${MAINTAINER:?MAINTAINER must be set and non-empty}"
+: "${PUBLISHER_STREAM:?PUBLISHER_STREAM must be set and non-empty}"
+: "${BUILD_INPUTS_SHA256:?BUILD_INPUTS_SHA256 must be set and non-empty}"
+
+PACKAGE_VERSION="$1"
+ARCHITECTURE="$2"
+OUTPUT_DIR="$3"
+case "$ARCHITECTURE" in
+    amd64) PACKAGE_NAME=usbimager-gtk ;;
+    arm64) PACKAGE_NAME=usbimager-x11 ;;
+    *) echo "[usbimager] Unsupported architecture: $ARCHITECTURE" >&2; exit 1 ;;
+esac
+
+ASSET=$(jq -ce --arg ARCH "$ARCHITECTURE" '.[$ARCH]' "$WORKSPACE/assets.json")
+UPSTREAM_VERSION=$(jq -er '.version | strings' <<< "$ASSET")
+DOWNLOAD_URL=$(jq -er '.url | strings' <<< "$ASSET")
+DOWNLOAD_SHA256=$(jq -er '.sha256 | strings' <<< "$ASSET")
+if [[ "$UPSTREAM_VERSION" != "${PACKAGE_VERSION%-*}" ]]; then
+    echo "[usbimager] Selected version $UPSTREAM_VERSION does not match build $PACKAGE_VERSION" >&2
+    exit 1
+fi
+DOWNLOAD_PATH="$WORKSPACE/download-$ARCHITECTURE"
+PACKAGE_DIR="$WORKSPACE/pkg-$ARCHITECTURE"
+
+curl -fLsS --retry 3 "$DOWNLOAD_URL" -o "$DOWNLOAD_PATH"
+printf '%s  %s\n' "$DOWNLOAD_SHA256" "$DOWNLOAD_PATH" | sha256sum -c -
+if [[ "$ARCHITECTURE" == amd64 ]]; then
+    for FIELD in Package Version Architecture; do
+        case "$FIELD" in
+            Package) EXPECTED=usbimager ;;
+            Version) EXPECTED="$UPSTREAM_VERSION" ;;
+            Architecture) EXPECTED=amd64 ;;
+        esac
+        ACTUAL=$(dpkg-deb --field "$DOWNLOAD_PATH" "$FIELD")
+        if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "[usbimager] $DOWNLOAD_PATH: expected $FIELD '$EXPECTED', got '$ACTUAL'" >&2
+            exit 1
+        fi
+    done
+    python3 "$ADAPTER_DIR/validate.py" deb "$DOWNLOAD_PATH"
+    dpkg-deb --raw-extract "$DOWNLOAD_PATH" "$PACKAGE_DIR"
+else
+    mkdir -p "$PACKAGE_DIR/usr" "$PACKAGE_DIR/DEBIAN"
+    python3 "$ADAPTER_DIR/validate.py" zip "$DOWNLOAD_PATH" "$PACKAGE_DIR/usr"
+fi
+python3 "$ADAPTER_DIR/validate.py" tree "$PACKAGE_DIR" "$ARCHITECTURE"
+
+# Normalize permissions and ownership without granting raw-device access.
+find "$PACKAGE_DIR" -type d -exec chmod 755 {} +
+find "$PACKAGE_DIR/usr" -type f -exec chmod 644 {} +
+chmod 755 "$PACKAGE_DIR/usr/bin/usbimager"
+mkdir -p "$PACKAGE_DIR/usr/share/doc/$PACKAGE_NAME"
+cp "$ADAPTER_DIR/copyright" "$PACKAGE_DIR/usr/share/doc/$PACKAGE_NAME/copyright"
+if [[ -f "$PACKAGE_DIR/DEBIAN/copyright" ]]; then
+    cp "$PACKAGE_DIR/DEBIAN/copyright" "$PACKAGE_DIR/usr/share/doc/$PACKAGE_NAME/upstream-copyright"
+fi
+if [[ "$ARCHITECTURE" == arm64 ]]; then
+    cp "$ADAPTER_DIR/font-license" "$PACKAGE_DIR/usr/share/doc/$PACKAGE_NAME/font-license"
+fi
+INSTALLED_SIZE=$(du --summarize --block-size=1024 --exclude=DEBIAN "$PACKAGE_DIR" | cut -f1)
+if [[ "$ARCHITECTURE" == amd64 ]]; then
+    python3 "$ADAPTER_DIR/rewrite-control.py" \
+        "$PACKAGE_DIR/DEBIAN/control" "$PACKAGE_VERSION" "$INSTALLED_SIZE"
+else
+    MAINTAINER_SED=$(printf '%s' "$MAINTAINER" | sed 's/[\\&|]/\\&/g')
+    sed \
+        -e "s|@MAINTAINER@|$MAINTAINER_SED|g" \
+        -e "s/@PACKAGE_VERSION@/$PACKAGE_VERSION/g" \
+        -e "s/@INSTALLED_SIZE@/$INSTALLED_SIZE/g" \
+        -e "s/@BUILD_INPUTS_SHA256@/$BUILD_INPUTS_SHA256/g" \
+        -e "s/@PUBLISHER_STREAM@/$PUBLISHER_STREAM/g" \
+        "$ADAPTER_DIR/control.in" > "$PACKAGE_DIR/DEBIAN/control"
+fi
+dpkg-deb --build --root-owner-group -Zgzip \
+    "$PACKAGE_DIR" "$OUTPUT_DIR/${PACKAGE_NAME}_${PACKAGE_VERSION}_${ARCHITECTURE}.deb"

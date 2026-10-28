@@ -1,0 +1,16 @@
+Package: usbimager-x11
+Version: @PACKAGE_VERSION@
+Architecture: arm64
+Maintainer: @MAINTAINER@
+Section: admin
+Priority: optional
+Depends: libc6 (>= 2.41), libx11-6
+Conflicts: usbimager, usbimager-gtk
+Provides: usbimager
+Installed-Size: @INSTALLED_SIZE@
+Homepage: https://bztsrc.gitlab.io/usbimager/
+X-Build-Inputs-SHA256: @BUILD_INPUTS_SHA256@
+X-Publisher-Stream: @PUBLISHER_STREAM@
+Description: Write compressed disk images and create backups (X11)
+ Minimal X11 interface with embedded Unifont for writing USB images and
+ creating backups. Device access requires appropriate permissions.

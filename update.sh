@@ -45,7 +45,10 @@ for ADAPTER_DIR in "$PACKAGES_DIR"/*/; do
     SEEN_STREAMS[$STREAM]=1
 
     export PUBLISHER_STREAM="$STREAM"
-    export BINARY_PACKAGES="${CONFIGURATION#*$'\n'}"
+    mapfile -t CONFIGURATION_LINES <<< "$CONFIGURATION"
+    export BINARY_PACKAGES="${CONFIGURATION_LINES[1]}"
+    export BINARY_PACKAGES_AMD64="${CONFIGURATION_LINES[2]:-}"
+    export BINARY_PACKAGES_ARM64="${CONFIGURATION_LINES[3]:-}"
     export WORKSPACE="$WORK_DIR/streams/$STREAM"
 
     # A fresh Bash process keeps each stream's failures isolated.

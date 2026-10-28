@@ -168,7 +168,10 @@ def prepare_builds():
 
             version = selected_versions[upstream_version]
             complete = True
-            for name in names:
+            architecture_names = os.environ.get(
+                f"BINARY_PACKAGES_{architecture.upper()}", ""
+            ).split() or names
+            for name in architecture_names:
                 existing = find_package(packages, name, version, architecture)
                 if existing is None:
                     complete = False

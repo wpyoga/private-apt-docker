@@ -1,0 +1,3 @@
+RELEASE_STREAM=usbimager
+BINARY_PACKAGES_AMD64=usbimager-gtk
+BINARY_PACKAGES_ARM64=usbimager-x11

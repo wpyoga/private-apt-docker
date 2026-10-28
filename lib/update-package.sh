@@ -36,18 +36,22 @@ for ARCHITECTURE in $ARCHES; do
 done
 
 while IFS=$'\t' read -r VERSION ARCHITECTURE EXISTING; do
+    PACKAGE_LIST_VARIABLE="BINARY_PACKAGES_${ARCHITECTURE^^}"
+    SELECTED_PACKAGES="${!PACKAGE_LIST_VARIABLE:-$BINARY_PACKAGES}"
     if [[ -n "$EXISTING" ]]; then
-        echo "[$STREAM] Already stored: $BINARY_PACKAGES $VERSION ($ARCHITECTURE)"
+        echo "[$STREAM] Already stored: $SELECTED_PACKAGES $VERSION ($ARCHITECTURE)"
         continue
     fi
 
     OUTPUT_DIR="$WORKSPACE/output-$ARCHITECTURE"
     mkdir -p "$OUTPUT_DIR"
-    echo "[$STREAM] Building $BINARY_PACKAGES $VERSION ($ARCHITECTURE)"
-    if ! "$ADAPTER_DIR/build" "$VERSION" "$ARCHITECTURE" "$OUTPUT_DIR"; then
+    echo "[$STREAM] Building $SELECTED_PACKAGES $VERSION ($ARCHITECTURE)"
+    if ! BINARY_PACKAGES="$SELECTED_PACKAGES" \
+        "$ADAPTER_DIR/build" "$VERSION" "$ARCHITECTURE" "$OUTPUT_DIR"; then
         echo "ERROR: [$STREAM] Build failed for $VERSION ($ARCHITECTURE)" >&2
         exit 1
     fi
-    bash "$FRAMEWORK_DIR/lib/store-packages.sh" "$VERSION" "$ARCHITECTURE" "$OUTPUT_DIR"
-    echo "[$STREAM] Stored: $BINARY_PACKAGES $VERSION ($ARCHITECTURE)"
+    BINARY_PACKAGES="$SELECTED_PACKAGES" \
+        bash "$FRAMEWORK_DIR/lib/store-packages.sh" "$VERSION" "$ARCHITECTURE" "$OUTPUT_DIR"
+    echo "[$STREAM] Stored: $SELECTED_PACKAGES $VERSION ($ARCHITECTURE)"
 done < "$WORKSPACE/builds.tsv"

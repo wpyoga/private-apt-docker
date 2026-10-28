@@ -69,7 +69,8 @@ require missing or empty inputs to fail early rather than guessing paths.
 Docker sets fixed container paths; direct host invocations supply their own.
 
 Adapter `config` files are different: they are parsed as data and never sourced.
-They declare only `RELEASE_STREAM` and `BINARY_PACKAGES`. The directory listing
+They declare `RELEASE_STREAM` and either a common `BINARY_PACKAGES` list or
+both `BINARY_PACKAGES_AMD64` and `BINARY_PACKAGES_ARM64`. The directory listing
 selects adapters, while the configured stream ID supplies persistent identity.
 Renaming a directory therefore does not rename the stream or reset its history.
 
@@ -84,7 +85,11 @@ The publisher does not implement stream migration.
 amd64-only update retain an arm64 index. Supported architectures are amd64 and
 arm64. A build may also emit architecture-independent `all` packages. They are
 stored once, satisfy completion checks for either architecture, and appear in
-both architecture indexes. Every build still returns its full declared set.
+both architecture indexes. Every build returns the full set declared for its
+architecture. A name may appear in both architecture lists; revision selection
+scans their union, while completion checks and output validation use the selected
+architecture's list. Query receives the union as `BINARY_PACKAGES`; build receives
+its selected list. Existing common-list adapters keep their original behavior.
 
 ## The adapter boundary
 

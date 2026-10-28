@@ -1,0 +1,11 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${ARCHES:?ARCHES must be set and non-empty}"
+
+curl -fLsS --retry 3 \
+    https://gitlab.com/bztsrc/usbimager/-/raw/binaries/sha256checksums.txt \
+    -o "$WORKSPACE/sha256checksums.txt"
+python3 "$ADAPTER_DIR/select-assets.py"
