@@ -1,5 +1,8 @@
 #!/bin/bash
 set -Eeuo pipefail
+
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set and non-empty}"
+source "$FRAMEWORK_DIR/lib/adapter/package.sh"
 shopt -s nullglob
 
 : "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
@@ -39,10 +42,7 @@ STAGING_DIR="$WORKSPACE/staging-$ARCHITECTURE"
 PRIVATE_PATH="/usr/lib/$MULTIARCH/gimp/bundled"
 export SOURCE_USR STAGING_DIR MULTIARCH UPSTREAM_VERSION ARCHITECTURE
 
-if [[ ! -f "$ARCHIVE" ]]; then
-    curl -fLsS --retry 3 "$DOWNLOAD_URL" -o "$ARCHIVE"
-fi
-printf '%s  %s\n' "$DOWNLOAD_SHA256" "$ARCHIVE" | sha256sum --check
+verify_download "$DOWNLOAD_URL" "$ARCHIVE" "$DOWNLOAD_SHA256" reuse
 if [[ -e "$SOURCE_DIR" || -e "$STAGING_DIR" ]]; then
     echo "[gimp-3.2] Refusing to reuse extraction or staging tree for $ARCHITECTURE" >&2
     exit 1
@@ -72,10 +72,8 @@ bash "$ADAPTER_DIR/stage.sh"
 
 DOC_NAME="gimp-api-docs-$UPSTREAM_VERSION.tar.xz"
 DOC_ARCHIVE="$WORKSPACE/$DOC_NAME"
-if [[ ! -f "$DOC_ARCHIVE" ]]; then
-    curl -fLsS --retry 3 "https://download.gimp.org/gimp/v3.2/api-docs/$DOC_NAME" -o "$DOC_ARCHIVE"
-fi
-printf '%s  %s\n' "$(cat "$WORKSPACE/api-docs.sha256")" "$DOC_ARCHIVE" | sha256sum --check
+verify_download "https://download.gimp.org/gimp/v3.2/api-docs/$DOC_NAME" \
+    "$DOC_ARCHIVE" "$(cat "$WORKSPACE/api-docs.sha256")" reuse
 python3 "$ADAPTER_DIR/inspect-docs.py" "$DOC_ARCHIVE" "$UPSTREAM_VERSION"
 DOC_DIR="$STAGING_DIR/libgimp-3.0-doc/usr/share/doc/libgimp-3.0-doc"
 mkdir -p "$DOC_DIR"
@@ -90,7 +88,6 @@ while IFS= read -r -d '' BINARY; do
     patchelf --set-rpath "\$ORIGIN:$PRIVATE_PATH" "$BINARY"
 done < "$WORKSPACE/elf-$ARCHITECTURE.paths0"
 
-MAINTAINER_SED=$(printf '%s' "$MAINTAINER" | sed 's/[\\&|]/\\&/g')
 
 for PACKAGE_NAME in gimp gimp-data libgimp-3.0-0 gir1.2-gimp-3.0 gimp-bundled-runtime \
     libgimp-3.0-bin libgimp-3.0-dev libgimp-3.0-doc; do
@@ -149,21 +146,13 @@ for PACKAGE_NAME in gimp gimp-data libgimp-3.0-0 gir1.2-gimp-3.0 gimp-bundled-ru
     fi
     # Finish delayed allocation before measuring the final staged tree.
     sync -f "$PACKAGE_DIR"
-    INSTALLED_SIZE=$(du --summarize --block-size=1024 --exclude=DEBIAN "$PACKAGE_DIR" | cut -f1)
-    SUGGESTS_SED=$(printf '%s' "$SUGGESTS" | sed 's/[\\&|]/\\&/g')
-    sed \
-        -e "s|@MAINTAINER@|$MAINTAINER_SED|g" \
-        -e "s/@PACKAGE_NAME@/$PACKAGE_NAME/g" \
-        -e "s/@PACKAGE_VERSION@/$PACKAGE_VERSION/g" \
-        -e "s/@ARCHITECTURE@/$PACKAGE_ARCHITECTURE/g" \
-        -e "s/@INSTALLED_SIZE@/$INSTALLED_SIZE/g" \
-        -e "s|@DEPENDS@|$DEPENDS|g" \
-        -e "s|@PROVIDES@|$PROVIDES|g" \
-        -e "s|@SUGGESTS@|$SUGGESTS_SED|g" \
-        -e "s/@BUILD_INPUTS_SHA256@/$BUILD_INPUTS_SHA256/g" \
-        -e "s/@PUBLISHER_STREAM@/$PUBLISHER_STREAM/g" \
-        -e '/^$/d' -e '/^Depends: $/d' \
-        "$ADAPTER_DIR/control.in" > "$PACKAGE_DIR/DEBIAN/control"
-    dpkg-deb --build --root-owner-group -Zgzip "$PACKAGE_DIR" \
+    render_control "$ADAPTER_DIR/control.in" "$PACKAGE_DIR" \
+        PACKAGE_NAME "$PACKAGE_NAME" \
+        ARCHITECTURE "$PACKAGE_ARCHITECTURE" \
+        DEPENDS "$DEPENDS" \
+        PROVIDES "$PROVIDES" \
+        SUGGESTS "$SUGGESTS"
+    sed -i -e '/^$/d' -e '/^Depends: $/d' "$PACKAGE_DIR/DEBIAN/control"
+    build_deb "$PACKAGE_DIR" \
         "$OUTPUT_DIR/${PACKAGE_NAME}_${PACKAGE_VERSION}_${PACKAGE_ARCHITECTURE}.deb"
 done

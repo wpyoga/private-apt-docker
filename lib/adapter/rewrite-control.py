@@ -34,6 +34,8 @@ def main():
         "X-Build-Inputs-SHA256": os.environ["BUILD_INPUTS_SHA256"],
         "X-Publisher-Stream": os.environ["PUBLISHER_STREAM"],
     }
+    for index in range(4, len(sys.argv), 2):
+        replacements[sys.argv[index]] = sys.argv[index + 1]
     path.write_text(rewrite_fields(path.read_text(), replacements))
 
 

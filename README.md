@@ -207,9 +207,8 @@ IDs report an error and the later adapter is skipped.
 One directory follows one configured release stream. The query hook owns how that
 stream selects upstream releases; the stream ID is an identity, not a channel
 name that the runner interprets. Codex follows GitHub's latest stable release and
-supports amd64 and arm64. Its `query` hook contains both the release download
-and JSON processing using Bash and `jq`, with no inline Python or separate
-release helper. Its build hook renders `@VARNAME@` placeholders in
+supports amd64 and arm64. Its `query` hook declares its tag and asset rules and uses shared
+GitHub helpers implemented with Bash and `jq`. Its build hook renders `@VARNAME@` placeholders in
 `control.in` using `sed`. Extraction and validation live in short functions
 inside the build hook. Codex expects `bin/` and `codex-package.json` directly at
 the archive root. A wrapper directory or changed layout fails with a missing-file
@@ -443,11 +442,12 @@ selection, package validation, and verification limits.
 Our input checksum answers whether the packaging recipe changed. It covers:
 
 - Adapter file paths, contents, and executable permissions.
+- Shared implementation files listed in the adapter’s `helper-inputs`.
 - The Dockerfile.
 - The global `MAINTAINER` value.
 
-It excludes revision helpers, inactivity settings, caches, generated `build/`
-directories, timestamps, and architecture selection. Changes to included comments
+Other framework files remain excluded, along with inactivity settings, caches,
+generated `build/` directories, timestamps, and architecture selection. Changes to included comments
 also count as recipe changes.
 
 This checksum is embedded in the `.deb`; there are no separate checksum files.

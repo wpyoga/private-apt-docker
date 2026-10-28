@@ -202,7 +202,7 @@ class GimpTests(PublisherTestCase):
         self.fixture()
         self.env["MAINTAINER"] = r"Release / Ops & Team | Name <test@example.invalid>"
         self.run_update()
-        self.assertEqual(len(self.artifacts()), 18)
+        self.assertEqual(len(self.artifacts()), 15)
         for artifact in self.artifacts():
             metadata = fields(artifact)
             name = metadata["package"]
@@ -280,15 +280,15 @@ class GimpTests(PublisherTestCase):
                 self.assertTrue((root / "usr/share/doc/libgimp-3.0-doc/reference/libgimp-3.0/index.html").is_file())
             self.assertTrue((root / "usr/share/doc" / name / "copyright").is_file())
         self.run_update()
-        self.assertEqual(len(self.artifacts()), 18)
+        self.assertEqual(len(self.artifacts()), 15)
 
     def test_missing_architecture_can_be_published_later(self):
         self.fixture(missing_arm64=True)
         self.run_update()
-        self.assertEqual(len(self.artifacts()), 11)
+        self.assertEqual(len(self.artifacts()), 8)
         self.fixture()
         self.run_update()
-        self.assertEqual(len(self.artifacts()), 18)
+        self.assertEqual(len(self.artifacts()), 15)
 
     def test_digest_failure_stores_nothing(self):
         self.fixture()

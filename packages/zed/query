@@ -1,6 +1,9 @@
 #!/bin/bash
 set -Eeuo pipefail
 
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set and non-empty}"
+source "$FRAMEWORK_DIR/lib/adapter/github.sh"
+
 : "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
 : "${WORKSPACE:?WORKSPACE must be set and non-empty}"
 : "${ARCHES:?ARCHES must be set and non-empty}"
@@ -9,32 +12,16 @@ RELEASE_FILE="$WORKSPACE/release.json"
 ASSETS_FILE="$WORKSPACE/assets.json"
 TARGETS_FILE="$WORKSPACE/targets.tsv"
 
-curl -fLsS --retry 3 \
-    -H 'Accept: application/vnd.github+json' \
-    -H 'User-Agent: private-apt-publisher' \
-    https://api.github.com/repos/zed-industries/zed/releases/latest \
-    -o "$RELEASE_FILE"
+fetch_github_release zed-industries/zed "$RELEASE_FILE"
 
 TAG=$(jq --raw-output --exit-status '.tag_name | strings' "$RELEASE_FILE")
 if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     echo "Unexpected release tag: $TAG" >&2
     exit 1
 fi
-if ! jq --exit-status '.draft == false and .prerelease == false' "$RELEASE_FILE" >/dev/null; then
-    echo "Expected a stable release: $TAG" >&2
-    exit 1
-fi
-if ! jq --exit-status '.assets | type == "array" and all(.[]; type == "object")' \
-    "$RELEASE_FILE" >/dev/null; then
-    echo "[zed] Invalid assets list for release: $TAG" >&2
-    exit 1
-fi
 VERSION=${TAG#v}
 
-RELEASE_DATE=$(jq --raw-output '.published_at // empty' "$RELEASE_FILE")
-if [[ -n "$RELEASE_DATE" ]]; then
-    printf '%s\n' "$RELEASE_DATE" > "$WORKSPACE/release-date"
-fi
+record_github_release_date "$RELEASE_FILE" "$WORKSPACE/release-date"
 
 printf '{}\n' > "$ASSETS_FILE"
 : > "$TARGETS_FILE"
@@ -49,31 +36,10 @@ for ARCHITECTURE in $ARCHES; do
             ;;
     esac
     ASSET_NAME="zed-linux-$TARGET.tar.gz"
-    ASSET_COUNT=$(jq --arg NAME "$ASSET_NAME" \
-        '[.assets[] | select(.name == $NAME)] | length' "$RELEASE_FILE")
-    if (( ASSET_COUNT > 1 )); then
-        echo "[zed] Duplicate release asset: $ASSET_NAME" >&2
-        exit 1
-    fi
-    ASSET=$(jq --compact-output --arg NAME "$ASSET_NAME" \
-        'first(.assets[] | select(.name == $NAME)) // empty' "$RELEASE_FILE")
+    ASSET=$(select_github_asset "$RELEASE_FILE" "$ASSET_NAME")
     if [[ -z "$ASSET" ]]; then
         echo "WARNING: No upstream archive for $ARCHITECTURE: $ASSET_NAME" >&2
         continue
-    fi
-
-    if ! jq --exit-status '
-        .digest | strings | length == 71 and test("^sha256:[0-9a-fA-F]{64}$")
-    ' <<< "$ASSET" >/dev/null; then
-        echo "Missing or invalid SHA256 digest: $ASSET_NAME" >&2
-        exit 1
-    fi
-    if ! jq --exit-status '
-        .browser_download_url | strings
-        | startswith("https://") and (test("\\s") | not)
-    ' <<< "$ASSET" >/dev/null; then
-        echo "Invalid asset URL: $ASSET_NAME" >&2
-        exit 1
     fi
 
     # Keep the metadata indexed by Debian architecture for the build hook.

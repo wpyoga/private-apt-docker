@@ -1,6 +1,9 @@
 #!/bin/bash
 set -Eeuo pipefail
 
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set and non-empty}"
+source "$FRAMEWORK_DIR/lib/adapter/package.sh"
+
 : "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
 : "${WORKSPACE:?WORKSPACE must be set and non-empty}"
 : "${MAINTAINER:?MAINTAINER must be set and non-empty}"
@@ -27,8 +30,7 @@ fi
 DOWNLOAD_PATH="$WORKSPACE/download-$ARCHITECTURE"
 PACKAGE_DIR="$WORKSPACE/pkg-$ARCHITECTURE"
 
-curl -fLsS --retry 3 "$DOWNLOAD_URL" -o "$DOWNLOAD_PATH"
-printf '%s  %s\n' "$DOWNLOAD_SHA256" "$DOWNLOAD_PATH" | sha256sum -c -
+verify_download "$DOWNLOAD_URL" "$DOWNLOAD_PATH" "$DOWNLOAD_SHA256" refresh
 if [[ "$ARCHITECTURE" == amd64 ]]; then
     for FIELD in Package Version Architecture; do
         case "$FIELD" in
@@ -36,11 +38,7 @@ if [[ "$ARCHITECTURE" == amd64 ]]; then
             Version) EXPECTED="$UPSTREAM_VERSION" ;;
             Architecture) EXPECTED=amd64 ;;
         esac
-        ACTUAL=$(dpkg-deb --field "$DOWNLOAD_PATH" "$FIELD")
-        if [[ "$ACTUAL" != "$EXPECTED" ]]; then
-            echo "[usbimager] $DOWNLOAD_PATH: expected $FIELD '$EXPECTED', got '$ACTUAL'" >&2
-            exit 1
-        fi
+        check_deb_field "$DOWNLOAD_PATH" "$FIELD" "$EXPECTED"
     done
     python3 "$ADAPTER_DIR/validate.py" deb "$DOWNLOAD_PATH"
     dpkg-deb --raw-extract "$DOWNLOAD_PATH" "$PACKAGE_DIR"
@@ -62,19 +60,15 @@ fi
 if [[ "$ARCHITECTURE" == arm64 ]]; then
     cp "$ADAPTER_DIR/font-license" "$PACKAGE_DIR/usr/share/doc/$PACKAGE_NAME/font-license"
 fi
-INSTALLED_SIZE=$(du --summarize --block-size=1024 --exclude=DEBIAN "$PACKAGE_DIR" | cut -f1)
+INSTALLED_SIZE=$(installed_size "$PACKAGE_DIR")
 if [[ "$ARCHITECTURE" == amd64 ]]; then
-    python3 "$ADAPTER_DIR/rewrite-control.py" \
-        "$PACKAGE_DIR/DEBIAN/control" "$PACKAGE_VERSION" "$INSTALLED_SIZE"
+    python3 "$FRAMEWORK_DIR/lib/adapter/rewrite-control.py" \
+        "$PACKAGE_DIR/DEBIAN/control" "$PACKAGE_VERSION" "$INSTALLED_SIZE" \
+        Package usbimager-gtk \
+        Depends 'udisks2, libgtk-3-0t64, libglib2.0-0t64, libudisks2-0, libc6 (>= 2.41)' \
+        Conflicts 'usbimager, usbimager-x11' Provides usbimager Section admin
 else
-    MAINTAINER_SED=$(printf '%s' "$MAINTAINER" | sed 's/[\\&|]/\\&/g')
-    sed \
-        -e "s|@MAINTAINER@|$MAINTAINER_SED|g" \
-        -e "s/@PACKAGE_VERSION@/$PACKAGE_VERSION/g" \
-        -e "s/@INSTALLED_SIZE@/$INSTALLED_SIZE/g" \
-        -e "s/@BUILD_INPUTS_SHA256@/$BUILD_INPUTS_SHA256/g" \
-        -e "s/@PUBLISHER_STREAM@/$PUBLISHER_STREAM/g" \
-        "$ADAPTER_DIR/control.in" > "$PACKAGE_DIR/DEBIAN/control"
+    render_control "$ADAPTER_DIR/control.in" "$PACKAGE_DIR"
 fi
-dpkg-deb --build --root-owner-group -Zgzip \
+build_deb \
     "$PACKAGE_DIR" "$OUTPUT_DIR/${PACKAGE_NAME}_${PACKAGE_VERSION}_${ARCHITECTURE}.deb"

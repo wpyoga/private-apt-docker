@@ -1,6 +1,9 @@
 #!/bin/bash
 set -Eeuo pipefail
 
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set and non-empty}"
+source "$FRAMEWORK_DIR/lib/adapter/package.sh"
+
 : "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
 : "${WORKSPACE:?WORKSPACE must be set and non-empty}"
 : "${PUBLISHER_STREAM:?PUBLISHER_STREAM must be set and non-empty}"
@@ -34,8 +37,7 @@ if [[ "$UPSTREAM_VERSION" != "${PACKAGE_VERSION%-*}" || \
     exit 1
 fi
 ARCHIVE_PATH="$WORKSPACE/$ASSET_NAME"
-curl -fLsS --retry 3 "$DOWNLOAD_URL" -o "$ARCHIVE_PATH"
-printf '%s  %s\n' "$ARCHIVE_SHA256" "$ARCHIVE_PATH" | sha256sum -c -
+verify_download "$DOWNLOAD_URL" "$ARCHIVE_PATH" "$ARCHIVE_SHA256" refresh
 
 python3 "$ADAPTER_DIR/inspect-bundle.py" archive "$ARCHIVE_PATH"
 mkdir -p "$SOURCE_DIR"
@@ -60,17 +62,9 @@ cp -a "$BUNDLE_ROOT/share/." "$PACKAGE_DIR/usr/share/"
 install -m 644 "$BUNDLE_ROOT/licenses.md" "$PACKAGE_DIR/usr/share/doc/zed/licenses.md"
 install -m 644 "$ADAPTER_DIR/copyright.in" "$PACKAGE_DIR/usr/share/doc/zed/copyright"
 
-INSTALLED_SIZE=$(du --summarize --block-size=1024 --exclude=DEBIAN "$PACKAGE_DIR" | cut -f1)
-MAINTAINER_SED=$(printf '%s' "$MAINTAINER" | sed 's/[\\&|]/\\&/g')
-sed \
-    -e "s|@MAINTAINER@|$MAINTAINER_SED|g" \
-    -e "s/@PACKAGE_VERSION@/$PACKAGE_VERSION/g" \
-    -e "s/@ARCHITECTURE@/$ARCHITECTURE/g" \
-    -e "s/@INSTALLED_SIZE@/$INSTALLED_SIZE/g" \
-    -e "s|@DEPENDS@|$DEPENDS|g" \
-    -e "s/@BUILD_INPUTS_SHA256@/$BUILD_INPUTS_SHA256/g" \
-    -e "s/@PUBLISHER_STREAM@/$PUBLISHER_STREAM/g" \
-    "$ADAPTER_DIR/control.in" > "$PACKAGE_DIR/DEBIAN/control"
+render_control "$ADAPTER_DIR/control.in" "$PACKAGE_DIR" \
+    ARCHITECTURE "$ARCHITECTURE" \
+    DEPENDS "$DEPENDS"
 
-dpkg-deb --build --root-owner-group -Zgzip "$PACKAGE_DIR" \
+build_deb "$PACKAGE_DIR" \
     "$OUTPUT_DIR/zed_${PACKAGE_VERSION}_${ARCHITECTURE}.deb"

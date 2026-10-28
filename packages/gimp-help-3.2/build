@@ -1,3 +1,5 @@
 #!/bin/bash
 set -Eeuo pipefail
+
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
 bash "$ADAPTER_DIR/build-help" "$@"

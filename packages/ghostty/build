@@ -1,6 +1,9 @@
 #!/bin/bash
 set -Eeuo pipefail
 
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set and non-empty}"
+source "$FRAMEWORK_DIR/lib/adapter/package.sh"
+
 : "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
 : "${WORKSPACE:?WORKSPACE must be set and non-empty}"
 : "${PUBLISHER_STREAM:?PUBLISHER_STREAM must be set and non-empty}"
@@ -33,22 +36,7 @@ read_selected_asset() {
 }
 
 download_package() {
-    curl -fLsS --retry 3 "$DOWNLOAD_URL" -o "$DOWNLOAD_PATH"
-    printf '%s  %s\n' "$DOWNLOAD_SHA256" "$DOWNLOAD_PATH" | sha256sum -c -
-}
-
-check_control_field() {
-    local FIELD EXPECTED ACTUAL
-    FIELD="$1"
-    EXPECTED="$2"
-    ACTUAL=$(dpkg-deb --field "$DOWNLOAD_PATH" "$FIELD")
-
-    if [[ "$ACTUAL" != "$EXPECTED" ]]; then
-        printf "[ghostty] %s (%s): unexpected %s in %s; expected '%s', got '%s'\n" \
-            "$PACKAGE_VERSION" "$ARCHITECTURE" "$FIELD" \
-            "$DOWNLOAD_PATH" "$EXPECTED" "$ACTUAL" >&2
-        exit 1
-    fi
+    verify_download "$DOWNLOAD_URL" "$DOWNLOAD_PATH" "$DOWNLOAD_SHA256" refresh
 }
 
 check_package_files() {
@@ -76,15 +64,15 @@ repackage() {
     check_package_files
 
     # Recalculate after staging; upstream metadata may be missing or outdated.
-    INSTALLED_SIZE=$(du --summarize --block-size=1024 --exclude=DEBIAN "$PACKAGE_DIR" | cut -f1)
-    python3 "$ADAPTER_DIR/rewrite-control.py" \
+    INSTALLED_SIZE=$(installed_size "$PACKAGE_DIR")
+    python3 "$FRAMEWORK_DIR/lib/adapter/rewrite-control.py" \
         "$PACKAGE_DIR/DEBIAN/control" "$PACKAGE_VERSION" "$INSTALLED_SIZE"
-    dpkg-deb --build --root-owner-group -Zgzip "$PACKAGE_DIR" "$OUTPUT_PATH"
+    build_deb "$PACKAGE_DIR" "$OUTPUT_PATH"
 }
 
 read_selected_asset
 download_package
-check_control_field Package ghostty
-check_control_field Version "$DEB_VERSION"
-check_control_field Architecture "$ARCHITECTURE"
+check_deb_field "$DOWNLOAD_PATH" Package ghostty
+check_deb_field "$DOWNLOAD_PATH" Version "$DEB_VERSION"
+check_deb_field "$DOWNLOAD_PATH" Architecture "$ARCHITECTURE"
 repackage

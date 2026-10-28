@@ -1,6 +1,9 @@
 #!/bin/bash
 set -Eeuo pipefail
 
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set and non-empty}"
+source "$FRAMEWORK_DIR/lib/adapter/package.sh"
+
 : "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
 : "${WORKSPACE:?WORKSPACE must be set and non-empty}"
 : "${PUBLISHER_STREAM:?PUBLISHER_STREAM must be set and non-empty}"
@@ -92,8 +95,7 @@ if [[ "$UPSTREAM_VERSION" != "${PACKAGE_VERSION%-*}" ]]; then
 fi
 ARCHIVE_PATH="$WORKSPACE/$ASSET_NAME"
 
-curl -fLsS --retry 3 "$DOWNLOAD_URL" -o "$ARCHIVE_PATH"
-printf '%s  %s\n' "$ARCHIVE_SHA256" "$ARCHIVE_PATH" | sha256sum -c -
+verify_download "$DOWNLOAD_URL" "$ARCHIVE_PATH" "$ARCHIVE_SHA256" refresh
 extract_package
 
 PACKAGE_DIR="$WORKSPACE/pkg-$ARCHITECTURE"
@@ -114,18 +116,7 @@ for BINARY in "$PACKAGE_ROOT"/bin/*; do
     ln -s "../lib/openai-codex/bin/$BINARY_NAME" "$PACKAGE_DIR/usr/bin/$BINARY_NAME"
 done
 
-# APT needs the unpacked size in KiB; DEBIAN contains package metadata only.
-INSTALLED_SIZE=$(du --summarize --block-size=1024 --exclude=DEBIAN "$PACKAGE_DIR" | cut -f1)
+render_control "$ADAPTER_DIR/control.in" "$PACKAGE_DIR" \
+    ARCHITECTURE "$ARCHITECTURE"
 
-# Escape replacement characters in the maintainer's human-entered name.
-MAINTAINER_SED=$(printf '%s' "$MAINTAINER" | sed 's/[\\&|]/\\&/g')
-sed \
-    -e "s|@MAINTAINER@|$MAINTAINER_SED|g" \
-    -e "s/@PACKAGE_VERSION@/$PACKAGE_VERSION/g" \
-    -e "s/@ARCHITECTURE@/$ARCHITECTURE/g" \
-    -e "s/@INSTALLED_SIZE@/$INSTALLED_SIZE/g" \
-    -e "s/@BUILD_INPUTS_SHA256@/$BUILD_INPUTS_SHA256/g" \
-    -e "s/@PUBLISHER_STREAM@/$PUBLISHER_STREAM/g" \
-    "$ADAPTER_DIR/control.in" > "$PACKAGE_DIR/DEBIAN/control"
-
-dpkg-deb --build --root-owner-group -Zgzip "$PACKAGE_DIR" "$OUTPUT"
+build_deb "$PACKAGE_DIR" "$OUTPUT"

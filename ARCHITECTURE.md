@@ -202,8 +202,8 @@ decompressing its main payload.
 `lib/checksum.py` fingerprints sorted adapter-relative file paths, file contents,
 executable permission bits, the Dockerfile text, and global `MAINTAINER`. Directory
 names, timestamps, caches, generated `build/` directories, and `stale-after-days`
-are excluded. Framework helpers and architecture selection are not fingerprinted.
-Adapter comments and documentation count as inputs, so general developer docs
+are excluded. Declared shared adapter helpers are fingerprinted; other framework
+helpers and architecture selection are not. Adapter comments and documentation count as inputs, so general developer docs
 belong outside `packages/`.
 
 The recipe checksum is distinct from upstream download hashes. Query results and
@@ -319,3 +319,42 @@ records decisions, not a frozen task queue. The GIMP 3.2 adapter continues the
 native AppImage-repack investigation; its maintained design and deferred issues
 are recorded in [docs/gimp-3.2.md](docs/gimp-3.2.md). Generated investigation
 payloads and local dependency-root/native-root trees are not adapter inputs.
+
+### Shared adapter operations
+
+Adapters may source `lib/adapter/package.sh` through the required `FRAMEWORK_DIR`.
+It provides installed-size measurement, Debian package creation, and verified
+artifact downloads. Upstream validation and staging remain adapter-owned.
+`lib/adapter/rewrite-control.py` replaces publisher fields and explicitly supplied
+field/value pairs while preserving unrelated multiline control metadata.
+
+An optional adapter-local `helper-inputs` file lists shared implementation paths
+relative to `lib/`, one per line. Blank lines and comments are allowed. Declare
+indirect dependencies too. These files participate in recipe checksums; unrelated
+framework files remain excluded. Missing, duplicate, escaping, and symlinked
+helper paths fail checksum calculation.
+
+Shared helper calls are explicit steps, for example:
+
+```bash
+source "$FRAMEWORK_DIR/lib/adapter/package.sh"
+verify_download "$DOWNLOAD_URL" "$ARCHIVE" "$SHA256" reuse
+# Adapter validates and stages its fixed upstream layout here.
+render_control "$ADAPTER_DIR/control.in" "$PACKAGE_DIR" ARCHITECTURE "$ARCHITECTURE"
+build_deb "$PACKAGE_DIR" "$OUTPUT_PATH"
+```
+
+`verify_download URL DESTINATION SHA256 POLICY [CURL_ARGUMENTS...]` accepts
+`refresh` (always fetch), `reuse` (fail if cached bytes mismatch), or `repair`
+(refetch mismatched bytes). New bytes are verified before replacing the destination.
+`render_control TEMPLATE PACKAGE_DIR [NAME VALUE...]` supplies publisher metadata
+and final installed size; additional pairs describe adapter-owned placeholders.
+Adapters retain decisions about optional control fields. `check_deb_field` takes
+an archive, field name, and expected value. `build_deb` takes a staged tree and
+output filename and preserves the publisher's gzip and root ownership options.
+
+`github.sh` provides `fetch_github_release REPOSITORY FILE`,
+`record_github_release_date FILE DESTINATION`, and `select_github_asset FILE NAME`.
+Selection prints one validated asset, prints nothing for a missing asset, and
+fails for duplicates or invalid digests/URLs. Adapters decide how missing assets
+map to targets and retain their own version and architecture rules.

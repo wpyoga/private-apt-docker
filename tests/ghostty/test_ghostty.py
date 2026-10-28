@@ -240,7 +240,7 @@ class GhosttyTests(PublisherTestCase):
             "PUBLISHER_STREAM": "ghostty",
         }
         subprocess.run(
-            ["python3", str(ROOT / "packages/ghostty/rewrite-control.py"),
+            ["python3", str(ROOT / "lib/adapter/rewrite-control.py"),
              str(control), "1.3.1+0.ppa2-1", "2048"],
             env=environment,
             check=True,

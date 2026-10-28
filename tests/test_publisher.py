@@ -340,6 +340,18 @@ class PublisherTests(PublisherTestCase):
         self.run_update()
         self.assertEqual(self.versions("first"), {f"1.2.3-{number}" for number in range(1, 5)})
 
+    def test_declared_shared_helper_rebuilds_only_its_stream(self):
+        first = self.adapter("first")
+        self.adapter("second")
+        helper = self.publisher / "lib/adapter/package.sh"
+        (first / "helper-inputs").write_text("adapter/package.sh\n")
+        self.run_update()
+        helper.write_text(helper.read_text() + "\n# Shared packaging change\n")
+        self.run_update()
+        self.run_update()
+        self.assertEqual(self.versions("first"), {"1.2.3-1", "1.2.3-2"})
+        self.assertEqual(self.versions("second"), {"1.2.3-1"})
+
     def test_global_maintainer_change_rebuilds_every_stream(self):
         self.adapter("first")
         self.adapter("second")

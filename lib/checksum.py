@@ -24,6 +24,23 @@ def checksum(adapter):
         if path.is_file():
             inputs.append((f"adapter/{relative.as_posix()}", path))
 
+    declaration = adapter / "helper-inputs"
+    if declaration.exists():
+        seen = set()
+        for line in declaration.read_text().splitlines():
+            name = line.strip()
+            if not name or name.startswith("#"):
+                continue
+            relative = Path(name)
+            path = ROOT / "lib" / relative
+            if (relative.is_absolute() or ".." in relative.parts or name in seen
+                    or not path.is_file()
+                    or any(part.is_symlink() for part in (path, *path.parents))):
+                raise SystemExit(f"Invalid shared helper input: {name}")
+            seen.add(name)
+            inputs.append((f"lib/{name}", path))
+        inputs.sort(key=lambda item: item[0])
+
     inputs.append(("Dockerfile", ROOT / "Dockerfile"))
 
     records = []

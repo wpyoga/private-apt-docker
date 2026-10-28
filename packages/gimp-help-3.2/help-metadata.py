@@ -4,7 +4,6 @@ import json
 import os
 from pathlib import Path
 import re
-import subprocess
 import sys
 
 
@@ -109,17 +108,7 @@ def rewrite():
             raise SystemExit("Missing Debian common-help copyright notice")
     elif not (root / "usr/share/gimp/3.0/help").is_dir():
         raise SystemExit(f"Missing GIMP help directory: {package}")
-    row["Version"] = version
-    row["Maintainer"] = os.environ["MAINTAINER"]
-    row["X-Publisher-Stream"] = os.environ["PUBLISHER_STREAM"]
-    row["X-Upstream-Version"] = upstream_version
-    row["X-Build-Inputs-SHA256"] = os.environ["BUILD_INPUTS_SHA256"]
-    if expected:
-        row["Depends"] = f"gimp-help-common (= {version})"
-    size = subprocess.check_output(
-        ["du", "--summarize", "--block-size=1024", "--exclude=DEBIAN", root], text=True)
-    row["Installed-Size"] = size.split()[0]
-    control.write_text("".join(f"{key}: {value}\n" for key, value in row.items()))
+
 
 
 if sys.argv[1] == "query":
