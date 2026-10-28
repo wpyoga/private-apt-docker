@@ -1,0 +1,3 @@
+#!/bin/bash
+set -Eeuo pipefail
+bash "$ADAPTER_DIR/build-help" "$@"

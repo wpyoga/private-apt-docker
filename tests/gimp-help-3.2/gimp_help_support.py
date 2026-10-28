@@ -45,5 +45,5 @@ def create_help_fixtures(base, adapter, *, version="3.2.0-3", architecture="all"
     config = adapter / "config"
     original = config.read_text().split('BINARY_PACKAGES="')[1].split('"')[0].split()
     packages = [name for name in original if not name.startswith("gimp-help-")]
-    config.write_text('RELEASE_STREAM=gimp-3.2\nBINARY_PACKAGES="' +
+    config.write_text('RELEASE_STREAM=gimp-help-3.2\nBINARY_PACKAGES="' +
                       " ".join(packages + list(names)) + '"\n')

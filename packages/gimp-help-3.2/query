@@ -1,0 +1,9 @@
+#!/bin/bash
+set -Eeuo pipefail
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${ARCHES:?ARCHES must be set and non-empty}"
+curl -fLsS --retry 3 \
+    https://deb.debian.org/debian/dists/sid/main/binary-amd64/Packages.xz \
+    -o "$WORKSPACE/Packages.xz"
+python3 "$ADAPTER_DIR/help-metadata.py" query

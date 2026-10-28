@@ -15,7 +15,6 @@ COPY smoke.py smoke.sh audit.py /test/
 RUN apt-get --simulate install /test/debs/*.deb \
     && apt-get install -y --no-install-recommends /test/debs/*.deb \
     && dpkg --audit \
-    && test -f /usr/share/gimp/3.0/help/en/index.html \
     && python3 /test/audit.py
 COPY sdk-test.c /test/
 RUN apt-get install -y --no-install-recommends build-essential \

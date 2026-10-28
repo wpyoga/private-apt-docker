@@ -23,7 +23,7 @@ while IFS='|' read -r PACKAGE_NAME UPSTREAM_VERSION EXPECTED_SHA256 EXPECTED_FIL
     if [[ $(jq --raw-output '.Version' <<< "$ASSET") != "$UPSTREAM_VERSION" \
         || $(jq --raw-output '.SHA256' <<< "$ASSET") != "$EXPECTED_SHA256" \
         || $(jq --raw-output '.Filename' <<< "$ASSET") != "$EXPECTED_FILENAME" ]]; then
-        echo "[gimp-3.2] Inconsistent selected help asset: $PACKAGE_NAME $PACKAGE_VERSION" >&2
+        echo "[gimp-help-3.2] Inconsistent selected help asset: $PACKAGE_NAME $PACKAGE_VERSION" >&2
         exit 1
     fi
     FILENAME=$(jq --raw-output '.Filename' <<< "$ASSET")
@@ -35,7 +35,7 @@ while IFS='|' read -r PACKAGE_NAME UPSTREAM_VERSION EXPECTED_SHA256 EXPECTED_FIL
     printf '%s  %s\n' "$SHA256" "$ARCHIVE" | sha256sum --check
     PACKAGE_DIR="$WORKSPACE/help-staging/$PACKAGE_NAME"
     if [[ -e "$PACKAGE_DIR" ]]; then
-        echo "[gimp-3.2] Refusing to reuse help staging tree: $PACKAGE_DIR" >&2
+        echo "[gimp-help-3.2] Refusing to reuse help staging tree: $PACKAGE_DIR" >&2
         exit 1
     fi
     dpkg-deb --raw-extract "$ARCHIVE" "$PACKAGE_DIR"
@@ -44,4 +44,4 @@ while IFS='|' read -r PACKAGE_NAME UPSTREAM_VERSION EXPECTED_SHA256 EXPECTED_FIL
         "$PACKAGE_VERSION" "$PACKAGE_DIR"
     dpkg-deb --build --root-owner-group -Zgzip "$PACKAGE_DIR" "$CACHED_PACKAGE"
     cp --reflink=auto "$CACHED_PACKAGE" "$OUTPUT_DIR/"
-done < "$ADAPTER_DIR/help-assets"
+done < "$WORKSPACE/help-assets"

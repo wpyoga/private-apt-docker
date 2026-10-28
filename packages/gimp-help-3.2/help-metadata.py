@@ -26,21 +26,44 @@ def fields(text):
 def query():
     selected = {}
     names = {name for name in os.environ["BINARY_PACKAGES"].split() if name.startswith("gimp-help-")}
-    manifest = Path(os.environ["ADAPTER_DIR"]) / "help-assets"
-    for line in manifest.read_text().splitlines():
-        name, version, digest, filename = line.split("|")
-        if (name in selected or name not in names
-                or not re.fullmatch(r"3\.2\.\d+-[0-9]+", version)
-                or not re.fullmatch(r"[0-9a-f]{64}", digest)
-                or filename != f"pool/main/g/gimp-help/{name}_{version}_all.deb"):
-            raise SystemExit(f"Unexpected pinned help asset: {line}")
-        selected[name] = {"Version": version, "Filename": filename, "SHA256": digest}
+    import lzma
+
+    records = lzma.open(workspace / "Packages.xz", "rt").read().split("\n\n")
+    for record in records:
+        row = fields(record)
+        name = row.get("Package")
+        version = row.get("Version", "")
+        if name not in names or not re.fullmatch(r"3\.2\.\d+-[0-9]+", version):
+            continue
+        if row.get("Architecture") != "all":
+            raise SystemExit(f"Unexpected help architecture: {name}")
+        if not re.fullmatch(r"[0-9a-f]{64}", row.get("SHA256", "")):
+            raise SystemExit(f"Invalid help checksum: {name}")
+        if row.get("Filename") != f"pool/main/g/gimp-help/{name}_{version}_all.deb":
+            raise SystemExit(f"Unexpected help filename: {name}")
+        previous = selected.get(name)
+        if previous and previous != row:
+            raise SystemExit(f"Ambiguous help release: {name}")
+        selected[name] = row
+
     if set(selected) != names:
-        raise SystemExit(f"Missing pinned GIMP help packages: {sorted(names - set(selected))}")
+        raise SystemExit(f"Missing GIMP 3.2 help packages: {sorted(names - set(selected))}")
     versions = {row["Version"] for row in selected.values()}
     if len(versions) != 1:
-        raise SystemExit(f"Debian help packages have inconsistent versions: {sorted(versions)}")
+        raise SystemExit(f"Inconsistent help versions: {sorted(versions)}")
+    upstream_version = versions.pop()
+    # The epoch upgrades manuals previously numbered after the application.
+    version = "1:" + upstream_version.replace("-", "+deb")
     (workspace / "help-assets.json").write_text(json.dumps(selected) + "\n")
+    manifest = "".join(
+        f"{name}|{row['Version']}|{row['SHA256']}|{row['Filename']}\n"
+        for name, row in sorted(selected.items())
+    )
+    (workspace / "help-assets").write_text(manifest)
+    (workspace / "targets.tsv").write_text("".join(
+        f"{version}\t{architecture}\n"
+        for architecture in os.environ["ARCHES"].split()
+    ))
 
 
 def rewrite():

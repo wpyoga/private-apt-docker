@@ -24,10 +24,8 @@ def fields(text):
 
 workspace = Path(sys.argv[1])
 assets = json.loads((workspace / "assets.json").read_text())
-help_assets = json.loads((workspace / "help-assets.json").read_text())
 names = {"gimp", "gimp-data", "libgimp-3.0-0", "gir1.2-gimp-3.0", "gimp-bundled-runtime",
          "libgimp-3.0-bin", "libgimp-3.0-dev", "libgimp-3.0-doc"}
-names.update(help_assets)
 fingerprints = set()
 for arch in ("amd64", "arm64"):
     owners = {}
@@ -52,15 +50,6 @@ for arch in ("amd64", "arm64"):
         assert re.fullmatch(r"[0-9a-f]{64}", digest), digest
         fingerprints.add(digest)
         staged = workspace / f"staging-{arch}" / name
-        if name.startswith("gimp-help-"):
-            staged = workspace / "help-staging" / name
-            assert control["x-upstream-version"] == help_assets[name]["Version"], control
-            if name != "gimp-help-common":
-                assert control["depends"] == f"gimp-help-common (= {control['version']})", control
-            control_tar = subprocess.check_output(["dpkg-deb", "--ctrl-tarfile", archive])
-            with tarfile.open(fileobj=io.BytesIO(control_tar)) as stream:
-                assert not any(member.name.removeprefix("./") in
-                               {"preinst", "postinst", "prerm", "postrm"} for member in stream), name
         process = subprocess.Popen(["dpkg-deb", "--fsys-tarfile", archive], stdout=subprocess.PIPE)
         with tarfile.open(fileobj=process.stdout, mode="r|") as stream:
             for member in stream:

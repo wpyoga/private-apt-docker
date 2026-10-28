@@ -167,5 +167,3 @@ for PACKAGE_NAME in gimp gimp-data libgimp-3.0-0 gir1.2-gimp-3.0 gimp-bundled-ru
     dpkg-deb --build --root-owner-group -Zgzip "$PACKAGE_DIR" \
         "$OUTPUT_DIR/${PACKAGE_NAME}_${PACKAGE_VERSION}_${PACKAGE_ARCHITECTURE}.deb"
 done
-
-bash "$ADAPTER_DIR/build-help" "$PACKAGE_VERSION" "$ARCHITECTURE" "$OUTPUT_DIR"

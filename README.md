@@ -649,3 +649,13 @@ system babl/GEGL coexistence, ELF relocation, and headless/Xvfb codec round trip
 It requires network access to Debian during setup and disables it during image
 tests. Runner output is written to named logs with bounded timeouts; failed test contexts are retained
 under `build/`. It neither installs host packages nor publishes a repository.
+
+
+GIMP user manuals are maintained by the independent `gimp-help-3.2` stream.
+It automatically selects a consistent set of the declared 3.2 language packages
+from Debian sid's package index; clients do not need sid configured. New source
+versions and packaging checksum changes trigger builds independently of GIMP.
+All manuals are architecture-independent and appear in both supported indexes.
+Versions such as `1:3.2.0+deb3-1` retain the Debian source revision and use an
+epoch to upgrade earlier application-numbered manuals. API documentation remains
+in the application stream.

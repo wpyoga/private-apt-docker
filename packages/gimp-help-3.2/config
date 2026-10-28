@@ -1,0 +1,2 @@
+RELEASE_STREAM=gimp-help-3.2
+BINARY_PACKAGES="gimp-help-bg gimp-help-ca gimp-help-common gimp-help-cs gimp-help-da gimp-help-de gimp-help-el gimp-help-en gimp-help-en-gb gimp-help-eo gimp-help-es gimp-help-fa gimp-help-fi gimp-help-fr gimp-help-hr gimp-help-hu gimp-help-it gimp-help-ja gimp-help-ko gimp-help-lt gimp-help-nl gimp-help-nn gimp-help-pl gimp-help-pt gimp-help-pt-br gimp-help-ro gimp-help-ru gimp-help-sk gimp-help-sl gimp-help-sv gimp-help-tr gimp-help-uk gimp-help-zh-cn"

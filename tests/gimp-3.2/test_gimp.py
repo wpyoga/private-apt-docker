@@ -11,7 +11,6 @@ import tarfile
 import unittest
 
 from tests.lib.publisher_test_support import ROOT, PublisherTestCase, fields
-from gimp_support import create_help_fixtures
 
 
 TOOLS = all(shutil.which(name) for name in ("patchelf", "mksquashfs", "unsquashfs"))
@@ -22,7 +21,6 @@ class GimpTests(PublisherTestCase):
     def fixture(self, *, missing_arm64=False, mutation=None):
         adapter = self.base / "adapters/gimp-3.2"
         shutil.copytree(ROOT / "packages/gimp-3.2", adapter, dirs_exist_ok=True)
-        create_help_fixtures(self.base, adapter)
         assets = []
         for arch, target, multiarch, machine in (
             ("amd64", "x86_64", "x86_64-linux-gnu", 62),
