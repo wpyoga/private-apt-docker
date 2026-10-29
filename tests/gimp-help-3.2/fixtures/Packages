@@ -1,0 +1,677 @@
+Package: gimp-help-bg
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 71651
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Bulgarian)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: 26a9078af8e990665bd57faef51cb185
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-bg_3.2.0-3.1_all.deb
+Size: 50907908
+MD5sum: 769f6a65209df41938fc436a559ac14f
+SHA256: b284060aea5498ba2c1a50be513c5a88ff08675fd79f5543219305968407623e
+
+Package: gimp-help-ca
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 71736
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Catalan)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: e865a8137a5d865877a6ca815ce981bf
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-ca_3.2.0-3.1_all.deb
+Size: 51250248
+MD5sum: e7862128848e77fc8a7cc5b227cd7094
+SHA256: c9223df5639b9c0cbdce76b16998675d8f2ca0fff7b214acca73b238b772b40e
+
+Package: gimp-help-common
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 85
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Description: Data files for the GIMP documentation
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: c622b6265a4154156ac063b049290303
+Tag: role::documentation, suite::gimp, suite::gnu
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-common_3.2.0-3.1_all.deb
+Size: 78396
+MD5sum: 3b5694b1446b7c01a18631d763229143
+SHA256: 284c9c0a47367eb8efab046898838a77b1c8e8f4deb1857ae8551a05374821fe
+
+Package: gimp-help-cs
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 71368
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Czech)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: 9cab0f73c695e7d342bc15247a8fe34a
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-cs_3.2.0-3.1_all.deb
+Size: 50754348
+MD5sum: ad72962d6a57f629e86f6bdb92c131d1
+SHA256: 9dc27e3a408ddfca0bf63c3561945fb4bf1626196f7f803c6715be6c81a05bd5
+
+Package: gimp-help-da
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 71393
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Danish)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: f7a51df256b980cd7bfa6e35f3700b20
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-da_3.2.0-3.1_all.deb
+Size: 50898636
+MD5sum: f402a1e9053f21e0a3b9f40047ebbd1f
+SHA256: 1218cb02845fa39fd3a90a64cf694d05fbd8e470d90a2440a773081d7937844e
+
+Package: gimp-help-de
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 71024
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (German)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: c2f5a03af9efa144296c9c42f7c63d19
+Tag: culture::german, made-of::html, role::documentation, suite::gimp,
+ suite::gnu
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-de_3.2.0-3.1_all.deb
+Size: 50417384
+MD5sum: 6bb05f92ec3eeec8969b341f8ef57ea2
+SHA256: 6f3067963ce9e12eb91ca3ea8542d866d92e5915c8838d565c4f50d148c1e357
+
+Package: gimp-help-el
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 69920
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Greek)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: efb99fc50c416e092f47286937e2d024
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-el_3.2.0-3.1_all.deb
+Size: 47503936
+MD5sum: a7ed1b0d0131c56b2aa1995c65ee1b93
+SHA256: 26e292e71779f3aace7407e74c5439b3498ef8fdc2d74ceea9c7f06f045aa524
+
+Package: gimp-help-en
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 71564
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (English)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: 44a9ca52b03dfcc2c9c4595709a17943
+Tag: culture::TODO, made-of::html, role::documentation, suite::gimp,
+ suite::gnu
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-en_3.2.0-3.1_all.deb
+Size: 50904480
+MD5sum: 070990464cd9b91cfccd2577b45694e8
+SHA256: 25b5694e04269bc0e8d4ad35e527253d7520825ac8ae593d991e0cc8a1d2b35d
+
+Package: gimp-help-en-gb
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 71439
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (British English)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: 0e213b1598f8e63f00d535467571e75f
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-en-gb_3.2.0-3.1_all.deb
+Size: 50893376
+MD5sum: 8cdaf406fcc0ede1e5a765daf2c2b74a
+SHA256: 9f0c53fcedd0fc39010d547bd2c943893cffa84fd99807d41bd83d9f2aba0037
+
+Package: gimp-help-eo
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 71575
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Esperanto)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: f5b843d53709fe5a958152fd06020939
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-eo_3.2.0-3.1_all.deb
+Size: 50903252
+MD5sum: abaa4816eba08fd627162a13e91f9b32
+SHA256: 336f112a091a7380724128e60ea2f0162b38d04210af8a6884145f044daba390
+
+Package: gimp-help-es
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 70843
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Spanish)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: 8de727556a253519c345cb654483a3da
+Tag: culture::spanish, made-of::html, role::documentation, suite::gimp,
+ suite::gnu
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-es_3.2.0-3.1_all.deb
+Size: 50222172
+MD5sum: f1b43e8a55af260831c2bf96f739b00b
+SHA256: eb6d1a7bedd08c67ef351b29b8ce6677f1508ba6189cace7f8a13b3e538131e1
+
+Package: gimp-help-fa
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 71688
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Farsi)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: ac04f1d7db56dbf4e23b50fe379eade6
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-fa_3.2.0-3.1_all.deb
+Size: 50907980
+MD5sum: 6e7e8dc9a96f15d346d07b220a66c98e
+SHA256: 958bdf71126694efcfc4a2624d00fde2e1b52b14cbfb7ad1398a3c7aec8d9c6e
+
+Package: gimp-help-fi
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 71548
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Finnish)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: a30c217577455ee4534e74c2ee336c24
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-fi_3.2.0-3.1_all.deb
+Size: 50920092
+MD5sum: 9b959a43a0511342eb9299e64959e532
+SHA256: 02dfe986c8552b825560acf348c90c8ef719637e6ac4867f6f765f2d4f732aaf
+
+Package: gimp-help-fr
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 70046
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (French)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: d56fa51bce3855e6068629e20ce6278b
+Tag: culture::french, made-of::html, role::documentation, suite::gimp,
+ suite::gnu
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-fr_3.2.0-3.1_all.deb
+Size: 49663844
+MD5sum: 3ef1ee893da275edab4f66f083352a19
+SHA256: 778cd031f0f39ee592292a99d804d828ed0521dc181af3fe0220b266907fa401
+
+Package: gimp-help-hr
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 71582
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Croatian)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: 26f1eea1c0efee9084e759734b9c4a02
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-hr_3.2.0-3.1_all.deb
+Size: 50906884
+MD5sum: 10ab83e066c14679d23151d33ccea697
+SHA256: 73baa8e44ad3ab28925e1f9561697832a0e6502244722717f996632131aee74b
+
+Package: gimp-help-hu
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 71543
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Hungarian)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: f072d07581451ad0ab8609be03a65519
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-hu_3.2.0-3.1_all.deb
+Size: 50895708
+MD5sum: 1f07adb95b13dba04b1c224ff7ad8a8c
+SHA256: 55f34ecc61a4319a53475bdebdee7aa742d6be8a602ed124e0cce0bbdcdd2b6c
+
+Package: gimp-help-it
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 75182
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Italian)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: 0cc37908ae6e1669de9a5a8f41a62095
+Tag: culture::italian, made-of::html, role::documentation, suite::gimp,
+ suite::gnu
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-it_3.2.0-3.1_all.deb
+Size: 51216288
+MD5sum: 80a8c2c81dc84fa0c6ee2ec187317379
+SHA256: a9dc14225abb2d627d558d8454ff0d976dcb5768c04f9590304e6121a7816b1f
+
+Package: gimp-help-ja
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 68152
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Japanese)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: 583a3263c9523ab19e60143ba82a9793
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-ja_3.2.0-3.1_all.deb
+Size: 47639776
+MD5sum: 62782e6d306a0ac20f96b4fe713fb17a
+SHA256: 9c159808fbea571d017e5b420ec100d7c2bfc16633cbdb599131540f8b294928
+
+Package: gimp-help-ko
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 71602
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Korean)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: e91196af2a2dea242371d6453abb7ff0
+Tag: culture::korean, made-of::html, role::documentation, suite::gimp,
+ suite::gnu
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-ko_3.2.0-3.1_all.deb
+Size: 50982244
+MD5sum: 7d15b560d5293c1527c39817514c878f
+SHA256: 731b0f554a11065320e4194c7d8c1a6bdb3fb8c347c1b74784b62cd77260f82d
+
+Package: gimp-help-lt
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 71990
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Lithuanian)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: 774cd79875203213bd70b1fe6f8e76d1
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-lt_3.2.0-3.1_all.deb
+Size: 51299144
+MD5sum: c9e4473687cf9002a4732f9dbc710244
+SHA256: e72b0ab6ad168782219cf05cf8ea8574c5b503ff70ff7fdfbf878e3b4dca4366
+
+Package: gimp-help-nl
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 71550
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Dutch)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: 21a6a448fddd7bf5a39aa142a86a4b19
+Tag: culture::dutch, made-of::html, role::documentation, suite::gimp,
+ suite::gnu
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-nl_3.2.0-3.1_all.deb
+Size: 50885720
+MD5sum: 092ec76d09c6b0151179f867979758f7
+SHA256: 321d890c82a386e0f680b637c95db3c41bbd62066940713b6c97bfe275cf42cd
+
+Package: gimp-help-nn
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 124140
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Norwegian)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: 77bfe274a90f6b7f8c1326bcd0b85342
+Tag: culture::norwegian, role::documentation, role::program, suite::gimp,
+ use::learning
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-nn_3.2.0-3.1_all.deb
+Size: 39144592
+MD5sum: 995ebb0d9ef0c9d590c05b29efe0b7b4
+SHA256: 8a1880f43cd871a07a5ae0966fbdb9dcaae0029735597d256f104f0e2f6d639e
+
+Package: gimp-help-pl
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 71587
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Polish)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: 274b548dd6c2359aeda00e0162bdf78e
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-pl_3.2.0-3.1_all.deb
+Size: 50899932
+MD5sum: 6648d981281bc89c89dfed719f0ce01e
+SHA256: a0bc3846a6e8c968cc7d27088af0b98460dadb0f3a6c4270b66117cc20dd0c15
+
+Package: gimp-help-pt
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 71582
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Portuguese)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: f0e3268f1cfe352a55c2a59c2c828cb2
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-pt_3.2.0-3.1_all.deb
+Size: 50911036
+MD5sum: 6c8ece38277b62bd7999db4cf127230c
+SHA256: 98db167648065843cc94ef5a97bbfc97a40eddc144c2c18a5a2d41610b609b7b
+
+Package: gimp-help-pt-br
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 72141
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Brazilian Portuguese)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: 489c259a46dd8d38383c659940b475e2
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-pt-br_3.2.0-3.1_all.deb
+Size: 51583388
+MD5sum: fb8d51e768153688b6618b523a72f055
+SHA256: d3f11e06ac40ac74c352bc94c185713dee96cf70a91bb8285e2733fd12981ed4
+
+Package: gimp-help-ro
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 71587
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Romanian)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: 22de1773626a057d6d8e8b9584c5d262
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-ro_3.2.0-3.1_all.deb
+Size: 50929812
+MD5sum: 9f0e0703078764abdb8c984cbc2f2260
+SHA256: 6b543d80f4f8941b03c5b7210f60c448fc9f20d4a772d932ce63ab6765c12327
+
+Package: gimp-help-ru
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 73056
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Russian)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: e7ac773da975d41de40cfe41fc7fd0e8
+Tag: culture::russian, made-of::html, role::documentation, suite::gimp,
+ suite::gnu
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-ru_3.2.0-3.1_all.deb
+Size: 50921180
+MD5sum: d633c345ddef8ed8e786f7f7f6dc815a
+SHA256: 5aa38f678c8d5d4c755b785d1ac426db3f9c4d849ebbbca94ee2414f13efbfa9
+
+Package: gimp-help-sk
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 71591
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Slovak)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: 6574a0e7a3ccfbc378163a7f252ef7e8
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-sk_3.2.0-3.1_all.deb
+Size: 50901900
+MD5sum: e7318ee1cb32086862df0145d3825dc2
+SHA256: dfbc027fa05c958c78e7921579fd4a811d980e3fec9eb85e7f664f8e9c89bdf2
+
+Package: gimp-help-sl
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 71581
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Slovenian)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: bab42b753dba4eeca45bb5362395e9bd
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-sl_3.2.0-3.1_all.deb
+Size: 50914008
+MD5sum: 5c7c223d6083c35b222525f40859f6d3
+SHA256: 1612d5bc05f9069b99dc416a2ba47ea015bee8f45d2c0ce87d699abff03a3f72
+
+Package: gimp-help-sv
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 72202
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Swedish)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: 8f04b34bd98f7e7f37a59c0a5f429049
+Tag: culture::swedish, made-of::html, role::documentation, suite::gimp,
+ suite::gnu
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-sv_3.2.0-3.1_all.deb
+Size: 51264648
+MD5sum: 364cfe7ee44d3144328617965cee08d5
+SHA256: 9b2ad7f946268f80ef078ee000cc499b485843990b9e1a5091d686546591d3de
+
+Package: gimp-help-tr
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 68907
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Turkish)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: cc8688fdca5217bf976c02344c36ef60
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-tr_3.2.0-3.1_all.deb
+Size: 48458664
+MD5sum: 4bad52a78c6e6931061bfdd0d1c2d77a
+SHA256: c0c9b96077ffab53de50c50ff6c01895fb1f82bdfe0670b1502156b53455cd0b
+
+Package: gimp-help-uk
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 71848
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Ukrainian)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: 24426f1fe707de6ca63c11ec5062595f
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-uk_3.2.0-3.1_all.deb
+Size: 50918540
+MD5sum: f163855219f7e3c42a8d82f30e436e13
+SHA256: c8626472f096a9c81b9f3570ac403ffeb3ea0f1955564db121b3a2d5202401c2
+
+Package: gimp-help-zh-cn
+Source: gimp-help
+Version: 3.2.0-3.1
+Installed-Size: 71562
+Maintainer: Debian GNOME Extras Maintainers <pkg-gnome-extras-maintainers@lists.alioth.debian.org>
+Architecture: all
+Provides: gimp-help
+Depends: gimp-help-common (= 3.2.0-3.1)
+Enhances: gimp
+Description: Documentation for the GIMP (Simplified Chinese)
+Multi-Arch: foreign
+Homepage: https://www.gimp.org/docs/
+Description-md5: df0c07111742dedb62e310f4bd86ac96
+Section: doc
+Priority: optional
+Filename: pool/main/g/gimp-help/gimp-help-zh-cn_3.2.0-3.1_all.deb
+Size: 50911864
+MD5sum: 6ac9741bb59017aae3dad44044488420
+SHA256: 1602dd21ca92370402c096460aeb15963e16598817a95f7a97235521bfd65f6a

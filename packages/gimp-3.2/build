@@ -42,8 +42,7 @@ STAGING_DIR="$WORKSPACE/staging-$ARCHITECTURE"
 PRIVATE_PATH="/usr/lib/$MULTIARCH/gimp/bundled"
 export SOURCE_USR STAGING_DIR MULTIARCH UPSTREAM_VERSION ARCHITECTURE
 
-# Connection resets are not included in curl's default retry conditions.
-verify_download "$DOWNLOAD_URL" "$ARCHIVE" "$DOWNLOAD_SHA256" reuse --retry-all-errors
+bash "$ADAPTER_DIR/download-asset" "$DOWNLOAD_URL" "$ARCHIVE" "$DOWNLOAD_SHA256"
 if [[ -e "$SOURCE_DIR" || -e "$STAGING_DIR" ]]; then
     echo "[gimp-3.2] Refusing to reuse extraction or staging tree for $ARCHITECTURE" >&2
     exit 1
@@ -73,8 +72,8 @@ bash "$ADAPTER_DIR/stage.sh"
 
 DOC_NAME="gimp-api-docs-$UPSTREAM_VERSION.tar.xz"
 DOC_ARCHIVE="$WORKSPACE/$DOC_NAME"
-verify_download "https://download.gimp.org/gimp/v3.2/api-docs/$DOC_NAME" \
-    "$DOC_ARCHIVE" "$(cat "$WORKSPACE/api-docs.sha256")" reuse --retry-all-errors
+bash "$ADAPTER_DIR/download-asset" "https://download.gimp.org/gimp/v3.2/api-docs/$DOC_NAME" \
+    "$DOC_ARCHIVE" "$(cat "$WORKSPACE/api-docs.sha256")"
 python3 "$ADAPTER_DIR/inspect-docs.py" "$DOC_ARCHIVE" "$UPSTREAM_VERSION"
 DOC_DIR="$STAGING_DIR/libgimp-3.0-doc/usr/share/doc/libgimp-3.0-doc"
 mkdir -p "$DOC_DIR"

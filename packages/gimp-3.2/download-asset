@@ -1,0 +1,57 @@
+#!/bin/bash
+# Use GIMP's advertised mirrors when a selected mirror repeatedly fails.
+set -Eeuo pipefail
+
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+source "$FRAMEWORK_DIR/lib/adapter/package.sh"
+
+URL=${1:?Download URL is required}
+DESTINATION=${2:?Destination is required}
+SHA256=${3:?SHA256 is required}
+HEADERS="$DESTINATION.headers"
+if [[ ! "$SHA256" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    echo "Invalid SHA256 for $DESTINATION: $SHA256" >&2
+    exit 1
+fi
+if [[ -f "$DESTINATION" ]]; then
+    verify_download "$URL" "$DESTINATION" "$SHA256" reuse
+    exit
+fi
+
+download_and_verify() {
+    local DOWNLOAD_URL=$1
+    echo "[gimp-3.2] Downloading ${DESTINATION##*/} from $DOWNLOAD_URL" >&2
+    if ! download_file "$DOWNLOAD_URL" "$DESTINATION.part" \
+        --retry-all-errors --connect-timeout 30 --speed-limit 1024 --speed-time 60 \
+        --dump-header "$HEADERS" \
+        --write-out '%{stderr}[gimp-3.2] Download endpoint: %{url_effective}\n'; then
+        return 1
+    fi
+    if ! printf '%s  %s\n' "$SHA256" "$DESTINATION.part" | sha256sum --check; then
+        return 1
+    fi
+    mv -- "$DESTINATION.part" "$DESTINATION"
+}
+
+if download_and_verify "$URL"; then
+    exit 0
+fi
+
+# MirrorBrain supplies these HTTPS copies of the same artifact in Link headers.
+# Save the initial response: later attempts must not replace its mirror list.
+MIRRORS=()
+if [[ -f "$HEADERS" ]]; then
+    cp -- "$HEADERS" "$HEADERS.failed"
+    mapfile -t MIRRORS < <(sed -nE \
+        's/^Link: <(https:\/\/[^>]+)>; rel=duplicate;.*/\1/p' "$HEADERS.failed" \
+        | awk '!SEEN[$0]++ && ++COUNT <= 3')
+fi
+for MIRROR in "${MIRRORS[@]}"; do
+    if download_and_verify "$MIRROR"; then
+        exit 0
+    fi
+done
+
+echo "[gimp-3.2] Failed to download and verify ${DESTINATION##*/} from $URL and ${#MIRRORS[@]} advertised mirrors" >&2
+exit 1

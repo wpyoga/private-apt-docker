@@ -176,3 +176,25 @@ MNG remains enabled with Debian's libmng1; no upstream MNG library is retained.
 The inspected official 3.2.6 payloads do not contain file-iff (ILBM).
 The recipe does not remove format plug-ins or claim to enable absent features.
 Compiler options, compiled URLs and upstream source patches are unchanged.
+
+
+## Download recovery and live publisher checks
+
+The AppImage and API documentation downloads retry connection errors, then try
+up to three distinct HTTPS mirrors advertised by GIMP's download service when
+the selected mirror still fails. Every copy must match the selected upstream
+SHA256 before becoming a cached download. Failed response headers and the final
+endpoint are retained in the build workspace and logs for diagnosis. Connect
+and low-speed timeouts prevent an unresponsive mirror from waiting indefinitely.
+
+`bash tests/gimp-3.2/test-publisher.sh` exercises live downloads and both adapters
+in the publisher image using Compose's 256 MiB memory and 128-process limits,
+dropped capabilities, and the host UID/GID. It retains isolated test storage,
+logs, container configuration, and cgroup statistics under `build/`, and checks
+real package sizes against the signed repository indexes. It uses a throwaway
+signing key and does not start or modify the deployed service. See the
+[help packaging notes](gimp-help-3.2.md) for options and reuse of completed work.
+
+The offline GIMP suite includes real-curl local connection resets, retry
+exhaustion, and checksum checks. Advertised-mirror fixtures cover failover,
+corrupt copies, and bounded failure without relying on live mirror availability.

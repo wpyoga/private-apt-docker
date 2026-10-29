@@ -43,7 +43,7 @@ def query():
     for row in package_records(workspace / "Packages.xz"):
         name = row.get("Package")
         version = row.get("Version", "")
-        if name not in names or not re.fullmatch(r"3\.2\.\d+-[0-9]+", version):
+        if name not in names or not re.fullmatch(r"3\.2\.\d+-[0-9A-Za-z.+~]+", version):
             continue
         if row.get("Architecture") != "all":
             raise SystemExit(f"Unexpected help architecture: {name}")

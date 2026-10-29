@@ -17,7 +17,6 @@ class GimpHelpTests(PublisherTestCase):
         shutil.copytree(ROOT / "packages/gimp-help-3.2", adapter, dirs_exist_ok=True)
         (adapter / "config").write_text('RELEASE_STREAM=gimp-help-3.2\nBINARY_PACKAGES=""\n')
         create_help_fixtures(self.base, adapter, **kwargs)
-        import lzma
         records = []
         for line in (adapter / "help-assets").read_text().splitlines():
             name, version, digest, filename = line.split("|")
@@ -115,6 +114,45 @@ class GimpHelpTests(PublisherTestCase):
         latest = [fields(path) for path in self.artifacts() if fields(path)["version"] == "1:3.2.0+deb4-1"]
         self.assertEqual(len(latest), 3)
         self.assertTrue(all(row["x-upstream-version"] == "3.2.0-4" for row in latest))
+
+    def test_non_maintainer_revision_import_and_upgrade(self):
+        self.fixture()
+        self.run_update()
+        self.fixture(version="3.2.0-3.1")
+        self.run_update()
+        self.assertEqual(self.versions("gimp-help-3.2"),
+                         {"1:3.2.0+deb3-1", "1:3.2.0+deb3.1-1"})
+        latest = [fields(path) for path in self.artifacts()
+                  if fields(path)["version"] == "1:3.2.0+deb3.1-1"]
+        self.assertEqual(len(latest), 3)
+        for row in latest:
+            self.assertEqual(row["x-upstream-version"], "3.2.0-3.1")
+            if row["package"] != "gimp-help-common":
+                self.assertEqual(row["depends"], "gimp-help-common (= 1:3.2.0+deb3.1-1)")
+        subprocess.run(["dpkg", "--compare-versions", "1:3.2.0+deb3.1-1", "gt",
+                        "1:3.2.0+deb3-1"], check=True, capture_output=True)
+
+    def test_production_query_with_captured_complete_debian_records(self):
+        adapter = ROOT / "packages/gimp-help-3.2"
+        workspace = self.base / "captured-query"
+        workspace.mkdir()
+        records = (ROOT / "tests/gimp-help-3.2/fixtures/Packages").read_bytes()
+        (self.base / "downloads/Packages.xz").write_bytes(lzma.compress(records))
+        configuration = subprocess.check_output(
+            ["bash", str(ROOT / "lib/config.sh")],
+            env={**self.env, "ADAPTER_DIR": str(adapter)}, text=True,
+        ).splitlines()
+        environment = {**self.env, "ADAPTER_DIR": str(adapter),
+                       "WORKSPACE": str(workspace), "BINARY_PACKAGES": configuration[1]}
+        result = subprocess.run(["bash", str(adapter / "query")],
+                                env=environment, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        assets = json.loads((workspace / "help-assets.json").read_text())
+        self.assertEqual(set(assets), set(configuration[1].split()))
+        self.assertEqual(len(assets), 33)
+        self.assertEqual({row["Version"] for row in assets.values()}, {"3.2.0-3.1"})
+        self.assertEqual((workspace / "targets.tsv").read_text(),
+                         "1:3.2.0+deb3.1\tamd64\n1:3.2.0+deb3.1\tarm64\n")
 
     def test_recipe_change_rebuilds_same_manual_release(self):
         self.fixture()

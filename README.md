@@ -604,7 +604,9 @@ directory explicitly, so names such as `gimp-3.2` are not skipped by Python's
 ordinary recursive unittest discovery.
 Zed's tests require `patchelf` and `binutils`. GIMP's offline tests also
 require `patchelf` and `squashfs-tools`; they use real SquashFS fixtures and inspect
-both target architectures without executing their binaries. Their shared
+both target architectures without executing their binaries. GIMP download tests
+use real curl against a loopback server and need permission to open local sockets;
+they do not contact the internet. Their shared
 temporary fixtures live in `tests/lib/publisher_test_support.py`; shared shell
 coordination is in `tests/lib/common.sh`, separate from production `lib/`.
 GIMP-specific fixtures stay in its test directory. The setup test uses fake sudo and GPG commands;

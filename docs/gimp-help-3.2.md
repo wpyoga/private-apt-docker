@@ -10,7 +10,9 @@ Clients do not need a sid APT source.
 The adapter declares 32 language packages and `gimp-help-common` in
 [its configuration](../packages/gimp-help-3.2/config). Each query requires the
 complete declared set at one consistent Debian version. Accepted versions have
-the form `3.2.NUMBER-REVISION`, with a numeric Debian revision. Missing packages,
+the form `3.2.NUMBER-REVISION`, with a Debian revision containing letters,
+digits, periods, plus signs, or tildes. This includes non-maintainer uploads
+such as `3.2.0-3.1`, tracked as `1:3.2.0+deb3.1`. Missing packages,
 conflicting records, mixed versions, unexpected architectures, invalid SHA256
 values, and changed download paths fail discovery. A newer GIMP series requires
 a separate adapter.
@@ -67,10 +69,29 @@ bash tests/run.sh gimp-help-3.2
 
 The fixtures exercise imports, version selection and source updates, independent
 recipe rebuilds, revision reuse, changed downloads, unexpected dependencies or
-architectures, and rejection of a newer release series. They check missing and
+architectures, dotted non-maintainer revisions, and rejection of a newer release
+series. A captured Debian index also checks the production query hook against
+all 33 names in the actual adapter configuration. They check missing and
 stale upstream `Installed-Size`, its published index value, and inclusion in both
-architecture indexes. Fixtures use a reduced language set; they do not establish
+architecture indexes. Import fixtures use a reduced language set; they do not establish
 live availability of all declared translations or in-application help browsing.
 
 Container rebuilds, live publication, and desktop help browsing are separate
 verification steps.
+
+
+For live downloads, both architectures, all declared help packages, and signed
+index generation in the publisher image, run:
+
+```bash
+bash tests/gimp-3.2/test-publisher.sh
+```
+
+This optional coordinator uses the Compose limits (256 MiB memory and 128
+processes), dropped capabilities, and the host UID/GID. It uses isolated storage
+and a throwaway signing key under `build/`, retaining logs, downloaded sources,
+packages, and cgroup statistics. `ARCHES=amd64` selects only amd64. It does not
+start the deployed service or use operator `.env` settings. Completed stored
+packages can be reused with `GIMP_PUBLISHER_CONTEXT=/absolute/path/to/context`.
+Failed extraction or staging trees must be inspected before removing them for a
+retry; the adapter deliberately refuses to reuse them.
