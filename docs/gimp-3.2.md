@@ -103,8 +103,8 @@ ten outputs share one recipe fingerprint. Outputs are under
 All 79 offline regression tests and the throwaway-key signing/APT integration
 test passed in the publisher image. The final image is tagged locally as
 `private-apt-publisher:gimp-3.2`; building it does not start a production update.
-Reproducible real-package tests are in `tests/test-gimp-install.sh` and
-`tests/gimp/`; runtime execution testing is amd64 only.
+Reproducible real-package tests are in `tests/gimp-3.2/test-install.sh` and
+`tests/gimp-3.2/`; runtime execution testing is amd64 only.
 
 Clean amd64 APT installation and Debian GIMP test/remove-without-purge/reinstall
 both passed. All 259 installed ELF objects resolved. Configuration and the
@@ -130,10 +130,13 @@ then our Gimp.file_load test reopens it as 256x256 and exits with assertion fail
 (batch exit 64). Disabling the thumbnail passes the size/pixel round-trip test.
 The failing run also warns about old-style JPEG compression.
 
-Reproducer: gimp-investigation/gimp-repack/tiff-default-thumbnail-test.py.
-Saved log: gimp-investigation/gimp-repack/validation-runs/system-runtime-3.2.6-3/
-default-tiff-thumbnail.log. Those generated investigation artifacts are deliberately
-not copied into adapters or the publisher image.
+The original dedicated reproducer and failure log are no longer present. To
+recreate the check, use an isolated profile and the 64x64 image construction,
+TIFF export procedure and Gimp.file_load dimension/pixel assertions in
+[the codec smoke test](../tests/gimp-3.2/smoke.py), but explicitly enable
+include-thumbnail=True. Keep the exported TIFF for independent inspection.
+The existing smoke test intentionally sets that option to False and therefore
+does not cover this failure.
 
 Earlier investigation notes report the same failure with the preserved original
 extracted runtime and libtiff 4.7.0, but do not establish a controlled test of the
@@ -144,9 +147,27 @@ Future investigation should compare the untouched AppImage and inspect the TIFF'
 main image/thumbnail directories with an independent reader. This work is deferred
 at the user's request and is not a prerequisite for enabling this adapter.
 
-Third-party plugin compatibility and arm64 desktop execution require separate
-validation. The investigation's dependency-root/native-root directories are test
-filesystems, not shipped payloads. No production publishing or host package
+## Other outstanding validation and documentation
+
+- Direct upgrades remain unvalidated. An early nine-package draft failed during
+  APT/dpkg for an undiagnosed reason; it was superseded by the tested
+  remove-without-purge/reinstall sequence. That historical failure does not
+  establish a failure in the current eight-package adapter. Any future upgrade
+  test should retain APT/dpkg diagnostics and verify configuration preservation.
+- Third-party GIMP 3 plug-ins remain unvalidated. Debian's configured repositories
+  did not provide gimp-gmic during the investigation; the gmic CLI is not the GIMP
+  plug-in. Testing was deferred rather than obtaining another upstream binary.
+- Arm64 packaging/static inspection does not establish arm64 desktop execution
+  or codec compatibility; that needs a target-machine runtime test.
+- The generated copyright notice records upstream sources and broad licenses,
+  but a complete per-file licensing/provenance audit remains outstanding.
+
+The [historical investigation record](gimp-3.2-investigation-history.md) preserves
+library-version comparisons, replacement evidence, test results and their limits.
+Its host-derived dependency/native test filesystems were never shipped payloads;
+the old scripts, logs and extracted trees are no longer available. Portable
+packaging and publisher integration have since been implemented, so their old
+handoff tasks are not outstanding work. No production publishing or host package
 installation is part of adapter development.
 
 ## Native package defaults and dependency ownership
