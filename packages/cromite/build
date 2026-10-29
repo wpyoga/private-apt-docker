@@ -1,0 +1,53 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set and non-empty}"
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${MAINTAINER:?MAINTAINER must be set and non-empty}"
+: "${PUBLISHER_STREAM:?PUBLISHER_STREAM must be set and non-empty}"
+: "${BUILD_INPUTS_SHA256:?BUILD_INPUTS_SHA256 must be set and non-empty}"
+source "$FRAMEWORK_DIR/lib/adapter/package.sh"
+
+PACKAGE_VERSION=$1
+ARCHITECTURE=$2
+OUTPUT_DIR=$3
+if [[ "$ARCHITECTURE" != amd64 ]]; then
+    echo "[cromite] Unsupported Linux architecture: $ARCHITECTURE" >&2
+    exit 1
+fi
+ASSET=$(jq -ce '.amd64' "$WORKSPACE/assets.json")
+UPSTREAM_VERSION=$(jq -er '.version | strings' <<< "$ASSET")
+ASSET_NAME=$(jq -er '.name | strings' <<< "$ASSET")
+if [[ "$UPSTREAM_VERSION" != "${PACKAGE_VERSION%-*}" || "$ASSET_NAME" != chrome-lin64.tar.gz ]]; then
+    echo "[cromite] Inconsistent asset for $PACKAGE_VERSION ($ARCHITECTURE): $ASSET_NAME" >&2
+    exit 1
+fi
+URL=$(jq -er '.url | strings' <<< "$ASSET")
+SHA256=$(jq -er '.sha256 | strings' <<< "$ASSET")
+ARCHIVE="$WORKSPACE/$ASSET_NAME"
+verify_download "$URL" "$ARCHIVE" "$SHA256" reuse
+python3 "$ADAPTER_DIR/inspect-bundle.py" archive "$ARCHIVE"
+SOURCE_DIR=$(mktemp -d "$WORKSPACE/extract-XXXXXX")
+PACKAGE_DIR=$(mktemp -d "$WORKSPACE/package-XXXXXX")
+tar --extract --gzip --file "$ARCHIVE" --directory "$SOURCE_DIR" \
+    --no-same-owner --no-same-permissions --keep-old-files
+DEPENDS=$(python3 "$ADAPTER_DIR/inspect-bundle.py" tree \
+    "$SOURCE_DIR/chrome-lin" amd64 "$ADAPTER_DIR/runtime-dependencies")
+mkdir -p "$PACKAGE_DIR/usr/lib/cromite" "$PACKAGE_DIR/usr/bin" \
+    "$PACKAGE_DIR/usr/share/applications" "$PACKAGE_DIR/usr/share/pixmaps" \
+    "$PACKAGE_DIR/usr/share/doc/cromite"
+cp -a "$SOURCE_DIR/chrome-lin/." "$PACKAGE_DIR/usr/lib/cromite/"
+# The development wrapper writes desktop entries and compatibility links at runtime.
+rm -- "$PACKAGE_DIR/usr/lib/cromite/chrome-wrapper"
+find "$PACKAGE_DIR/usr/lib/cromite" -type f -name '*.pak.info' -delete
+chmod -R u+rwX,go+rX,go-w,a-s,a-t "$PACKAGE_DIR"
+install -m 755 "$ADAPTER_DIR/launcher.in" "$PACKAGE_DIR/usr/bin/cromite"
+install -m 644 "$ADAPTER_DIR/desktop.in" "$PACKAGE_DIR/usr/share/applications/cromite.desktop"
+install -m 644 "$SOURCE_DIR/chrome-lin/product_logo_48.png" "$PACKAGE_DIR/usr/share/pixmaps/cromite.png"
+UPSTREAM_TAG=$(jq -er '.tag_name | strings' "$WORKSPACE/release.json")
+render_template "$ADAPTER_DIR/copyright.in" "$PACKAGE_DIR/usr/share/doc/cromite/copyright" \
+    UPSTREAM_TAG "$UPSTREAM_TAG"
+render_control "$ADAPTER_DIR/control.in" "$PACKAGE_DIR" DEPENDS "$DEPENDS"
+build_deb "$PACKAGE_DIR" "$OUTPUT_DIR/cromite_${PACKAGE_VERSION}_amd64.deb"
+rm -rf -- "$SOURCE_DIR" "$PACKAGE_DIR"

@@ -1,0 +1,16 @@
+Package: cromite
+Version: @PACKAGE_VERSION@
+Section: web
+Priority: optional
+Architecture: amd64
+Installed-Size: @INSTALLED_SIZE@
+Maintainer: @MAINTAINER@
+Homepage: https://www.cromite.org/
+Depends: @DEPENDS@, ca-certificates, xdg-utils, libfontconfig1, libfreetype6
+Recommends: fonts-liberation, libgtk-3-0t64, libvulkan1, mesa-vulkan-drivers | vulkan-icd
+Suggests: libqt5widgets5t64, libqt6widgets6, libva2, libpulse0
+X-Build-Inputs-SHA256: @BUILD_INPUTS_SHA256@
+X-Publisher-Stream: @PUBLISHER_STREAM@
+Description: Cromite web browser (official Linux binaries)
+ Unofficial Debian 13 packaging of the stable Cromite browser.
+ Includes upstream graphics components and receives updates through APT.

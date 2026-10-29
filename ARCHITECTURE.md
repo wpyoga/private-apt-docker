@@ -181,6 +181,13 @@ This is per-file publication, not a transaction across all outputs.
   publisher revision. Its recipe checksum is independent of the application.
   [GIMP help packaging notes](docs/gimp-help-3.2.md) describe selection and validation.
 
+- **Cromite** repackages official stable amd64 Linux tarballs, retaining upstream
+  graphics libraries and Qt shims while using Debian's external dependencies.
+  It removes locale resource-build annotations and replaces the development
+  wrapper with packaged desktop/CLI integration. Static ELF checks enforce the
+  Debian 13 baseline. [Cromite packaging notes](docs/cromite.md) record version
+  ordering, sandbox assumptions and the requested static-only validation limit.
+
 - **Zed** selects official stable GitHub tarballs and verifies their SHA256.
   It preserves the relative CLI/editor layout but replaces all bundled shared
   libraries with Debian dependencies. ELF inspection validates architectures,

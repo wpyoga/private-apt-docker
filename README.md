@@ -437,6 +437,28 @@ supplied by Debian stable.
 See [GIMP help packaging and validation notes](docs/gimp-help-3.2.md) for release
 selection, package validation, and verification limits.
 
+## Thorium (planned)
+
+Thorium is not yet published by this project. The
+[Thorium investigation and implementation plan](docs/thorium.md) records the
+agreed CPU variants, separate Alex313031/gz83 sources, shared-profile behavior,
+and inspection of the downloaded upstream Debian packages. Those packages share
+the same Debian identity and installed paths, so coexistence requires repackaging.
+
+## Cromite
+
+`packages/cromite/` repackages the latest stable official Linux amd64 archive
+from [uazo/cromite](https://github.com/uazo/cromite). It verifies GitHub's SHA256,
+checks the fixed payload and Debian 13 ELF baseline, preserves bundled runtime
+libraries, and removes `.pak.info` build metadata. Linux arm64 is unavailable.
+
+Install with `sudo apt install cromite` after rebuilding the publisher image and
+publishing an update cycle. The package supplies command-line and desktop
+launchers and relies on the unprivileged user-namespace sandbox. Validation is
+currently static and offline; browser launch and desktop behavior are unverified.
+See [Cromite packaging and verification notes](docs/cromite.md) for release
+versions, dependencies, licensing, inspection measurements and limitations.
+
 ## Checksums and Debian revisions
 
 Our input checksum answers whether the packaging recipe changed. It covers:

@@ -1,0 +1,35 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set and non-empty}"
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${ARCHES:?ARCHES must be set and non-empty}"
+source "$FRAMEWORK_DIR/lib/adapter/github.sh"
+
+fetch_github_release uazo/cromite "$WORKSPACE/release.json"
+python3 "$ADAPTER_DIR/release.py" "$WORKSPACE/release.json" > "$WORKSPACE/version"
+VERSION=$(cat "$WORKSPACE/version")
+record_github_release_date "$WORKSPACE/release.json" "$WORKSPACE/release-date"
+ASSET=$(select_github_asset "$WORKSPACE/release.json" chrome-lin64.tar.gz)
+printf '{}\n' > "$WORKSPACE/assets.json"
+: > "$WORKSPACE/targets.tsv"
+for ARCHITECTURE in $ARCHES; do
+    case "$ARCHITECTURE" in
+        arm64)
+            echo '[cromite] WARNING: No official Linux arm64 artifact' >&2
+            continue
+            ;;
+        amd64) ;;
+        *) echo "[cromite] Unsupported architecture: $ARCHITECTURE" >&2; exit 1 ;;
+    esac
+    if [[ -z "$ASSET" ]]; then
+        echo '[cromite] WARNING: Missing chrome-lin64.tar.gz for amd64' >&2
+        continue
+    fi
+    jq --null-input --arg VERSION "$VERSION" --argjson ASSET "$ASSET" '{amd64: {
+        version: $VERSION, name: $ASSET.name, url: $ASSET.browser_download_url,
+        sha256: ($ASSET.digest | ltrimstr("sha256:"))
+    }}' > "$WORKSPACE/assets.json"
+    printf '%s\tamd64\n' "$VERSION" >> "$WORKSPACE/targets.tsv"
+done

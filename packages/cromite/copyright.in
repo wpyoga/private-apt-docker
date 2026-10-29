@@ -1,0 +1,14 @@
+Cromite: https://github.com/uazo/cromite
+Selected release: @UPSTREAM_TAG@
+Corresponding patches and build instructions:
+ https://github.com/uazo/cromite/tree/@UPSTREAM_TAG@
+Chromium source and third-party notices: chrome://credits and
+ https://chromium.googlesource.com/chromium/src
+
+Cromite is distributed under GNU GPL version 3. Bromite patches are GPL-3.0-only;
+Cromite-specific patches may be GPL-2+ as specified in each patch.
+The full GPL version 3 text is in /usr/share/common-licenses/GPL-3.
+Chromium and bundled third-party components retain their respective licenses;
+consult chrome://credits for their copyright and license notices.
+
+This is unofficial Debian repackaging of upstream binaries, not a source build.
