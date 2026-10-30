@@ -1,0 +1,17 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+if [[ "$1" != configure ]]; then
+    exit 0
+fi
+update-alternatives --install /usr/bin/x-www-browser x-www-browser \
+    /usr/bin/@PACKAGE_NAME@ 40
+update-alternatives --install /usr/bin/gnome-www-browser gnome-www-browser \
+    /usr/bin/@PACKAGE_NAME@ 40
+if [[ -f /etc/apparmor.d/@PACKAGE_NAME@ && -f /etc/apparmor.d/abi/4.0 \
+    && -x /sbin/apparmor_parser ]]; then
+    /sbin/apparmor_parser -r /etc/apparmor.d/@PACKAGE_NAME@ || true
+fi
+if command -v update-desktop-database > /dev/null; then
+    update-desktop-database > /dev/null 2>&1 || true
+fi

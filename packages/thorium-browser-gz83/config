@@ -1,0 +1,3 @@
+RELEASE_STREAM=thorium-browser-gz83
+BINARY_PACKAGES_AMD64="thorium-browser-gz83 thorium-browser-gz83-sse3 thorium-browser-gz83-sse4 thorium-browser-gz83-avx thorium-browser-gz83-avx2"
+BINARY_PACKAGES_ARM64=thorium-browser-gz83

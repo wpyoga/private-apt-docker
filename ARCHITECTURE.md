@@ -143,6 +143,19 @@ This is per-file publication, not a transaction across all outputs.
 
 ### Existing packaging examples
 
+- **Thorium** imports official Debian binaries through two streams:
+  `thorium-browser` follows Alex313031 stable, and `thorium-browser-gz83` follows
+  gz83 (including beta). Each emits SSE3, SSE4, AVX, and AVX2 packages plus an
+  AVX-default metapackage on amd64; the gz83 stream emits its native browser on
+  arm64. Query selects the newest complete CPU asset set per architecture, and
+  each output set shares a version and revision. Concrete packages have private paths and desktop IDs,
+  while profiles remain shared. Setuid sandbox modes and per-variant AppArmor
+  integration are preserved. Release selection scans paginated assets because
+  GitHub's latest release can be an announcement without binaries. Adapter-local
+  implementation copies keep upstream assumptions out of publisher helpers and
+  inside each stream's recipe checksum. [Thorium notes](docs/thorium.md) record
+  the verified artifacts and pending installation/runtime checks.
+
 - **Laya** repackages the stable PyPI universal wheel into a Python library,
   CLI, and HTTP interface. It validates wheel metadata, dependencies, RECORD
   hashes, and fixed paths without executing upstream code. Click is pinned and

@@ -437,13 +437,32 @@ supplied by Debian stable.
 See [GIMP help packaging and validation notes](docs/gimp-help-3.2.md) for release
 selection, package validation, and verification limits.
 
-## Thorium (planned)
+## Thorium
 
-Thorium is not yet published by this project. The
-[Thorium investigation and implementation plan](docs/thorium.md) records the
-agreed CPU variants, separate Alex313031/gz83 sources, shared-profile behavior,
-and inspection of the downloaded upstream Debian packages. Those packages share
-the same Debian identity and installed paths, so coexistence requires repackaging.
+The two Thorium release streams, `thorium-browser` and `thorium-browser-gz83`,
+each repackage official Debian binaries into distinct SSE3, SSE4, AVX, and AVX2
+packages. Alex313031 stable releases use names such as
+`thorium-browser-avx2`; collaborator gz83 releases, including beta builds, use
+names such as `thorium-browser-gz83-avx2`. On amd64, `thorium-browser` and
+`thorium-browser-gz83` select their family's AVX package. On arm64,
+`thorium-browser-gz83` contains the native browser.
+Each amd64 build emits all four CPU tiers and its default metapackage at the
+same version/revision, selecting the newest upstream release with a complete
+asset set. An incomplete upstream release leaves the existing packages available.
+
+Variants have separate installation paths, commands, and desktop entries, and
+share Thorium's normal profile unless users supply `--user-data-dir`. Normal
+Chromium instance locking still applies. Moving a shared profile from a newer
+browser back to an older one may not work.
+
+After rebuilding the publisher image and publishing an update cycle, install a
+specific variant with `sudo apt install thorium-browser-avx2`, for example.
+AVX/AVX2 require compatible CPUs; APT does not select a CPU tier automatically.
+gz83's AppArmor profile is relocated for each variant, and the upstream setuid
+sandbox helper is preserved. Verification is currently static; installation,
+browser launch, and desktop behavior have not been verified.
+See [Thorium packaging and investigation notes](docs/thorium.md) for all names,
+upstream inventories, integrity checks, integration behavior, and limitations.
 
 ## Cromite
 

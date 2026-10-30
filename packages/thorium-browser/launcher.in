@@ -1,0 +1,33 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+export CHROME_WRAPPER=/usr/bin/@PACKAGE_NAME@
+export CHROME_DESKTOP=@PACKAGE_NAME@.desktop
+export CHROME_VERSION_EXTRA="@PACKAGE_NAME@"
+export LD_LIBRARY_PATH="/opt/@PACKAGE_NAME@/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export GNOME_DISABLE_CRASH_DIALOG=SET_BY_THORIUM
+FLAGS_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/thorium/thorium-flags.conf"
+FLAGS=()
+if [[ -f "$FLAGS_FILE" ]]; then
+    # Keep upstream's whitespace-separated flags, without globbing or evaluation.
+    while IFS= read -r FLAG || [[ -n "$FLAG" ]]; do
+        if [[ -n "$FLAG" && "$FLAG" != \#* ]]; then
+            read -r -a LINE_FLAGS <<< "$FLAG"
+            FLAGS+=("${LINE_FLAGS[@]}")
+        fi
+    done < "$FLAGS_FILE"
+fi
+
+ARGS=()
+while (( $# )); do
+    case "$1" in
+        --safe-mode) ARGS+=(--no-experiments); shift ;;
+        --temp-profile)
+            TEMP_PROFILE=$(mktemp -d -t thorium-profile-XXXXXXXX)
+            ARGS+=("--user-data-dir=$TEMP_PROFILE" "--disk-cache-dir=$TEMP_PROFILE/cache")
+            shift
+            ;;
+        *) break ;;
+    esac
+done
+exec /opt/@PACKAGE_NAME@/thorium --class=@PACKAGE_NAME@ "${FLAGS[@]}" "${ARGS[@]}" "$@"

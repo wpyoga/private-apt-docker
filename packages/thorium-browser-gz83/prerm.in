@@ -1,0 +1,13 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+case "$1" in
+    remove|deconfigure)
+        update-alternatives --remove x-www-browser /usr/bin/@PACKAGE_NAME@
+        update-alternatives --remove gnome-www-browser /usr/bin/@PACKAGE_NAME@
+        if [[ -f /etc/apparmor.d/@PACKAGE_NAME@ && -f /etc/apparmor.d/abi/4.0 \
+            && -x /sbin/apparmor_parser ]]; then
+            /sbin/apparmor_parser -R /etc/apparmor.d/@PACKAGE_NAME@ || true
+        fi
+        ;;
+esac

@@ -1,0 +1,6 @@
+Upstream: https://github.com/@UPSTREAM_REPOSITORY@
+
+The upstream binaries and resources are redistributed without recompilation.
+Copyright and third-party license notices are embedded in the browser and can
+be viewed at chrome://credits and chrome://terms. Bundled Widevine licensing,
+when present, is retained under /opt/@PACKAGE_NAME@/WidevineCdm/LICENSE.

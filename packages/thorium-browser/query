@@ -1,0 +1,31 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${ARCHES:?ARCHES must be set and non-empty}"
+: "${PUBLISHER_STREAM:?PUBLISHER_STREAM must be set and non-empty}"
+source "$ADAPTER_DIR/settings"
+export UPSTREAM_REPOSITORY ALLOW_BETA
+
+PAGE=1
+mkdir -p "$WORKSPACE/releases"
+while true; do
+    RELEASE_FILE="$WORKSPACE/releases/$PAGE.json"
+    curl -fLsS --retry 3 \
+        -H 'Accept: application/vnd.github+json' \
+        -H 'User-Agent: private-apt-publisher' \
+        "https://api.github.com/repos/$UPSTREAM_REPOSITORY/releases?per_page=100&page=$PAGE" \
+        -o "$RELEASE_FILE"
+    if ! jq -e 'type == "array" and all(.[]; type == "object")' \
+        "$RELEASE_FILE" > /dev/null; then
+        echo "[$UPSTREAM_REPOSITORY] Invalid releases page $PAGE" >&2
+        exit 1
+    fi
+    COUNT=$(jq 'length' "$RELEASE_FILE")
+    if (( COUNT < 100 )); then
+        break
+    fi
+    PAGE=$((PAGE + 1))
+done
+python3 "$ADAPTER_DIR/select-release.py"

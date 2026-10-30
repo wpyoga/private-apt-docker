@@ -1,0 +1,2 @@
+RELEASE_STREAM=thorium-browser
+BINARY_PACKAGES="thorium-browser thorium-browser-sse3 thorium-browser-sse4 thorium-browser-avx thorium-browser-avx2"

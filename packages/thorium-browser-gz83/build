@@ -1,0 +1,75 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set and non-empty}"
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${PUBLISHER_STREAM:?PUBLISHER_STREAM must be set and non-empty}"
+: "${BUILD_INPUTS_SHA256:?BUILD_INPUTS_SHA256 must be set and non-empty}"
+: "${MAINTAINER:?MAINTAINER must be set and non-empty}"
+: "${BINARY_PACKAGES:?BINARY_PACKAGES must be set and non-empty}"
+source "$FRAMEWORK_DIR/lib/adapter/package.sh"
+source "$ADAPTER_DIR/settings"
+
+PACKAGE_VERSION="$1"
+ARCHITECTURE="$2"
+OUTPUT_DIR="$3"
+export PACKAGE_VERSION ARCHITECTURE UPSTREAM_REPOSITORY
+
+SELECTED_RELEASE=$(jq --compact-output --exit-status --arg ARCH "$ARCHITECTURE" \
+    '.[$ARCH]' "$WORKSPACE/assets.json")
+UPSTREAM_VERSION=$(jq --raw-output --exit-status '.version' <<< "$SELECTED_RELEASE")
+if [[ "$UPSTREAM_VERSION" != "${PACKAGE_VERSION%-*}" ]]; then
+    echo "[$PUBLISHER_STREAM] Selected version $UPSTREAM_VERSION does not match $PACKAGE_VERSION" >&2
+    exit 1
+fi
+
+for PACKAGE_NAME in $BINARY_PACKAGES; do
+    PACKAGE_DIR="$WORKSPACE/pkg-$ARCHITECTURE-$PACKAGE_NAME"
+    export PACKAGE_NAME PACKAGE_DIR
+
+    if [[ "$PACKAGE_NAME" == "$PUBLISHER_STREAM" && "$ARCHITECTURE" == amd64 ]]; then
+        mkdir -p "$PACKAGE_DIR/usr/bin"
+        render_template "$ADAPTER_DIR/alias.in" "$PACKAGE_DIR/usr/bin/$PACKAGE_NAME" \
+            PACKAGE_NAME "$PACKAGE_NAME"
+        chmod 755 "$PACKAGE_DIR/usr/bin/$PACKAGE_NAME"
+        render_control "$ADAPTER_DIR/control.in" "$PACKAGE_DIR" \
+            PACKAGE_NAME "$PACKAGE_NAME" ARCHITECTURE "$ARCHITECTURE" \
+            DEPENDS "$PACKAGE_NAME-avx (= $PACKAGE_VERSION)"
+    else
+        ASSET=$(jq --compact-output --exit-status --arg PACKAGE "$PACKAGE_NAME" \
+            '.assets[$PACKAGE]' <<< "$SELECTED_RELEASE")
+        DOWNLOAD_NAME=$(jq --raw-output --exit-status '.name' <<< "$ASSET")
+        DOWNLOAD_URL=$(jq --raw-output --exit-status '.url' <<< "$ASSET")
+        DOWNLOAD_SHA256=$(jq --raw-output --exit-status '.sha256' <<< "$ASSET")
+        DOWNLOAD_PATH="$WORKSPACE/$DOWNLOAD_NAME"
+        EXTRACT_DIR="$WORKSPACE/extracted-$ARCHITECTURE-$PACKAGE_NAME"
+        export EXTRACT_DIR
+        verify_download "$DOWNLOAD_URL" "$DOWNLOAD_PATH" "$DOWNLOAD_SHA256" reuse
+        check_deb_field "$DOWNLOAD_PATH" Package thorium-browser
+        check_deb_field "$DOWNLOAD_PATH" Version "$UPSTREAM_VERSION-1"
+        check_deb_field "$DOWNLOAD_PATH" Architecture "$ARCHITECTURE"
+
+        python3 "$ADAPTER_DIR/stage.py" validate "$DOWNLOAD_PATH"
+        dpkg-deb --raw-extract "$DOWNLOAD_PATH" "$EXTRACT_DIR"
+        python3 "$ADAPTER_DIR/stage.py" stage
+        render_template "$ADAPTER_DIR/copyright.in" \
+            "$PACKAGE_DIR/usr/share/doc/$PACKAGE_NAME/copyright" \
+            UPSTREAM_REPOSITORY "$UPSTREAM_REPOSITORY" PACKAGE_NAME "$PACKAGE_NAME"
+        for TEMPLATE in launcher postinst prerm postrm; do
+            if [[ "$TEMPLATE" == launcher ]]; then
+                DESTINATION="$PACKAGE_DIR/usr/bin/$PACKAGE_NAME"
+            else
+                DESTINATION="$PACKAGE_DIR/DEBIAN/$TEMPLATE"
+            fi
+            render_template "$ADAPTER_DIR/$TEMPLATE.in" "$DESTINATION" \
+                PACKAGE_NAME "$PACKAGE_NAME"
+            chmod 755 "$DESTINATION"
+        done
+        python3 "$FRAMEWORK_DIR/lib/adapter/rewrite-control.py" \
+            "$PACKAGE_DIR/DEBIAN/control" "$PACKAGE_VERSION" "$(installed_size "$PACKAGE_DIR")" \
+            Package "$PACKAGE_NAME"
+    fi
+
+    build_deb "$PACKAGE_DIR" "$OUTPUT_DIR/${PACKAGE_NAME}_${PACKAGE_VERSION}_${ARCHITECTURE}.deb"
+done

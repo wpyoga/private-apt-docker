@@ -1,0 +1,12 @@
+Package: @PACKAGE_NAME@
+Version: @PACKAGE_VERSION@
+Architecture: @ARCHITECTURE@
+Maintainer: @MAINTAINER@
+Installed-Size: @INSTALLED_SIZE@
+Depends: @DEPENDS@
+Section: web
+Priority: optional
+Description: Thorium Browser default AVX selection
+ Installs the AVX variant. Other CPU tiers can be selected explicitly.
+X-Build-Inputs-SHA256: @BUILD_INPUTS_SHA256@
+X-Publisher-Stream: @PUBLISHER_STREAM@
