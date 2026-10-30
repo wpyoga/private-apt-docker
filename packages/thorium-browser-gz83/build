@@ -51,8 +51,13 @@ for PACKAGE_NAME in $BINARY_PACKAGES; do
         check_deb_field "$DOWNLOAD_PATH" Architecture "$ARCHITECTURE"
 
         python3 "$ADAPTER_DIR/stage.py" validate "$DOWNLOAD_PATH"
-        # Bound decoder buffers independently of the host's CPU count.
-        dpkg-deb --threads-max=1 --raw-extract "$DOWNLOAD_PATH" "$EXTRACT_DIR"
+        mkdir -p "$EXTRACT_DIR"
+        # Decode only the small control archive with dpkg; stream payload data
+        # through the same bounded decoder used for validation.
+        dpkg-deb --threads-max=1 --control "$DOWNLOAD_PATH" "$EXTRACT_DIR/DEBIAN"
+        bash "$ADAPTER_DIR/payload-tar" "$DOWNLOAD_PATH" \
+            | tar --extract --file=- --directory="$EXTRACT_DIR" \
+                --no-same-owner --same-permissions
         python3 "$ADAPTER_DIR/stage.py" stage
         render_template "$ADAPTER_DIR/copyright.in" \
             "$PACKAGE_DIR/usr/share/doc/$PACKAGE_NAME/copyright" \

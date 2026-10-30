@@ -386,28 +386,49 @@ and an 8 MiB dictionary in all gz83 M156 payloads. The previous 256 MiB containe
 limit could not accommodate Alex's dictionary plus the decoder and other
 processes. gz83 can also incur substantial multithreaded decoder buffers.
 
-Both Thorium adapters explicitly pass `--threads-max=1` to `dpkg-deb` when
-validating the payload tar stream and when extracting it. Limiting extraction
-alone would leave validation using the default decoder concurrency. The flag
-limits dpkg's XZ decoder too; see the
-[dpkg decoder implementation](https://raw.githubusercontent.com/guillemj/dpkg/1.22.21/lib/dpkg/compress.c).
-This setting is local to Thorium imports, not a publisher-wide compression policy.
-Generated packages still use the publisher's existing gzip compression.
+The initial `dpkg-deb --threads-max=1` change was insufficient. dpkg still
+initializes liblzma's multithreaded decoder, with memory limits derived separately
+from the requested worker count. A single worker is not the same as selecting
+liblzma's streaming decoder. See the
+[dpkg decoder implementation](https://raw.githubusercontent.com/guillemj/dpkg/1.22.21/lib/dpkg/compress.c)
+and [liblzma decoder API](https://raw.githubusercontent.com/tukaani-project/xz/v5.8.1/src/liblzma/api/lzma/container.h).
+The inspected Alex SSE3 payload's first block has 160,034,194 compressed bytes
+and 783,994,880 uncompressed bytes (about 748 MiB); retaining such a block already
+exceeds the container's memory limit, before the dictionary is counted.
 
-Single-threaded decoding reduces buffering but cannot shrink the upstream
-dictionary requirement. XZ's decompression memory limit rejects streams that
-need more memory rather than reducing the encoded dictionary; see the
+Both adapters now use the same adapter-local `payload-tar` reader for validation
+and extraction. It requires exactly the inspected Debian archive members:
+`debian-binary`, `control.tar.xz`, and `data.tar.xz`, in order. It streams the
+compressed payload with `ar p` into `xz --decompress --stdout --threads=1
+--memlimit-decompress=384MiB`, ignoring `XZ_DEFAULTS` and `XZ_OPT` so inherited
+options cannot change the decoder policy. XZ's one-thread CLI mode uses the
+streaming decoder. The 384 MiB decoder limit leaves space within the 512 MiB
+container for the Python validator, archive reader, tar, and publisher processes.
+It is a decoder limit, not a guarantee about total container memory usage.
+
+After validation, dpkg extracts only the small control archive. GNU tar extracts
+the streamed payload without applying upstream ownership, while preserving
+permissions including the setuid sandbox mode. No target binaries or upstream
+maintainer scripts are executed. `pipefail` propagates archive-reader,
+decompressor, and extraction failures. Validation drains remaining decoder output
+before checking the reader's exit status so tar padding cannot leave a writer
+blocked and compressed-stream checksum errors are still reported.
+
+Single-threaded decoding cannot shrink the upstream dictionary requirement.
+XZ's decompression memory limit rejects streams that need more memory rather
+than reducing the encoded dictionary; see the
 [XZ manual](https://tukaani.org/xz/man/xz.1.html). No source archive is recompressed
-or altered. The 512 MiB budget is the chosen headroom, not a measured peak-memory
-guarantee. A checksum-successful download followed by a killed decoder is
-consistent with OOM; confirming a deployed incident still requires cgroup or
-kernel OOM evidence.
+or altered. Generated packages still use the publisher's existing gzip
+compression. The 512 MiB budget has not been verified by a deployed memory
+benchmark. A killed decoder is consistent with OOM; confirming the incident still
+requires cgroup or kernel OOM evidence.
 
-Payload parser errors now include the archive path and dpkg exit status while
-preserving dpkg's original stderr. This makes a failed decoder distinguishable
-from a bare `unexpected end of data` message. If dpkg does not exit promptly
-after a malformed stream's pipe is closed, it is terminated and that condition
-is named in the error.
+Payload parser errors include the archive path and payload-reader exit status,
+while preserving the original ar/XZ stderr. The previous dpkg-based error message
+is superseded. An unsupported archive layout fails explicitly; the reader does
+not search for another compression format or payload root. The existing
+`binutils` and `xz-utils` image dependencies provide ar and xz, so the Dockerfile
+and publisher framework do not change.
 
 Apply both changes by rebuilding and recreating the publisher container, for
 example `docker compose up -d --build --force-recreate`. A restart alone does

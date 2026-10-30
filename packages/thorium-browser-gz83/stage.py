@@ -36,9 +36,9 @@ def validate(archive):
         links["usr/bin/pak"] = f"/{PREFIX}/pak"
     entries = {}
     elf_files = set()
-    # Validation decodes the payload too; extraction's thread limit is not enough.
+    # Use the same truly streaming XZ decoder for validation and extraction.
     process = subprocess.Popen(
-        ["dpkg-deb", "--threads-max=1", "--fsys-tarfile", archive],
+        ["bash", str(Path(os.environ["ADAPTER_DIR"]) / "payload-tar"), archive],
         stdout=subprocess.PIPE,
     )
     try:
@@ -68,19 +68,23 @@ def validate(archive):
                         if (len(header) < 20 or header[4] != 2 or header[5] != 1
                                 or (actual_machine != machine and not known_foreign)):
                             raise ValueError(f"{name}: expected ELF machine {machine}, got {actual_machine}")
+        # Drain tar padding and any remaining decoder output before waiting.
+        # Otherwise a full pipe after tar's end marker can block the decoder.
+        while process.stdout.read(65536):
+            pass
         status = process.wait()
         if status != 0:
-            raise ValueError(f"Cannot read Debian payload {archive}: dpkg-deb exit status {status}")
+            raise ValueError(f"Cannot read Debian payload {archive}: payload reader exit status {status}")
     except tarfile.TarError as error:
         # Closing the pipe also releases a decoder blocked on an invalid tar stream.
         process.stdout.close()
         try:
             status = process.wait(timeout=5)
-            detail = f"dpkg-deb exit status {status}"
+            detail = f"payload reader exit status {status}"
         except subprocess.TimeoutExpired:
             process.terminate()
             process.wait()
-            detail = "dpkg-deb did not exit after its payload pipe was closed"
+            detail = "payload reader did not exit after its payload pipe was closed"
         raise ValueError(f"Cannot parse Debian payload {archive}: {error}; {detail}") from error
     finally:
         process.stdout.close()

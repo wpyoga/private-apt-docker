@@ -203,7 +203,7 @@ class ThoriumCases:
         self.run_update(expected=1)
         self.assertEqual(self.artifacts(), [])
 
-    def test_truncated_xz_payload_names_archive_and_dpkg_failure(self):
+    def test_truncated_xz_payload_names_archive_and_reader_failure(self):
         self.fixture()
         original = self.base / "downloads" / f"thorium-browser_{self.version}_SSE3.deb"
         truncated = self.base / "truncated.deb"
@@ -212,13 +212,37 @@ class ThoriumCases:
             "python3", str(self.adapter_dir / "stage.py"), "validate", str(truncated),
         ], env={
             **self.env,
+            "ADAPTER_DIR": str(self.adapter_dir),
             "UPSTREAM_REPOSITORY": "gz83/thorium" if self.gz83 else "Alex313031/thorium",
             "ARCHITECTURE": "amd64",
             "PACKAGE_NAME": self.stream + "-sse3",
         }, text=True, capture_output=True, timeout=30)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(str(truncated), result.stderr)
-        self.assertIn("dpkg-deb exit status", result.stderr)
+        self.assertIn("payload reader exit status", result.stderr)
+
+    def test_payload_reader_preserves_tar_and_ignores_inherited_xz_options(self):
+        self.fixture()
+        archive = self.base / "downloads" / f"thorium-browser_{self.version}_SSE3.deb"
+        expected = subprocess.check_output(["dpkg-deb", "--fsys-tarfile", str(archive)])
+        result = subprocess.run([
+            "bash", str(self.adapter_dir / "payload-tar"), str(archive),
+        ], env={**self.env, "XZ_DEFAULTS": "--memlimit-decompress=1",
+                "XZ_OPT": "--not-a-real-option"}, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertEqual(result.stdout, expected)
+
+    def test_payload_reader_rejects_missing_xz_member(self):
+        self.fixture()
+        archive = self.base / "downloads" / f"thorium-browser_{self.version}_SSE3.deb"
+        subprocess.run(["ar", "d", str(archive), "data.tar.xz"], check=True, capture_output=True)
+        result = subprocess.run([
+            "bash", str(self.adapter_dir / "payload-tar"), str(archive),
+        ], env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn(str(archive), result.stderr)
+        self.assertIn("expected debian-binary, control.tar.xz, data.tar.xz", result.stderr)
 
     def test_announcements_and_pagination(self):
         self.fixture()

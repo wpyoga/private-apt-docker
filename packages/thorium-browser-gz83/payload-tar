@@ -1,0 +1,17 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+ARCHIVE="$1"
+MEMBERS=$(ar t -- "$ARCHIVE")
+EXPECTED_MEMBERS=$'debian-binary\ncontrol.tar.xz\ndata.tar.xz'
+if [[ "$MEMBERS" != "$EXPECTED_MEMBERS" ]]; then
+    echo "[thorium] $ARCHIVE: expected debian-binary, control.tar.xz, data.tar.xz in order" >&2
+    exit 1
+fi
+
+# dpkg uses the threaded decoder API even with one worker. xz -T1 selects
+# the streaming decoder, avoiding whole-block buffers for large upstream blocks.
+# Ignore user XZ options so they cannot change the decoder or its memory budget.
+ar p -- "$ARCHIVE" data.tar.xz \
+    | env -u XZ_DEFAULTS -u XZ_OPT xz --decompress --stdout --threads=1 \
+        --memlimit-decompress=384MiB
