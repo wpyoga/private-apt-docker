@@ -21,7 +21,8 @@ services:
     cap_drop:
       - ALL
     pids_limit: 128
-    mem_limit: 256m
+    # Alex's Thorium archives require a 256 MiB XZ dictionary plus overhead.
+    mem_limit: 512m
     logging:
       options:
         max-size: "10m"

@@ -51,7 +51,8 @@ for PACKAGE_NAME in $BINARY_PACKAGES; do
         check_deb_field "$DOWNLOAD_PATH" Architecture "$ARCHITECTURE"
 
         python3 "$ADAPTER_DIR/stage.py" validate "$DOWNLOAD_PATH"
-        dpkg-deb --raw-extract "$DOWNLOAD_PATH" "$EXTRACT_DIR"
+        # Bound decoder buffers independently of the host's CPU count.
+        dpkg-deb --threads-max=1 --raw-extract "$DOWNLOAD_PATH" "$EXTRACT_DIR"
         python3 "$ADAPTER_DIR/stage.py" stage
         render_template "$ADAPTER_DIR/copyright.in" \
             "$PACKAGE_DIR/usr/share/doc/$PACKAGE_NAME/copyright" \

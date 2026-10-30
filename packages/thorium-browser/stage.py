@@ -36,7 +36,11 @@ def validate(archive):
         links["usr/bin/pak"] = f"/{PREFIX}/pak"
     entries = {}
     elf_files = set()
-    process = subprocess.Popen(["dpkg-deb", "--fsys-tarfile", archive], stdout=subprocess.PIPE)
+    # Validation decodes the payload too; extraction's thread limit is not enough.
+    process = subprocess.Popen(
+        ["dpkg-deb", "--threads-max=1", "--fsys-tarfile", archive],
+        stdout=subprocess.PIPE,
+    )
     try:
         with tarfile.open(fileobj=process.stdout, mode="r|") as payload:
             for entry in payload:
@@ -64,8 +68,20 @@ def validate(archive):
                         if (len(header) < 20 or header[4] != 2 or header[5] != 1
                                 or (actual_machine != machine and not known_foreign)):
                             raise ValueError(f"{name}: expected ELF machine {machine}, got {actual_machine}")
-        if process.wait() != 0:
-            raise ValueError(f"Cannot read Debian payload: {archive}")
+        status = process.wait()
+        if status != 0:
+            raise ValueError(f"Cannot read Debian payload {archive}: dpkg-deb exit status {status}")
+    except tarfile.TarError as error:
+        # Closing the pipe also releases a decoder blocked on an invalid tar stream.
+        process.stdout.close()
+        try:
+            status = process.wait(timeout=5)
+            detail = f"dpkg-deb exit status {status}"
+        except subprocess.TimeoutExpired:
+            process.terminate()
+            process.wait()
+            detail = "dpkg-deb did not exit after its payload pipe was closed"
+        raise ValueError(f"Cannot parse Debian payload {archive}: {error}; {detail}") from error
     finally:
         process.stdout.close()
         if process.poll() is None:

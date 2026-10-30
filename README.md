@@ -463,6 +463,11 @@ sandbox helper is preserved. Verification is currently static; installation,
 browser launch, and desktop behavior have not been verified.
 See [Thorium packaging and investigation notes](docs/thorium.md) for all names,
 upstream inventories, integrity checks, integration behavior, and limitations.
+Compose allows 512 MiB of memory for upstream XZ imports; Alex's packages alone
+require a 256 MiB decoder dictionary. Both Thorium adapters use one decoder
+thread during validation and extraction. After updating this checkout, rebuild
+and recreate the publisher with `docker compose up -d --build --force-recreate`
+to apply both the adapter and memory-limit changes.
 
 ## Cromite
 

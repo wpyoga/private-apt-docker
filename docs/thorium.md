@@ -378,6 +378,43 @@ sources and evidence for the implementation work. No APT installation, browser
 launch, dynamic-link resolution, package rebuild, signing, or publication has
 been performed.
 
+## XZ decompression memory requirements
+
+The publisher's Compose memory limit is 512 MiB. Inspection of the upstream XZ
+block headers found a 256 MiB LZMA2 dictionary in all Alex M138 Debian payloads
+and an 8 MiB dictionary in all gz83 M156 payloads. The previous 256 MiB container
+limit could not accommodate Alex's dictionary plus the decoder and other
+processes. gz83 can also incur substantial multithreaded decoder buffers.
+
+Both Thorium adapters explicitly pass `--threads-max=1` to `dpkg-deb` when
+validating the payload tar stream and when extracting it. Limiting extraction
+alone would leave validation using the default decoder concurrency. The flag
+limits dpkg's XZ decoder too; see the
+[dpkg decoder implementation](https://raw.githubusercontent.com/guillemj/dpkg/1.22.21/lib/dpkg/compress.c).
+This setting is local to Thorium imports, not a publisher-wide compression policy.
+Generated packages still use the publisher's existing gzip compression.
+
+Single-threaded decoding reduces buffering but cannot shrink the upstream
+dictionary requirement. XZ's decompression memory limit rejects streams that
+need more memory rather than reducing the encoded dictionary; see the
+[XZ manual](https://tukaani.org/xz/man/xz.1.html). No source archive is recompressed
+or altered. The 512 MiB budget is the chosen headroom, not a measured peak-memory
+guarantee. A checksum-successful download followed by a killed decoder is
+consistent with OOM; confirming a deployed incident still requires cgroup or
+kernel OOM evidence.
+
+Payload parser errors now include the archive path and dpkg exit status while
+preserving dpkg's original stderr. This makes a failed decoder distinguishable
+from a bare `unexpected end of data` message. If dpkg does not exit promptly
+after a malformed stream's pipe is closed, it is terminated and that condition
+is named in the error.
+
+Apply both changes by rebuilding and recreating the publisher container, for
+example `docker compose up -d --build --force-recreate`. A restart alone does
+not replace adapter code or apply the changed container memory limit. Deployment
+has not been performed as part of this change. Stored packages and repository
+keys are unaffected; normal complete-output and retry rules remain in force.
+
 ## Verification status and remaining checks
 
 Static validation passed for all nine supported downloaded payloads: Alex SSE3,

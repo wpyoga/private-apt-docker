@@ -116,8 +116,10 @@ class ThoriumCases:
                 (package / missing).unlink()
             name = f"thorium-browser_{self.version}_{tier}.deb"
             archive = self.base / "downloads" / name
-            subprocess.run(["dpkg-deb", "--build", "--root-owner-group", str(package), str(archive)],
-                           check=True, capture_output=True)
+            subprocess.run([
+                "dpkg-deb", "--threads-max=1", "-Zxz", "-z1",
+                "--build", "--root-owner-group", str(package), str(archive),
+            ], check=True, capture_output=True)
             # Fail the last amd64 tier to exercise all-output storage validation.
             digest = "0" * 64 if corrupt and tier == "AVX2" else hashlib.sha256(archive.read_bytes()).hexdigest()
             assets.append({"name": name, "digest": "sha256:" + digest,
@@ -200,6 +202,23 @@ class ThoriumCases:
         self.fixture(wrong_arch=True)
         self.run_update(expected=1)
         self.assertEqual(self.artifacts(), [])
+
+    def test_truncated_xz_payload_names_archive_and_dpkg_failure(self):
+        self.fixture()
+        original = self.base / "downloads" / f"thorium-browser_{self.version}_SSE3.deb"
+        truncated = self.base / "truncated.deb"
+        truncated.write_bytes(original.read_bytes()[:-32])
+        result = subprocess.run([
+            "python3", str(self.adapter_dir / "stage.py"), "validate", str(truncated),
+        ], env={
+            **self.env,
+            "UPSTREAM_REPOSITORY": "gz83/thorium" if self.gz83 else "Alex313031/thorium",
+            "ARCHITECTURE": "amd64",
+            "PACKAGE_NAME": self.stream + "-sse3",
+        }, text=True, capture_output=True, timeout=30)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(str(truncated), result.stderr)
+        self.assertIn("dpkg-deb exit status", result.stderr)
 
     def test_announcements_and_pagination(self):
         self.fixture()
