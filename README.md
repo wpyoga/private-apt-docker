@@ -91,7 +91,8 @@ rebuild uses the next revision and establishes the metadata, for example `-3` to
 
 ## First-time setup
 
-The host needs Docker Compose, GnuPG, sudo, and the usual core utilities.
+The host needs Docker Compose, sudo, and the usual core utilities. Setup builds
+the publisher image and runs GnuPG inside temporary containers.
 From the project directory:
 
 ```sh
@@ -107,7 +108,10 @@ Setup reads exactly `$FRAMEWORK_DIR/.env`, validates its required inputs, create
 the configured system user and storage directories, and generates a dedicated
 signing key if none exists. It writes `REPO_UID`, `REPO_GID`, `REPACK_GPG_KEY`, and `REBUILD_GPG_KEY` back to
 that file with mode 0600, preserving other settings. It exports `repack-pubkey.asc`
-and prints the fingerprint. Setup does not start the container.
+and `rebuild-pubkey.asc` and prints their fingerprints. All key operations run in
+temporary containers using the publisher UID/GID. Their agents stop when those
+containers exit; setup leaves no host GPG agent running. Setup does not start the
+publisher services.
 
 You may import an existing dedicated key into the configured `gnupg/` directory
 first. If it contains multiple primary secret keys, set the repository-specific fingerprint in `.env` to the
@@ -596,6 +600,25 @@ Caddy needs read access to both outputs and traversal access through their paren
 The publisher uses umask 022. Keep both keyrings outside the web root and owned by
 the publisher account with mode 0700. Never grant Caddy access to them.
 
+Each container stores GPG agent sockets in its own tmpfs under `/run/user/UID`,
+separate from the persistent `/gnupg` mount. Startup fails if GnuPG would put its
+sockets in the signing directory instead. The two rebuild containers share keys
+but have separate agents; stopping a container stops its agent. Setup uses the
+same socket isolation in temporary containers and never invokes host GPG.
+
+When upgrading from host-based setup, stop publishers and shut down the old host
+agents once, using the current signing paths:
+
+```sh
+docker compose stop
+sudo -u aptrepo gpgconf --homedir /var/lib/apt-publisher/gnupg/repack --kill gpg-agent
+sudo -u aptrepo gpgconf --homedir /var/lib/apt-publisher/gnupg/rebuild --kill gpg-agent
+docker compose up -d --build --force-recreate
+```
+
+Replace `aptrepo` with your configured `REPO_USER` and adjust custom keyring paths.
+Keep the existing keys and fingerprints; setup does not need to be rerun.
+
 ### Moving existing storage
 
 Existing paths remain supported; setup does not move data automatically. Before
@@ -706,7 +729,7 @@ use real curl against a loopback server and need permission to open local socket
 they do not contact the internet. Their shared
 temporary fixtures live in `tests/lib/publisher_test_support.py`; shared shell
 coordination is in `tests/lib/common.sh`, separate from production `lib/`.
-GIMP-specific fixtures stay in its test directory. The setup test uses fake sudo and GPG commands;
+GIMP-specific fixtures stay in its test directory. The setup test uses fake sudo and Docker commands;
 it does not change host users, production configuration, or signing keys.
 
 The real signing/APT integration check is a standalone Bash script:
@@ -719,6 +742,18 @@ It creates a throwaway key and two fixture streams, verifies that APT accepts th
 signed repository, and simulates selecting both versions. It redirects APT state
 into the test directory and never installs packages on the host. GPG agent startup
 requires permission to bind a local socket, even with a writable temporary homedir. Both checks clean up their test data.
+
+To verify GPG agent isolation with real containers, run:
+
+```sh
+bash tests/test-container-gpg.sh
+```
+
+This builds the publisher image, generates a throwaway key inside a temporary
+container, and starts two publishers sharing that keyring. It checks real signing,
+private sockets, independent agent lifetimes, and agent exit when containers stop.
+Run it as the host user with Docker access. Logs and isolated test data remain
+under `build/container-gpg-*`; production storage and keys are never used.
 
 Container image builds and live upstream publication remain deployment checks.
 

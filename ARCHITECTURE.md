@@ -64,6 +64,19 @@ shell-compatible assignments; Compose reads it and supplies runtime settings.
 and Label. Setup creates or reuses the host account, storage, and signing key,
 then writes UID, GID, and the key fingerprint back to `.env`.
 
+Setup builds the publisher image directly, before Compose can require the generated
+UID/GID and fingerprints. It runs every GPG operation in a temporary container as
+the publisher UID/GID; it never invokes host GPG or leaves a host agent running.
+Setup containers use `--rm` and `--init`, and their agents die when they exit.
+
+Each publisher and setup container mounts a private tmpfs at `/run/user/UID`.
+`lib/gnupg.sh` creates GnuPG's socket directory there and rejects fallback to the
+persistent keyring. The entrypoint starts its own agent before the update loop.
+This lets both rebuild containers share stored keys without connecting to each
+other's agent or a host agent through a bind-mounted socket. Agent lifetime is
+bounded by the container lifetime. Stored keys and signing fingerprints are
+unchanged by this isolation.
+
 The framework explicitly supplies its directories and stream context. Scripts
 require missing or empty inputs to fail early rather than guessing paths.
 Docker sets fixed container paths. Host entry points default FRAMEWORK_DIR to

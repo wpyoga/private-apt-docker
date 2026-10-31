@@ -18,6 +18,9 @@ services:
     volumes:
       - ${REPACK_REPO_DIR:?Set REPACK_REPO_DIR in .env}:/repo
       - ${REPACK_GNUPG_DIR:?Set REPACK_GNUPG_DIR in .env}:/gnupg
+    # Each container has its own agent sockets, even when keys are shared.
+    tmpfs:
+      - /run/user/${REPO_UID:?Set REPO_UID in .env}:rw,noexec,nosuid,nodev,mode=0700,uid=${REPO_UID},gid=${REPO_GID}
     security_opt:
       - no-new-privileges:true
     cap_drop:

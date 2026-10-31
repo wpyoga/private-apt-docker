@@ -1,5 +1,6 @@
-"""Exercise setup with temporary storage and fake sudo/GPG commands."""
+"""Exercise setup with temporary storage and fake sudo/Docker commands."""
 
+import json
 import os
 import subprocess
 import unittest
@@ -8,33 +9,51 @@ from tests.lib.publisher_test_support import KEY, ROOT, PublisherTestCase
 
 
 class SetupTests(PublisherTestCase):
-    def test_env_updates_preserve_unrelated_settings(self):
+    def setUp(self):
+        super().setUp()
         sudo = self.base / "bin/sudo"
         sudo.write_text('''#!/bin/bash
 set -Eeuo pipefail
-if [[ "$1" == "-u" ]]; then
-    shift 2
-fi
 case "$1" in
-    install|gpg) exec "$@" ;;
+    install) exec "$@" ;;
     *) exit 1 ;;
 esac
 ''')
         sudo.chmod(0o755)
 
-        gpg = self.base / "bin/gpg"
-        gpg.write_text(f'''#!/bin/bash
-set -Eeuo pipefail
-FINGERPRINT={KEY}
-if [[ " $* " == *"/rebuild-gnupg "* ]]; then FINGERPRINT={'B'*40}; fi
-if [[ " $* " == *" --list-secret-keys "* ]]; then
-    printf 'sec:-:\\nfpr:::::::::%s:\\n' "$FINGERPRINT"
-else
-    printf 'Test public key\\n'
-fi
-''')
-        gpg.chmod(0o755)
+        # Any accidental host GPG invocation must fail, including key listing.
+        (self.base / "bin/gpg").write_text("#!/bin/bash\nexit 99\n")
+        docker = self.base / "bin/docker"
+        docker.write_text('''#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+import sys
 
+args = sys.argv[1:]
+with open(os.environ["TEST_DOCKER_LOG"], "a") as log:
+    log.write(json.dumps(args) + "\\n")
+if os.environ.get("TEST_DOCKER_FAIL"):
+    sys.exit("Fixture Docker failure")
+if args[0] == "build":
+    sys.exit(0)
+assert args[0] == "run"
+mount = args[args.index("--mount") + 1]
+fingerprint = "B" * 40 if "/rebuild-gnupg," in mount else "A" * 40
+if "--list-secret-keys" in args:
+    marker = Path(os.environ["TEST_DOCKER_LOG"] + fingerprint)
+    if not os.environ.get("TEST_GENERATE_KEYS") or marker.exists():
+        print("sec:-:\\nfpr:::::::::" + fingerprint + ":")
+elif "--quick-generate-key" in args:
+    Path(os.environ["TEST_DOCKER_LOG"] + fingerprint).touch()
+else:
+    assert "--export" in args
+    print("Test public key")
+''')
+        docker.chmod(0o755)
+        self.env["TEST_DOCKER_LOG"] = str(self.base / "docker.jsonl")
+
+    def write_settings(self):
         user = subprocess.check_output(["id", "-un"], text=True).strip()
         settings = (
             "# Settings\nCODEX_UID=42\nPACKAGES=codex\n"
@@ -48,6 +67,10 @@ fi
         )
         path = self.base / ".env"
         path.write_text(settings + "REPO_UID=old\nexport REPO_GID=old\nGPG_KEY=old\n")
+        return path, settings
+
+    def test_env_updates_preserve_unrelated_settings(self):
+        path, settings = self.write_settings()
         environment = {**self.env, "FRAMEWORK_DIR": str(self.base)}
         command = ["bash", str(ROOT / "codex-repo-setup.sh")]
         automatic_environment = dict(environment)
@@ -63,6 +86,48 @@ fi
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
         self.assertEqual((self.base / "repack-pubkey.asc").read_text(), "Test public key\n")
         self.assertEqual(list(self.base.glob(".env-*")), [])
+
+        calls = [json.loads(line) for line in
+                 (self.base / "docker.jsonl").read_text().splitlines()]
+        runs = [args for args in calls if args[0] == "run"]
+        self.assertEqual(len(runs), 12)
+        for args in runs:
+            self.assertIn("--rm", args)
+            self.assertIn("--init", args)
+            self.assertEqual(args[args.index("--user") + 1],
+                             f"{os.getuid()}:{os.getgid()}")
+            self.assertEqual(args[args.index("--tmpfs") + 1],
+                             f"/run/user/{os.getuid()}:rw,noexec,nosuid,nodev,"
+                             f"mode=0700,uid={os.getuid()},gid={os.getgid()}")
+            self.assertIn("dst=/gnupg", args[args.index("--mount") + 1])
+
+    def test_missing_keys_are_generated_inside_containers(self):
+        self.write_settings()
+        subprocess.run(
+            ["bash", str(ROOT / "codex-repo-setup.sh")],
+            env={**self.env, "FRAMEWORK_DIR": str(self.base),
+                 "TEST_GENERATE_KEYS": "1"},
+            check=True, capture_output=True,
+        )
+        calls = [json.loads(line) for line in
+                 (self.base / "docker.jsonl").read_text().splitlines()]
+        generations = [args for args in calls if "--quick-generate-key" in args]
+        self.assertEqual(len(generations), 2)
+        self.assertTrue((self.base / "repack-pubkey.asc").is_file())
+        self.assertTrue((self.base / "rebuild-pubkey.asc").is_file())
+
+    def test_docker_failure_preserves_configuration(self):
+        path, _ = self.write_settings()
+        original = path.read_bytes()
+        result = subprocess.run(
+            ["bash", str(ROOT / "codex-repo-setup.sh")],
+            env={**self.env, "FRAMEWORK_DIR": str(self.base),
+                 "TEST_DOCKER_FAIL": "1"},
+            capture_output=True, text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Fixture Docker failure", result.stderr)
+        self.assertEqual(path.read_bytes(), original)
 
     def test_same_output_directories_fail_before_setup(self):
         settings = (

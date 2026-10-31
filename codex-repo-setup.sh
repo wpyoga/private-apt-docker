@@ -31,6 +31,9 @@ if [[ "$(realpath -m -- "$REPACK_REPO_DIR")" == "$(realpath -m -- "$REBUILD_REPO
     exit 1
 fi
 
+# Build without Compose: setup has not written the UID/GID or key fingerprints yet.
+docker build --tag private-apt-publisher:local "$FRAMEWORK_DIR"
+
 if ! id "$REPO_USER" >/dev/null 2>&1; then
     sudo useradd --system --no-create-home --shell /usr/sbin/nologin "$REPO_USER"
 fi
@@ -38,15 +41,35 @@ fi
 REPO_UID=$(id -u "$REPO_USER")
 REPO_GID=$(id -g "$REPO_USER")
 sudo install -d -o "$REPO_UID" -g "$REPO_GID" -m 755 "$REPACK_REPO_DIR" "$REBUILD_REPO_DIR"
+
+run_signing_gpg() {
+    local SIGNING_DIR="$1"
+    shift
+
+    # GPG and its agent run only inside this temporary container. Docker stops
+    # the agent when the command exits; its sockets never reach host storage.
+    docker run --rm --init --network none \
+        --user "$REPO_UID:$REPO_GID" \
+        --cap-drop ALL --security-opt no-new-privileges:true \
+        --mount "type=bind,src=$SIGNING_DIR,dst=/gnupg" \
+        --tmpfs "/run/user/$REPO_UID:rw,noexec,nosuid,nodev,mode=0700,uid=$REPO_UID,gid=$REPO_GID" \
+        --entrypoint /bin/bash private-apt-publisher:local -c '
+            set -Eeuo pipefail
+            source "$FRAMEWORK_DIR/lib/gnupg.sh"
+            prepare_gnupg_socket_directory
+            exec gpg "$@"
+        ' bash "$@"
+}
+
 prepare_signing_key() {
     local REPOSITORY="$1" SIGNING_DIR="$2" SELECTED_KEY="$3"
     local KEYS
     local -a FINGERPRINTS
 
     sudo install -d -o "$REPO_UID" -g "$REPO_GID" -m 700 "$SIGNING_DIR"
-    KEYS=$(sudo -u "$REPO_USER" gpg --batch --homedir "$SIGNING_DIR" --list-secret-keys --with-colons)
+    KEYS=$(run_signing_gpg "$SIGNING_DIR" --batch --list-secret-keys --with-colons)
     if ! awk -F: '$1 == "sec" { FOUND = 1 } END { exit !FOUND }' <<< "$KEYS"; then
-        sudo -u "$REPO_USER" gpg --batch --homedir "$SIGNING_DIR" \
+        run_signing_gpg "$SIGNING_DIR" --batch \
             --pinentry-mode loopback --passphrase "" \
             --quick-generate-key "$GPG_KEY_NAME ($REPOSITORY)" "$GPG_KEY_TYPE" sign "$GPG_KEY_VALIDITY"
     fi
@@ -54,7 +77,7 @@ prepare_signing_key() {
     if [[ -n "$SELECTED_KEY" ]]; then
         SELECTION=("$SELECTED_KEY")
     fi
-    KEYS=$(sudo -u "$REPO_USER" gpg --batch --homedir "$SIGNING_DIR" \
+    KEYS=$(run_signing_gpg "$SIGNING_DIR" --batch \
         --list-secret-keys --with-colons "${SELECTION[@]}")
     mapfile -t FINGERPRINTS < <(awk -F: '
         $1 == "sec" { IS_PRIMARY = 1; next }
@@ -65,7 +88,7 @@ prepare_signing_key() {
         return 1
     fi
     FINGERPRINT=${FINGERPRINTS[0]}
-    sudo -u "$REPO_USER" gpg --batch --homedir "$SIGNING_DIR" \
+    run_signing_gpg "$SIGNING_DIR" --batch \
         --armor --export "$FINGERPRINT" > "$REPOSITORY-pubkey.asc"
     chmod 644 "$REPOSITORY-pubkey.asc"
     printf '%s signing-key fingerprint: %s\n' "$REPOSITORY" "$FINGERPRINT"

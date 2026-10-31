@@ -24,6 +24,11 @@ if (( CHECK_INTERVAL < 3600 )); then
     exit 1
 fi
 
+# shellcheck source=lib/gnupg.sh
+source "$FRAMEWORK_DIR/lib/gnupg.sh"
+prepare_gnupg_socket_directory
+gpgconf --launch gpg-agent
+
 while :; do
     if bash "$FRAMEWORK_DIR/update.sh"; then
         echo 'Update cycle complete'
