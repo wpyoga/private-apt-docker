@@ -292,6 +292,26 @@ The framework logs the failed stream, version, and architecture. Existing packag
 remain available and other streams continue processing. Logs are the maintainer
 notification mechanism for now; no email or external alerts are sent.
 
+When an update cycle fails, its temporary workspace is retained and the log prints
+`Failed update workspace retained: PATH`. Inspect `PATH/streams/STREAM/` for
+downloads, extracted sources, staging files, and outputs. Only the latest failed
+cycle is kept per user, repository, adapter directory, and architecture selection;
+a new failure replaces the previous workspace. Successful cycles delete their
+own workspace and leave the latest failure available for debugging. This cleanup
+never removes stored repository packages or signing keys.
+
+Workspaces use the system temporary directory (`TMPDIR` when set). With Docker,
+the printed path is inside the affected container. Copy it out before recreating
+the container or before another failed cycle replaces it, for example:
+
+```sh
+mkdir -p build/debug
+docker compose cp rebuild-amd64:/tmp/apt-publisher-EXAMPLE build/debug/
+```
+
+Replace the service and example path with those from the failed update. Retention
+does not save a separate console log; build stdout/stderr remains in Docker logs.
+
 File-type and link restrictions are adapter-specific packaging policy. Codex
 rejects special files and links outside its extraction directory because its
 expected bundle does not need them, and later build steps read or modify files.

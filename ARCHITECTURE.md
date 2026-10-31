@@ -295,6 +295,15 @@ automatic cleanup policy. Neither removing an adapter nor a missing upstream
 release deletes its published packages. Serve only the repository directory,
 never the keyring. The publisher itself runs no HTTP server.
 
+Successful cycles remove their temporary workspace. Failed cycles retain theirs
+and log its path, including when querying, building, or publication fails. While
+holding the repository lock, a new failure removes the previous failed workspace
+for the same user, repository path, adapter root, and architecture selection.
+This bounds temporary failure evidence to one cycle per builder without deleting
+stored packages. A successful retry leaves that evidence available. Temporary
+workspaces live in the system temporary directory and do not survive container
+replacement unless copied out; they are separate from served repository data.
+
 Optional per-stream `stale-after-days` sets a positive inactivity threshold.
 Query supplies a timezone-aware timestamp in `WORKSPACE/release-date`. Old
 releases produce a warning every cycle; missing or invalid monitoring data also

@@ -48,6 +48,7 @@ class PublisherTestCase(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="test-", dir=ROOT / "build")
         self.addCleanup(self.temporary.cleanup)
         self.base = Path(self.temporary.name)
+        self.failed_workspace = None
         for directory in ("bin", "adapters", "downloads", "tmp"):
             (self.base / directory).mkdir()
         for command in ("gpg", "curl"):
@@ -119,7 +120,12 @@ class PublisherTestCase(unittest.TestCase):
             ["bash", str(self.publisher / "update.sh")], env=self.env, text=True, capture_output=True
         )
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
-        self.assertEqual(list((self.base / "tmp").iterdir()), [], "Workspace leaked")
+        for line in result.stderr.splitlines():
+            if line.startswith("Failed update workspace retained: "):
+                self.failed_workspace = Path(line.removeprefix("Failed update workspace retained: "))
+        expected_workspaces = [] if self.failed_workspace is None else [self.failed_workspace]
+        self.assertEqual(list((self.base / "tmp").iterdir()), expected_workspaces,
+                         "Unexpected temporary workspaces")
         return result
 
     def artifacts(self, stream=None):

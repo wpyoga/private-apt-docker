@@ -244,6 +244,43 @@ class PublisherTests(PublisherTestCase):
         self.run_update(expected=1)
         self.assertEqual(self.artifacts(), [])
 
+    def test_only_latest_failed_workspace_is_retained_after_successful_retry(self):
+        directory = self.adapter(build='printf "failure evidence\\n" > "$WORKSPACE/build.log"\nexit 7\n')
+        self.adapter("second")
+        self.run_update(expected=1)
+        previous = self.failed_workspace
+        self.assertEqual((previous / "streams/first/build.log").read_text(), "failure evidence\n")
+        self.assertTrue((previous / "streams/first/targets.tsv").is_file())
+        self.assertEqual(len(self.artifacts("second")), 2)
+
+        self.run_update(expected=1)
+        latest = self.failed_workspace
+        self.assertNotEqual(previous, latest)
+        self.assertFalse(previous.exists())
+        self.assertTrue((latest / "streams/first/build.log").is_file())
+
+        (directory / "build").write_text((ROOT / "tests/fixtures/stream/build").read_text())
+        self.run_update()
+        self.assertTrue(latest.is_dir())
+        self.assertEqual(len(self.artifacts()), 4)
+
+    def test_failed_workspaces_for_other_architectures_are_preserved(self):
+        self.adapter(build='exit 7\n')
+        self.env["ARCHES"] = "amd64"
+        self.run_update(expected=1)
+        amd64_workspace = self.failed_workspace
+
+        environment = {**self.env, "ARCHES": "arm64"}
+        for attempt in range(2):
+            result = subprocess.run(
+                ["bash", str(self.publisher / "update.sh")],
+                env=environment, text=True, capture_output=True,
+            )
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("Failed update workspace retained: ", result.stderr)
+            self.assertTrue(amd64_workspace.is_dir())
+            self.assertEqual(len(list((self.base / "tmp").iterdir())), 2)
+
     def test_incorrect_package_or_checksum_metadata_is_rejected(self):
         directory = self.adapter()
         path = directory / "build"
@@ -434,6 +471,7 @@ class PublisherTests(PublisherTestCase):
         self.env["TEST_VERSION"] = "1.2.4"
         self.env["TEST_FAIL_SIGN"] = "1"
         self.run_update(expected=1)
+        self.assertTrue((self.failed_workspace / "publication").is_dir())
         after = {}
         for path in distribution.rglob("*"):
             if path.is_file():

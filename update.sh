@@ -18,8 +18,36 @@ flock 9
 gpg --batch --list-secret-keys "$GPG_KEY" >/dev/null
 mkdir -p "$REPO_DIR/pool"
 
-WORK_DIR=$(mktemp -d)
-trap 'rm -rf -- "$WORK_DIR"' EXIT
+# Separate repositories and architecture builders can share a temporary directory.
+WORKSPACE_ID=$(
+    printf '%s\0' "$UID" "$REPO_DIR" "$PACKAGES_DIR" "$ARCHES" \
+        | sha256sum | cut -d ' ' -f 1
+)
+WORK_DIR=$(mktemp -d -t "apt-publisher-$WORKSPACE_ID-XXXXXX")
+
+cleanup_workspace() {
+    local EXIT_STATUS=$?
+    local PREVIOUS_WORK_DIR
+
+    if (( EXIT_STATUS == 0 )); then
+        rm -rf -- "$WORK_DIR"
+    else
+        # The repository lock is still held, so another cycle cannot be using
+        # a workspace with this identity. Keep only the newest failed cycle.
+        for PREVIOUS_WORK_DIR in "${WORK_DIR%/*}/apt-publisher-$WORKSPACE_ID-"*; do
+            if [[ "$PREVIOUS_WORK_DIR" != "$WORK_DIR" \
+                && -d "$PREVIOUS_WORK_DIR" && ! -L "$PREVIOUS_WORK_DIR" \
+                && -O "$PREVIOUS_WORK_DIR" ]]; then
+                rm -rf -- "$PREVIOUS_WORK_DIR"
+            fi
+        done
+        echo "Failed update workspace retained: $WORK_DIR" >&2
+    fi
+
+    return "$EXIT_STATUS"
+}
+
+trap cleanup_workspace EXIT
 STATUS=0
 
 declare -A SEEN_STREAMS=()
