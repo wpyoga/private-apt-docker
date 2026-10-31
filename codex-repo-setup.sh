@@ -2,8 +2,8 @@
 set -Eeuo pipefail
 umask 077
 
-: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must point to the framework root}"
-export FRAMEWORK_DIR
+# Host entry points run from the project root; hooks receive this context.
+export FRAMEWORK_DIR="${FRAMEWORK_DIR:-$PWD}"
 cd "$FRAMEWORK_DIR"
 
 # Setup reads the one operator-owned config file; missing files are an error.

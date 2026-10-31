@@ -9,7 +9,7 @@ from tests.lib.publisher_test_support import KEY, ROOT, PublisherTestCase, field
 
 
 class PublisherTests(PublisherTestCase):
-    def test_entry_points_require_nonempty_framework_directory(self):
+    def test_entry_points_supply_framework_directory_from_working_directory(self):
         scripts = ("entrypoint.sh", "update.sh")
         for script in scripts:
             for value in (None, ""):
@@ -18,15 +18,21 @@ class PublisherTests(PublisherTestCase):
                     environment.pop("FRAMEWORK_DIR", None)
                     if value is not None:
                         environment["FRAMEWORK_DIR"] = value
+                    environment["CHECK_INTERVAL"] = "0"
                     result = subprocess.run(
                         ["bash", str(ROOT / script)],
                         env=environment,
+                        cwd=self.publisher,
                         text=True,
                         capture_output=True,
                         timeout=3,
                     )
-                    self.assertNotEqual(result.returncode, 0)
-                    self.assertIn("FRAMEWORK_DIR must", result.stderr)
+                    self.assertNotIn("FRAMEWORK_DIR must", result.stderr)
+                    if script == "entrypoint.sh":
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("CHECK_INTERVAL", result.stderr)
+                    else:
+                        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_shell_test_entry_points_reject_wrong_working_directory(self):
         environment = dict(self.env)

@@ -50,7 +50,10 @@ fi
         path.write_text(settings + "REPO_UID=old\nexport REPO_GID=old\nGPG_KEY=old\n")
         environment = {**self.env, "FRAMEWORK_DIR": str(self.base)}
         command = ["bash", str(ROOT / "codex-repo-setup.sh")]
-        subprocess.run(command, env=environment, check=True, capture_output=True)
+        automatic_environment = dict(environment)
+        automatic_environment.pop("FRAMEWORK_DIR", None)
+        subprocess.run(command, env=automatic_environment, cwd=self.base,
+                       check=True, capture_output=True)
         subprocess.run(command, env=environment, check=True, capture_output=True)
 
         expected = settings + (
