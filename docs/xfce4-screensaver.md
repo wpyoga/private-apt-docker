@@ -20,6 +20,13 @@ appears. For arm64 it marks the existing `xfce4-dev-tools` dependency `:native`
 because this tool runs on the amd64 builder. Missing dependencies or changed
 source layouts fail the stream while keeping previously published packages.
 
+The adapter also corrects upstream's D-Bus service directory lookup to use
+`$PKG_CONFIG` instead of plain `pkg-config` before regenerating configure.
+Cross-builds must query the target's D-Bus metadata; the builder may lack its own
+development metadata. An empty lookup otherwise omits the service from its
+expected installation directory. The adapter checks the expected source line
+before changing it and retains the final required-service-file check.
+
 Both existing rebuild toolchain images include the screensaver dependencies.
 After adding your patch and series entry, rebuild and recreate the services:
 

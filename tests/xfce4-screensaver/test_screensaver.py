@@ -34,7 +34,8 @@ class SourceTests(PublisherTestCase):
         with self.assertRaisesRegex(ValueError, "source Version"):
             METADATA.prepare_targets(self.base, ["amd64"])
 
-    def run_build(self, architecture="amd64", rules=None, missing_path="", patch_series=None):
+    def run_build(self, architecture="amd64", rules=None, missing_path="",
+                  patch_series=None, dbus_lookup=None):
         workspace = self.base / "workspace"
         workspace.mkdir()
         (workspace / "source-version").write_text("4.18.4-1\n")
@@ -45,20 +46,34 @@ class SourceTests(PublisherTestCase):
         if rules is None:
             rules = (ROOT / "tests/xfce4-screensaver/fixtures/rules").read_text()
         rules_path.write_text(rules)
+        lookup_path = self.base / "dbus-lookup.ac"
+        if dbus_lookup is None:
+            dbus_lookup = (ROOT / "tests/xfce4-screensaver/fixtures/dbus-lookup.ac").read_text()
+        lookup_path.write_text(dbus_lookup)
         for name, body in {
             "dpkg-source": '''
 mkdir -p "$3/debian"
 cp "$TEST_RULES" "$3/debian/rules"
+cp "$TEST_DBUS_LOOKUP" "$3/configure.ac"
 printf 'Build-Depends: debhelper-compat (= 13),\n               xfce4-dev-tools\n' > "$3/debian/control"
 ''',
             "quilt": 'printf "%s\\n" "$*" >> "$WORKSPACE/quilt-commands"',
             "dch": ':',
-            "dh_auto_configure": 'printf "%s\\n" "$@" > "$WORKSPACE/configure-arguments"',
+            "pkg-config": 'exit 1',
+            "target-pkg-config": 'printf "/usr/share/dbus-1/services\\n"',
+            "dh_auto_configure": '''
+printf "%s\\n" "$@" > "$WORKSPACE/configure-arguments"
+source configure.ac
+# Expand the datarootdir reference just as make does during installation.
+printf "%s\\n" "$DBUS_SESSION_SERVICE_DIR" | sed 's|${datarootdir}|/usr/share|g' > "$WORKSPACE/dbus-service-directory"
+''',
             "dpkg-buildpackage": '''
 if [[ "$XFCE_BUILD_ARCH" == arm64 ]]; then
     grep -Fq 'xfce4-dev-tools:native' debian/control
     [[ "$CC" == aarch64-linux-gnu-gcc ]]
 fi
+# Model debhelper selecting the target's pkg-config during a cross-build.
+export PKG_CONFIG=target-pkg-config
 make -f debian/rules override_dh_auto_configure
 mkdir -p "$WORKSPACE/upstream/DEBIAN" "$WORKSPACE/upstream/usr/bin"
 printf 'Package: xfce4-screensaver\nVersion: 4.18.4-1+local-1\nArchitecture: %s\nMaintainer: Test <test@localhost>\nDescription: fixture screensaver\nInstalled-Size: 999999\n' "$XFCE_BUILD_ARCH" > "$WORKSPACE/upstream/DEBIAN/control"
@@ -66,10 +81,15 @@ printf '#!/bin/sh\nexit 0\n' > "$WORKSPACE/upstream/usr/bin/xfce4-screensaver"
 chmod 755 "$WORKSPACE/upstream/usr/bin/xfce4-screensaver"
 mkdir -p "$WORKSPACE/upstream/usr/share/applications"
 printf '[Desktop Entry]\nType=Application\nName=Screensaver\nExec=xfce4-screensaver\n' > "$WORKSPACE/upstream/usr/share/applications/xfce4-screensaver-preferences.desktop"
-for FILE in usr/bin/xfce4-screensaver-command usr/bin/xfce4-screensaver-preferences usr/libexec/xfce4-screensaver-dialog usr/share/dbus-1/services/org.xfce.ScreenSaver.service etc/pam.d/xfce4-screensaver etc/xdg/autostart/xfce4-screensaver.desktop; do
+for FILE in usr/bin/xfce4-screensaver-command usr/bin/xfce4-screensaver-preferences usr/libexec/xfce4-screensaver-dialog etc/pam.d/xfce4-screensaver etc/xdg/autostart/xfce4-screensaver.desktop; do
     mkdir -p "$WORKSPACE/upstream/$(dirname "$FILE")"
     printf 'fixture\n' > "$WORKSPACE/upstream/$FILE"
 done
+SERVICE_DIR=$(cat "$WORKSPACE/dbus-service-directory")
+if [[ -n "$SERVICE_DIR" ]]; then
+    mkdir -p "$WORKSPACE/upstream$SERVICE_DIR"
+    printf '[D-BUS Service]\nName=org.xfce.ScreenSaver\nExec=/usr/bin/xfce4-screensaver\n' > "$WORKSPACE/upstream$SERVICE_DIR/org.xfce.ScreenSaver.service"
+fi
 if [[ -n "${TEST_MISSING_PATH:-}" ]]; then
     rm "$WORKSPACE/upstream/$TEST_MISSING_PATH"
 fi
@@ -87,7 +107,8 @@ dpkg-deb --build --root-owner-group "$WORKSPACE/upstream" "$WORKSPACE/xfce4-scre
         environment = {**self.env, "FRAMEWORK_DIR": str(ROOT),
                        "ADAPTER_DIR": str(adapter),
                        "WORKSPACE": str(workspace), "XFCE_BUILD_ARCH": architecture,
-                       "TEST_RULES": str(rules_path), "TEST_MISSING_PATH": missing_path,
+                       "TEST_RULES": str(rules_path), "TEST_DBUS_LOOKUP": str(lookup_path),
+                       "TEST_MISSING_PATH": missing_path,
                        "PUBLISHER_STREAM": "xfce4-screensaver",
                        "BUILD_INPUTS_SHA256": "a" * 64}
         result = subprocess.run([str(ROOT / "packages/rebuild/xfce4-screensaver/build"),
@@ -167,3 +188,27 @@ fi
         self.assertEqual(len(commands), 2)
         self.assertTrue(commands[0].endswith(" update"))
         self.assertTrue(commands[1].endswith(" source --download-only xfce4-screensaver"))
+
+    def test_arm64_installs_dbus_service_without_native_pkg_config_metadata(self):
+        result, workspace, output = self.run_build(architecture="arm64")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((workspace / "dbus-service-directory").read_text(),
+                         "/usr/share/dbus-1/services\n")
+        package = next(output.glob("*.deb"))
+        listing = subprocess.check_output(["dpkg-deb", "--contents", str(package)], text=True)
+        self.assertIn("./usr/share/dbus-1/services/org.xfce.ScreenSaver.service", listing)
+
+    def test_changed_dbus_lookup_fails_before_building(self):
+        result, workspace, output = self.run_build(dbus_lookup="DBUS_SESSION_SERVICE_DIR=changed\n")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unexpected D-Bus service directory lookup in configure.ac", result.stderr)
+        self.assertFalse((workspace / "configure-arguments").exists())
+        self.assertEqual(list(output.iterdir()), [])
+
+    def test_missing_dbus_service_still_fails(self):
+        result, workspace, output = self.run_build(
+            architecture="arm64",
+            missing_path="usr/share/dbus-1/services/org.xfce.ScreenSaver.service")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing usr/share/dbus-1/services/org.xfce.ScreenSaver.service", result.stderr)
+        self.assertEqual(list(output.iterdir()), [])

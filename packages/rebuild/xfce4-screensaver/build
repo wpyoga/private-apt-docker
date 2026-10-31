@@ -38,6 +38,16 @@ while IFS= read -r PATCH || [[ -n "$PATCH" ]]; do
     quilt push --fuzz=0
 done < "$ADAPTER_DIR/patches/series"
 
+# The unprefixed tool searches the builder's metadata during cross-compilation.
+# Maintainer mode regenerates configure from this corrected source.
+DBUS_LOOKUP='DBUS_SESSION_SERVICE_DIR=`pkg-config --variable session_bus_services_dir dbus-1'
+if ! grep -Fq "$DBUS_LOOKUP" configure.ac; then
+    echo "xfce4-screensaver $SOURCE_VERSION: unexpected D-Bus service directory lookup in configure.ac" >&2
+    exit 1
+fi
+sed -i \
+    's/`pkg-config --variable session_bus_services_dir dbus-1/`$PKG_CONFIG --variable session_bus_services_dir dbus-1/' configure.ac
+
 # Regenerate build files after local patches, retaining Debian's other rules.
 if grep -Fq 'dh_auto_configure' debian/rules; then
     echo "xfce4-screensaver $SOURCE_VERSION: unexpected dh_auto_configure command in debian/rules" >&2
