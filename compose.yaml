@@ -1,10 +1,12 @@
 services:
-  codex-repo-updater:
+  codex-repo-updater: &publisher
     build: .
+    image: private-apt-publisher:local
     restart: unless-stopped
     init: true
     user: "${REPO_UID:?Set REPO_UID in .env}:${REPO_GID:?Set REPO_GID in .env}"
-    environment:
+    environment: &shared-environment
+      PACKAGES_DIR: /opt/apt-publisher/packages/repack
       GPG_KEY: ${GPG_KEY:?Set GPG_KEY in .env}
       MAINTAINER: ${MAINTAINER:?Set MAINTAINER in .env}
       REPO_NAME: ${REPO_NAME:?Set REPO_NAME in .env}
@@ -14,7 +16,7 @@ services:
       ARCHES: ${ARCHES:?Set ARCHES in .env}
       CODENAME: ${CODENAME:?Set CODENAME in .env}
     volumes:
-      - ${REPO_DATA_DIR:?Set REPO_DATA_DIR in .env}/repo:/repo
+      - ${REPACK_REPO_DIR:?Set REPACK_REPO_DIR in .env}:/repo
       - ${REPO_DATA_DIR:?Set REPO_DATA_DIR in .env}/gnupg:/gnupg
     security_opt:
       - no-new-privileges:true
@@ -27,3 +29,40 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  rebuild-amd64: &rebuild
+    <<: *publisher
+    image: private-apt-rebuild-amd64:local
+    build:
+      context: .
+      dockerfile: packages/rebuild/xfce4-terminal/Dockerfile
+      additional_contexts:
+        publisher: service:codex-repo-updater
+      args:
+        TARGET_ARCH: amd64
+    environment:
+      <<: *shared-environment
+      PACKAGES_DIR: /opt/apt-publisher/packages/rebuild
+      REPO_NAME: rebuild
+      ARCHES: amd64
+    volumes:
+      - ${REBUILD_REPO_DIR:?Set REBUILD_REPO_DIR in .env}:/repo
+      - ${REPO_DATA_DIR:?Set REPO_DATA_DIR in .env}/gnupg:/gnupg
+    mem_limit: 2g
+    pids_limit: 512
+
+  rebuild-arm64:
+    <<: *rebuild
+    image: private-apt-rebuild-arm64:local
+    build:
+      context: .
+      dockerfile: packages/rebuild/xfce4-terminal/Dockerfile
+      additional_contexts:
+        publisher: service:codex-repo-updater
+      args:
+        TARGET_ARCH: arm64
+    environment:
+      <<: *shared-environment
+      PACKAGES_DIR: /opt/apt-publisher/packages/rebuild
+      REPO_NAME: rebuild
+      ARCHES: arm64

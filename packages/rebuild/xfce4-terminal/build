@@ -1,0 +1,62 @@
+#!/bin/bash
+set -Eeuo pipefail
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set}"
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set}"
+: "${WORKSPACE:?WORKSPACE must be set}"
+source "$FRAMEWORK_DIR/lib/adapter/package.sh"
+VERSION="$1"
+ARCHITECTURE="$2"
+OUTPUT_DIR="$3"
+: "${XFCE_BUILD_ARCH:?Use the xfce4-terminal toolchain image}"
+if [[ "$ARCHITECTURE" != "$XFCE_BUILD_ARCH" ]]; then
+    echo "xfce4-terminal: requested $ARCHITECTURE but toolchain targets $XFCE_BUILD_ARCH" >&2
+    exit 1
+fi
+SOURCE_VERSION=$(cat "$WORKSPACE/source-version")
+DESCRIPTOR=$(cat "$WORKSPACE/source-descriptor")
+SOURCE_DIR="$WORKSPACE/build-$ARCHITECTURE"
+trap 'echo "ERROR: [xfce4-terminal] $VERSION ($ARCHITECTURE) failed at line $LINENO; previous published packages remain available" >&2' ERR
+[[ "${VERSION%-*}" == "$SOURCE_VERSION+local" ]]
+case "$ARCHITECTURE" in amd64|arm64) ;; *) exit 1 ;; esac
+dpkg-source -x "$DESCRIPTOR" "$SOURCE_DIR"
+cd "$SOURCE_DIR"
+export QUILT_PATCHES=debian/patches
+while IFS= read -r PATCH || [[ -n "$PATCH" ]]; do
+    [[ -z "$PATCH" || "$PATCH" == \#* ]] && continue
+    if [[ "$PATCH" == /* || "$PATCH" == *..* || ! -f "$ADAPTER_DIR/patches/$PATCH" ]]; then
+        echo "Invalid local patch: $PATCH" >&2
+        exit 1
+    fi
+    quilt import "$ADAPTER_DIR/patches/$PATCH"
+    quilt push --fuzz=0
+done < "$ADAPTER_DIR/patches/series"
+if [[ "$ARCHITECTURE" == arm64 ]]; then
+    # This tool runs on the builder, rather than on the target architecture.
+    if ! grep -Fq 'xfce4-dev-tools (>= 4.18.1)' debian/control; then
+        echo "xfce4-terminal $SOURCE_VERSION: unexpected xfce4-dev-tools build dependency" >&2
+        exit 1
+    fi
+    sed -i 's/xfce4-dev-tools (>= 4.18.1)/xfce4-dev-tools:native (>= 4.18.1)/' debian/control
+    export CC=aarch64-linux-gnu-gcc
+fi
+export DEBEMAIL="$MAINTAINER"
+dch --newversion "$VERSION" --distribution trixie "Apply local patch series."
+export DEB_BUILD_OPTIONS="nocheck parallel=2 noautodbgsym"
+export DEB_BUILD_PROFILES="cross nocheck"
+dpkg-buildpackage --build=binary --host-arch "$ARCHITECTURE" -us -uc
+BUILT_PACKAGE="$WORKSPACE/xfce4-terminal_${VERSION#*:}_${ARCHITECTURE}.deb"
+check_deb_field "$BUILT_PACKAGE" Package xfce4-terminal
+check_deb_field "$BUILT_PACKAGE" Version "$VERSION"
+check_deb_field "$BUILT_PACKAGE" Architecture "$ARCHITECTURE"
+PACKAGE_DIR="$WORKSPACE/staged-$ARCHITECTURE"
+dpkg-deb --raw-extract "$BUILT_PACKAGE" "$PACKAGE_DIR"
+for REQUIRED_PATH in usr/bin/xfce4-terminal usr/share/applications/xfce4-terminal.desktop; do
+    if [[ ! -f "$PACKAGE_DIR/$REQUIRED_PATH" ]]; then
+        echo "xfce4-terminal $VERSION ($ARCHITECTURE): missing $REQUIRED_PATH" >&2
+        exit 1
+    fi
+done
+INSTALLED_SIZE=$(installed_size "$PACKAGE_DIR")
+python3 "$FRAMEWORK_DIR/lib/adapter/rewrite-control.py" \
+    "$PACKAGE_DIR/DEBIAN/control" "$VERSION" "$INSTALLED_SIZE"
+build_deb "$PACKAGE_DIR" "$OUTPUT_DIR/xfce4-terminal_${VERSION}_${ARCHITECTURE}.deb"

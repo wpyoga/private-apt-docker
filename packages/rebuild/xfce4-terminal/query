@@ -1,0 +1,16 @@
+#!/bin/bash
+set -Eeuo pipefail
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set}"
+: "${WORKSPACE:?WORKSPACE must be set}"
+: "${ARCHES:?ARCHES must be set}"
+mkdir -p "$WORKSPACE/apt/lists/partial" "$WORKSPACE/source"
+APT_OPTIONS=(
+    -o "Dir::State::lists=$WORKSPACE/apt/lists"
+    -o "Dir::Etc::sourcelist=$ADAPTER_DIR/sources.list"
+    -o "Dir::Etc::sourceparts=-"
+    -o "APT::Get::List-Cleanup=0"
+)
+apt-get "${APT_OPTIONS[@]}" update >&2
+cd "$WORKSPACE/source"
+apt-get "${APT_OPTIONS[@]}" source --download-only xfce4-terminal >&2
+python3 "$ADAPTER_DIR/source-metadata.py"

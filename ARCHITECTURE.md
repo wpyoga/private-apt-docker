@@ -378,3 +378,31 @@ output filename and preserves the publisher's gzip and root ownership options.
 Selection prints one validated asset, prints nothing for a missing asset, and
 fails for duplicates or invalid digests/URLs. Adapters decide how missing assets
 map to targets and retain their own version and architecture rules.
+
+## Repository groups and deployment
+
+Adapters live under `packages/repack/` and `packages/rebuild/`. Their parent
+selects repository membership; config files do not contain a repository key.
+One checkout, `.env`, and Compose project run three services: the existing
+`codex-repo-updater` for repacks, plus `rebuild-amd64` and `rebuild-arm64`.
+Both rebuild services share one output and signing identity; the existing lock
+serializes their cycles. Each builds one architecture and indexes both.
+
+Set `REPACK_REPO_DIR` and `REBUILD_REPO_DIR` to distinct absolute output
+directories. For an existing deployment, use its current `REPO_DATA_DIR/repo`
+as REPACK_REPO_DIR to preserve all packages and indexes. REPO_DATA_DIR continues
+to hold the shared gnupg directory. Setup prepares both output directories.
+The repack identity remains REPO_NAME; the rebuild Origin and Label are `rebuild`.
+Remove the obsolete REPOSITORY setting from .env. No data migration or cleanup
+is automatic. Serve the two outputs at separate web endpoints.
+
+Start all three services with `docker compose up -d --build`. Compose must
+support `build.additional_contexts` with service contexts. The rebuild Dockerfile
+uses the publisher service image as its base. Source builds currently require
+an amd64 server; rootless-daemon ownership mapping remains unverified.
+
+Grouping changes the shared Dockerfile, so current package targets receive a
+one-time recipe revision. Later xfce4-terminal patch edits remain local to its
+adapter. Existing stored artifacts are never deleted.
+
+See [xfce4-terminal deployment and patches](docs/xfce4-terminal.md).

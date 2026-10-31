@@ -31,7 +31,7 @@ DESKTOP = (
                      "Zed tests require patchelf and binutils")
 class ZedTests(PublisherTestCase):
     def fixture(self, *, missing_arm64=False, mutation=None, corrupt_digest=False):
-        shutil.copytree(ROOT / "packages/zed", self.base / "adapters/zed", dirs_exist_ok=True,
+        shutil.copytree(ROOT / "packages/repack/zed", self.base / "adapters/zed", dirs_exist_ok=True,
                         ignore=shutil.ignore_patterns("__pycache__"))
         assets = []
         for arch, target, machine in (("amd64", "x86_64", 62), ("arm64", "aarch64", 183)):
@@ -272,7 +272,7 @@ class ZedTests(PublisherTestCase):
                     member = tarfile.TarInfo(name)
                     member.size = 1
                     output.addfile(member, io.BytesIO(b"x"))
-                result = subprocess.run(["python3", str(ROOT / "packages/zed/inspect-bundle.py"),
+                result = subprocess.run(["python3", str(ROOT / "packages/repack/zed/inspect-bundle.py"),
                                          "archive", str(archive)], text=True, capture_output=True)
                 self.assertNotEqual(result.returncode, 0)
 

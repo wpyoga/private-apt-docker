@@ -21,7 +21,7 @@ if [[ "$TARGET" != all && "$TARGET" != clean && "$TARGET" != reinstall ]]; then
 fi
 DEB_DIR=${1:?Supply the directory containing the complete real amd64 GIMP adapter outputs}
 DEBS=("$DEB_DIR/"*.deb)
-EXPECTED_PACKAGES=$(sed -n 's/^BINARY_PACKAGES="\(.*\)"$/\1/p' packages/gimp-3.2/config)
+EXPECTED_PACKAGES=$(sed -n 's/^BINARY_PACKAGES="\(.*\)"$/\1/p' packages/repack/gimp-3.2/config)
 read -r -a PACKAGE_NAMES <<< "$EXPECTED_PACKAGES"
 if (( ${#DEBS[@]} != ${#PACKAGE_NAMES[@]} )); then
     echo "Expected ${#PACKAGE_NAMES[@]} GIMP family packages in $DEB_DIR" >&2

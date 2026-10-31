@@ -8,7 +8,7 @@ if [[ ! -f "$FRAMEWORK_DIR/ARCHITECTURE.md" ]]; then
     exit 1
 fi
 
-export ADAPTER_DIR="$FRAMEWORK_DIR/packages/laya"
+export ADAPTER_DIR="$FRAMEWORK_DIR/packages/repack/laya"
 export WORKSPACE="$FRAMEWORK_DIR/build/laya-verification"
 mkdir -p "$WORKSPACE/downloads" "$WORKSPACE/logs"
 LOG_DIR=$(mktemp -d "$WORKSPACE/logs/run-XXXXXX")
@@ -43,10 +43,10 @@ fi
 
 if [[ "$MODE" == verify || "$MODE" == all ]]; then
     timeout 10m bash tests/run.sh laya > "$LOG_DIR/offline.log" 2>&1
-    for SCRIPT in packages/laya/query packages/laya/build tests/laya/coordinate.sh; do
+    for SCRIPT in packages/repack/laya/query packages/repack/laya/build tests/laya/coordinate.sh; do
         timeout 2m bash -n "$SCRIPT"
     done > "$LOG_DIR/syntax.log" 2>&1
-    git diff --check -- packages/laya tests/laya docs/laya.md README.md ARCHITECTURE.md \
+    git diff --check -- packages/repack/laya tests/laya docs/laya.md README.md ARCHITECTURE.md \
         > "$LOG_DIR/diff.log" 2>&1
 
     export ARCHES='amd64 arm64'

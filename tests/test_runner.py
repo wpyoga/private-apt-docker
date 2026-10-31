@@ -35,6 +35,17 @@ class RunnerTests(PublisherTestCase):
                     self.assertEqual(suite.countTestCases(), expected)
                     suite.debug()
 
+    def test_grouped_adapter_discovery_selects_both_repositories(self):
+        root = self.discovery_fixture()
+        (root / "packages/repack").mkdir()
+        (root / "packages/rebuild").mkdir()
+        (root / "packages/codex").rename(root / "packages/repack/codex")
+        (root / "packages/gimp-3.2").rename(root / "packages/rebuild/gimp-3.2")
+        self.assertEqual(select_directories(root, [], offline=True),
+                         [root / "tests", root / "tests/codex", root / "tests/gimp-3.2"])
+        self.assertEqual(select_directories(root, ["gimp-3.2"]),
+                         [root / "tests/gimp-3.2"])
+
     def test_unknown_missing_and_conflicting_selectors_fail_before_discovery(self):
         root = self.discovery_fixture()
         with self.assertRaisesRegex(ValueError, "Unknown package"):

@@ -25,7 +25,7 @@ export GPG_KEY
 
 STATUS=0
 for STREAM in gimp-3.2 gimp-help-3.2; do
-    export ADAPTER_DIR="$FRAMEWORK_DIR/packages/$STREAM"
+    export ADAPTER_DIR="$FRAMEWORK_DIR/packages/repack/$STREAM"
     CONFIGURATION=$(bash "$FRAMEWORK_DIR/lib/config.sh")
     mapfile -t CONFIGURATION_LINES <<< "$CONFIGURATION"
     export PUBLISHER_STREAM="${CONFIGURATION_LINES[0]}"
@@ -53,7 +53,7 @@ if (( STATUS == 0 )); then
     for STREAM in gimp-3.2 gimp-help-3.2; do
         mkdir -p "$PACKAGES_DIR/$STREAM"
         cp -R --preserve=mode,timestamps \
-            "$FRAMEWORK_DIR/packages/$STREAM/." "$PACKAGES_DIR/$STREAM/"
+            "$FRAMEWORK_DIR/packages/repack/$STREAM/." "$PACKAGES_DIR/$STREAM/"
     done
     flock -u 9
     bash "$FRAMEWORK_DIR/update.sh"

@@ -13,6 +13,8 @@ set +a
 
 : "${REPO_USER:?REPO_USER must be set and non-empty}"
 : "${REPO_DATA_DIR:?REPO_DATA_DIR must be set and non-empty}"
+: "${REPACK_REPO_DIR:?REPACK_REPO_DIR must be set and non-empty}"
+: "${REBUILD_REPO_DIR:?REBUILD_REPO_DIR must be set and non-empty}"
 : "${MAINTAINER:?MAINTAINER must be set and non-empty}"
 : "${REPO_NAME:?REPO_NAME must be set and non-empty}"
 : "${GPG_KEY_NAME:?GPG_KEY_NAME must be set and non-empty}"
@@ -20,6 +22,10 @@ set +a
 : "${GPG_KEY_VALIDITY:?GPG_KEY_VALIDITY must be set and non-empty}"
 
 BASE_DIR=$(realpath -m -- "$REPO_DATA_DIR")
+if [[ "$(realpath -m -- "$REPACK_REPO_DIR")" == "$(realpath -m -- "$REBUILD_REPO_DIR")" ]]; then
+    echo 'REPACK_REPO_DIR and REBUILD_REPO_DIR must be different directories' >&2
+    exit 1
+fi
 
 if ! id "$REPO_USER" >/dev/null 2>&1; then
     sudo useradd --system --no-create-home --shell /usr/sbin/nologin "$REPO_USER"
@@ -27,7 +33,7 @@ fi
 
 REPO_UID=$(id -u "$REPO_USER")
 REPO_GID=$(id -g "$REPO_USER")
-sudo install -d -o "$REPO_UID" -g "$REPO_GID" -m 755 "$BASE_DIR" "$BASE_DIR/repo"
+sudo install -d -o "$REPO_UID" -g "$REPO_GID" -m 755 "$BASE_DIR" "$REPACK_REPO_DIR" "$REBUILD_REPO_DIR"
 sudo install -d -o "$REPO_UID" -g "$REPO_GID" -m 700 "$BASE_DIR/gnupg"
 
 list_keys() {

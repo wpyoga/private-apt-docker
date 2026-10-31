@@ -18,7 +18,7 @@ workflow, and guidance for resuming work in another session.
 ## How an update works
 
 1. Take the repository lock so another updater cannot write at the same time.
-2. Read adapter directories under `packages/`, in alphabetical order.
+2. Read adapter directories under the service’s selected package group, in alphabetical order.
 3. Finish one stream before starting the next: query, choose package revisions,
    build missing architectures, and store the results.
 4. Generate and sign repository indexes containing all stored package versions.
@@ -143,7 +143,7 @@ Changing `MAINTAINER` rebuilds every package at the next packaging revision. Cha
 Maintainer and repository identity values must be single-line strings.
 
 Docker defines its fixed paths explicitly: `FRAMEWORK_DIR=/opt/apt-publisher`,
-`PACKAGES_DIR=/opt/apt-publisher/packages`, `REPO_DIR=/repo`, and `GNUPGHOME=/gnupg`.
+`PACKAGES_DIR=/opt/apt-publisher/packages/repack` (overridden for rebuild services), `REPO_DIR=/repo`, and `GNUPGHOME=/gnupg`.
 Direct host invocations must export their own values for those paths and the
 required settings. There are no path-discovery fallbacks.
 
@@ -154,7 +154,8 @@ rejects missing settings before starting the container.
 
 ## One directory per configured release stream
 
-Each immediate, non-hidden directory under `packages/` contains one adapter. Its
+Each immediate, non-hidden directory under `packages/repack/` or
+`packages/rebuild/` contains one adapter. Its
 name is descriptive only: renaming it does not change stream identity, package
 names, storage paths, recipe checksums, or revision history. Directory names affect
 only processing order and diagnostic paths.
@@ -342,11 +343,11 @@ its output.
 Each stream has a temporary workspace shared by query and build. Store download
 URLs, archive checksums, or other query results there in any convenient format.
 The hook owns download integrity checks, dependencies, file layout, and maintainer
-scripts. See `packages/codex/` for the included adapter.
+scripts. See `packages/repack/codex/` for the included adapter.
 
 ## Ghostty
 
-`packages/ghostty/` imports the latest stable release from
+`packages/repack/ghostty/` imports the latest stable release from
 [mkasberg/ghostty-ubuntu](https://github.com/mkasberg/ghostty-ubuntu), the community
 Debian package source linked by Ghostty's installation documentation. It selects
 Debian Trixie assets for amd64 and arm64, regardless of the repository suite name.
@@ -363,7 +364,7 @@ install it with `sudo apt install ghostty`.
 
 ## USBImager
 
-`packages/usbimager/` imports the official GTK Debian package as `usbimager-gtk`
+`packages/repack/usbimager/` imports the official GTK Debian package as `usbimager-gtk`
 on amd64 and repackages the official X11 archive with embedded Unifont as
 `usbimager-x11` on arm64. Both provide the virtual package `usbimager` and use
 `/usr/bin/usbimager`. Arm64 compatibility is maintained as an exercise; there is
@@ -372,7 +373,7 @@ for dependencies, device permissions, release selection, and validation limits.
 
 ## Zed
 
-`packages/zed/` follows the latest stable
+`packages/repack/zed/` follows the latest stable
 [official Zed release](https://github.com/zed-industries/zed/releases/latest)
 for amd64 and arm64. It verifies GitHub's SHA256 digest and repackages the fixed
 Linux archive layout for Debian 13. This is unofficial Debian packaging of
@@ -390,7 +391,7 @@ See [Zed packaging and validation notes](docs/zed.md), particularly the
 
 ## GIMP 3.2
 
-`packages/gimp-3.2/` selects the newest stable **3.2.x** release from GIMP's
+`packages/repack/gimp-3.2/` selects the newest stable **3.2.x** release from GIMP's
 [official release metadata](https://www.gimp.org/gimp_versions.json). It checks
 the official SHA256 digest and extracts the amd64 or arm64 AppImage as data;
 it does not execute AppRun, require FUSE, or run target binaries during builds.
@@ -422,7 +423,7 @@ Adding a newer release series requires a separate adapter.
 
 ## GIMP help 3.2
 
-`packages/gimp-help-3.2/` independently imports the GIMP 3.2 user manuals from
+`packages/repack/gimp-help-3.2/` independently imports the GIMP 3.2 user manuals from
 Debian sid. It selects a consistent release of all 32 declared language packages
 and their common package. Clients do not need sid configured and can install
 `gimp-help-en` or another language from this repository.
@@ -473,7 +474,7 @@ to apply both the adapter and memory-limit changes.
 
 ## Cromite
 
-`packages/cromite/` repackages the latest stable official Linux amd64 archive
+`packages/repack/cromite/` repackages the latest stable official Linux amd64 archive
 from [uazo/cromite](https://github.com/uazo/cromite). It verifies GitHub's SHA256,
 checks the fixed payload and Debian 13 ELF baseline, preserves bundled runtime
 libraries, and removes `.pak.info` build metadata. Linux arm64 is unavailable.
@@ -609,8 +610,8 @@ export FRAMEWORK_DIR="$PWD"
 docker compose up -d --build
 ```
 
-Setup updates `.env` for the chosen repository; use a separate checkout if you
-also manage a production deployment from here.
+Setup updates the shared `.env`. Use separate output paths and signing storage
+for local testing so production data is never used.
 
 From the project root, run every check with:
 
@@ -705,3 +706,31 @@ system babl/GEGL coexistence, ELF relocation, and headless/Xvfb codec round trip
 It requires network access to Debian during setup and disables it during image
 tests. Runner output is written to named logs with bounded timeouts; failed test contexts are retained
 under `build/`. It neither installs host packages nor publishes a repository.
+
+## Repository groups and deployment
+
+Adapters live under `packages/repack/` and `packages/rebuild/`. Their parent
+selects repository membership; config files do not contain a repository key.
+One checkout, `.env`, and Compose project run three services: the existing
+`codex-repo-updater` for repacks, plus `rebuild-amd64` and `rebuild-arm64`.
+Both rebuild services share one output and signing identity; the existing lock
+serializes their cycles. Each builds one architecture and indexes both.
+
+Set `REPACK_REPO_DIR` and `REBUILD_REPO_DIR` to distinct absolute output
+directories. For an existing deployment, use its current `REPO_DATA_DIR/repo`
+as REPACK_REPO_DIR to preserve all packages and indexes. REPO_DATA_DIR continues
+to hold the shared gnupg directory. Setup prepares both output directories.
+The repack identity remains REPO_NAME; the rebuild Origin and Label are `rebuild`.
+Remove the obsolete REPOSITORY setting from .env. No data migration or cleanup
+is automatic. Serve the two outputs at separate web endpoints.
+
+Start all three services with `docker compose up -d --build`. Compose must
+support `build.additional_contexts` with service contexts. The rebuild Dockerfile
+uses the publisher service image as its base. Source builds currently require
+an amd64 server; rootless-daemon ownership mapping remains unverified.
+
+Grouping changes the shared Dockerfile, so current package targets receive a
+one-time recipe revision. Later xfce4-terminal patch edits remain local to its
+adapter. Existing stored artifacts are never deleted.
+
+See [xfce4-terminal deployment and patches](docs/xfce4-terminal.md).

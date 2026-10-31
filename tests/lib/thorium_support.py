@@ -32,7 +32,7 @@ class ThoriumCases:
 
     def fixture(self, *, installed_size=None, missing=None, corrupt=False, wrong_arch=False):
         self.adapter_dir = self.base / "adapters" / self.stream
-        shutil.copytree(ROOT / "packages" / self.stream, self.adapter_dir)
+        shutil.copytree(ROOT / "packages" / "repack" / self.stream, self.adapter_dir)
         settings = dict(line.split("=", 1) for line in (self.adapter_dir / "settings").read_text().splitlines())
         self.gz83 = settings["ALLOW_BETA"] == "true"
         self.version = "156.0.8078.28" if self.gz83 else "138.0.7204.303"

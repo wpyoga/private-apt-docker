@@ -14,7 +14,7 @@ from gimp_help_support import create_help_fixtures
 class GimpHelpTests(PublisherTestCase):
     def fixture(self, **kwargs):
         adapter = self.base / "adapters/gimp-help-3.2"
-        shutil.copytree(ROOT / "packages/gimp-help-3.2", adapter, dirs_exist_ok=True)
+        shutil.copytree(ROOT / "packages/repack/gimp-help-3.2", adapter, dirs_exist_ok=True)
         (adapter / "config").write_text('RELEASE_STREAM=gimp-help-3.2\nBINARY_PACKAGES=""\n')
         create_help_fixtures(self.base, adapter, **kwargs)
         records = []
@@ -133,7 +133,7 @@ class GimpHelpTests(PublisherTestCase):
                         "1:3.2.0+deb3-1"], check=True, capture_output=True)
 
     def test_production_query_with_captured_complete_debian_records(self):
-        adapter = ROOT / "packages/gimp-help-3.2"
+        adapter = ROOT / "packages/repack/gimp-help-3.2"
         workspace = self.base / "captured-query"
         workspace.mkdir()
         records = (ROOT / "tests/gimp-help-3.2/fixtures/Packages").read_bytes()

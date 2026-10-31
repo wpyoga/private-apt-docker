@@ -36,6 +36,8 @@ fi
         user = subprocess.check_output(["id", "-un"], text=True).strip()
         settings = (
             "# Settings\nCODEX_UID=42\nPACKAGES=codex\n"
+            f"REPACK_REPO_DIR='{self.base / 'storage/repo'}'\n"
+            f"REBUILD_REPO_DIR='{self.base / 'storage/rebuild'}'\n"
             f"REPO_USER={user}\nREPO_DATA_DIR='{self.base / 'storage'}'\n"
             "MAINTAINER='Test <test@example.com>'\nREPO_NAME='Test Repository'\n"
             "GPG_KEY_NAME='Test Key'\nGPG_KEY_TYPE=ed25519\nGPG_KEY_VALIDITY=1d\n"
@@ -54,6 +56,23 @@ fi
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
         self.assertEqual((self.base / "repo-pubkey.asc").read_text(), "Test public key\n")
         self.assertEqual(list(self.base.glob(".env-*")), [])
+
+    def test_same_output_directories_fail_before_setup(self):
+        settings = (
+            "REPO_USER=test\nREPO_DATA_DIR=/unused\n"
+            "REPACK_REPO_DIR=/unused/repo\nREBUILD_REPO_DIR=/unused/repo/../repo\n"
+            "MAINTAINER='Test <test@localhost>'\nREPO_NAME=Test\n"
+            "GPG_KEY_NAME=Test\nGPG_KEY_TYPE=ed25519\nGPG_KEY_VALIDITY=1d\n"
+        )
+        path = self.base / ".env"
+        path.write_text(settings)
+        result = subprocess.run(
+            ["bash", str(ROOT / "codex-repo-setup.sh")],
+            env={**self.env, "FRAMEWORK_DIR": str(self.base)},
+            capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must be different directories", result.stderr)
+        self.assertEqual(path.read_text(), settings)
 
 
 if __name__ == "__main__":

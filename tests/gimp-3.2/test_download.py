@@ -119,7 +119,7 @@ class MirrorTests(unittest.TestCase):
                 "TEST_DOWNLOAD_DIRECTORY": str(base), "TEST_MIRROR_MODE": mode,
             }
             result = subprocess.run(
-                ["bash", str(ROOT / "packages/gimp-3.2/download-asset"),
+                ["bash", str(ROOT / "packages/repack/gimp-3.2/download-asset"),
                  "https://download.gimp.org/archive", str(destination),
                  hashlib.sha256(b"expected").hexdigest()],
                 env=environment, capture_output=True, text=True, timeout=10,

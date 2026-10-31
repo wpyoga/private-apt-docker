@@ -30,7 +30,7 @@ class LayaTests(PublisherTestCase):
     def setUp(self):
         super().setUp()
         self.adapter_dir = self.base / "adapters/laya"
-        shutil.copytree(ROOT / "packages/laya", self.adapter_dir)
+        shutil.copytree(ROOT / "packages/repack/laya", self.adapter_dir)
         (self.base / "bin/curl").write_text(CURL)
         self.workspace = self.base / "workspace"
         self.workspace.mkdir()

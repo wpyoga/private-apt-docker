@@ -16,7 +16,7 @@ from tests.lib.publisher_test_support import ROOT, PublisherTestCase, fields
 class USBImagerTests(PublisherTestCase):
     def fixture(self, *, missing_arm64=False, installed_size=None, mutation=None):
         adapter = self.base / 'adapters/usbimager'
-        shutil.copytree(ROOT / 'packages/usbimager', adapter, dirs_exist_ok=True,
+        shutil.copytree(ROOT / 'packages/repack/usbimager', adapter, dirs_exist_ok=True,
                         ignore=shutil.ignore_patterns('__pycache__'))
         lines = []
         for arch, machine in (('amd64', 62), ('arm64', 183)):

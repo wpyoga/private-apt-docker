@@ -24,7 +24,7 @@ class GhosttyTests(PublisherTestCase):
         payload_size=0,
     ):
         shutil.copytree(
-            ROOT / "packages/ghostty",
+            ROOT / "packages/repack/ghostty",
             self.base / "adapters/ghostty",
             dirs_exist_ok=True,
         )

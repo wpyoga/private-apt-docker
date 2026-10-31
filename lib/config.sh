@@ -98,7 +98,5 @@ else
     validate_package_list "$BINARY_PACKAGES"
 fi
 
-printf '%s\n' "$RELEASE_STREAM" "$BINARY_PACKAGES"
-if [[ -n "$BINARY_PACKAGES_AMD64" ]]; then
-    printf '%s\n' "$BINARY_PACKAGES_AMD64" "$BINARY_PACKAGES_ARM64"
-fi
+printf '%s\n' "$RELEASE_STREAM" "$BINARY_PACKAGES" \
+    "$BINARY_PACKAGES_AMD64" "$BINARY_PACKAGES_ARM64"

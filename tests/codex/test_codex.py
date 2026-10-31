@@ -19,7 +19,7 @@ class CodexTests(PublisherTestCase):
         workspace.mkdir()
         context = {
             **self.env,
-            "ADAPTER_DIR": str(ROOT / "packages/codex"),
+            "ADAPTER_DIR": str(ROOT / "packages/repack/codex"),
             "WORKSPACE": str(workspace),
         }
         for variable in ("ADAPTER_DIR", "WORKSPACE", "ARCHES"):
@@ -30,7 +30,7 @@ class CodexTests(PublisherTestCase):
                     if value is not None:
                         environment[variable] = value
                     result = subprocess.run(
-                        ["bash", str(ROOT / "packages/codex/query")],
+                        ["bash", str(ROOT / "packages/repack/codex/query")],
                         env=environment, text=True, capture_output=True,
                     )
                     self.assertNotEqual(result.returncode, 0)
@@ -47,7 +47,7 @@ class CodexTests(PublisherTestCase):
         payload_size=0,
     ):
         shutil.copytree(
-            ROOT / "packages/codex",
+            ROOT / "packages/repack/codex",
             self.base / "adapters/codex",
             dirs_exist_ok=True,
             ignore=shutil.ignore_patterns("__pycache__"),
@@ -319,13 +319,13 @@ class CodexTests(PublisherTestCase):
         (workspace / "assets.json").write_text(json.dumps(downloads))
         environment = {
             **self.env,
-            "ADAPTER_DIR": str(ROOT / "packages/codex"),
+            "ADAPTER_DIR": str(ROOT / "packages/repack/codex"),
             "WORKSPACE": str(workspace),
             "PUBLISHER_STREAM": "codex",
             "BUILD_INPUTS_SHA256": "a" * 64,
         }
         result = subprocess.run([
-            str(ROOT / "packages/codex/build"), "1.2.3-1", "amd64", str(output),
+            str(ROOT / "packages/repack/codex/build"), "1.2.3-1", "amd64", str(output),
         ], env=environment, capture_output=True, text=True)
         if success:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

@@ -8,7 +8,7 @@ It is independent of the GIMP application stream and its API documentation.
 Clients do not need a sid APT source.
 
 The adapter declares 32 language packages and `gimp-help-common` in
-[its configuration](../packages/gimp-help-3.2/config). Each query requires the
+[its configuration](../packages/repack/gimp-help-3.2/config). Each query requires the
 complete declared set at one consistent Debian version. Accepted versions have
 the form `3.2.NUMBER-REVISION`, with a Debian revision containing letters,
 digits, periods, plus signs, or tildes. This includes non-maintainer uploads

@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from tests.lib.publisher_test_support import ROOT, PublisherTestCase, fields
 
-SPEC = importlib.util.spec_from_file_location("cromite_bundle", ROOT / "packages/cromite/inspect-bundle.py")
+SPEC = importlib.util.spec_from_file_location("cromite_bundle", ROOT / "packages/repack/cromite/inspect-bundle.py")
 BUNDLE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BUNDLE)
 TAG = "v153.0.8010.37-" + "1" * 40
@@ -21,7 +21,7 @@ VERSION = "153.0.8010.37+20260915115100.git" + "1" * 40
 
 class CromiteTests(PublisherTestCase):
     def fixture(self, mutation=None):
-        shutil.copytree(ROOT / "packages/cromite", self.base / "adapters/cromite")
+        shutil.copytree(ROOT / "packages/repack/cromite", self.base / "adapters/cromite")
         bundle = self.base / "source/chrome-lin"
         bundle.mkdir(parents=True)
         for name in BUNDLE.REQUIRED_FILES:
@@ -167,10 +167,10 @@ class CromiteTests(PublisherTestCase):
             shutil.copyfile("/bin/true", path)
             subprocess.run(["patchelf", "--add-needed", "libunknown.so.1", str(path)], check=True, capture_output=True)
             with self.assertRaisesRegex(ValueError, "Unknown library"):
-                BUNDLE.inspect_tree(path.parent, "amd64", ROOT / "packages/cromite/runtime-dependencies")
+                BUNDLE.inspect_tree(path.parent, "amd64", ROOT / "packages/repack/cromite/runtime-dependencies")
 
     def test_launcher_arguments_and_desktop(self):
-        launcher = (ROOT / "packages/cromite/launcher.in").read_text()
+        launcher = (ROOT / "packages/repack/cromite/launcher.in").read_text()
         fake = self.base / "chrome"
         fake.write_text('#!/bin/bash\nprintf "%s\\n" "$CHROME_WRAPPER" "$CHROME_DESKTOP" "$@"\n')
         fake.chmod(0o755)
@@ -178,7 +178,7 @@ class CromiteTests(PublisherTestCase):
         script.write_text(launcher.replace("exec /usr/lib/cromite/chrome", 'exec "' + str(fake) + '"'))
         output = subprocess.check_output(["bash", str(script), "two words", "", "https://example.org/?a=b&c=d"], text=True)
         self.assertEqual(output.splitlines(), ["/usr/bin/cromite", "cromite.desktop", "two words", "", "https://example.org/?a=b&c=d"])
-        desktop = (ROOT / "packages/cromite/desktop.in").read_text()
+        desktop = (ROOT / "packages/repack/cromite/desktop.in").read_text()
         self.assertIn("Exec=cromite %U\n", desktop)
         self.assertIn("Icon=cromite\n", desktop)
 
