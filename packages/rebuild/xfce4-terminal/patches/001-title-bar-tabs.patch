@@ -136,7 +136,7 @@ diff --git a/terminal/terminal-titlebar-tabs.c b/terminal/terminal-titlebar-tabs
 new file mode 100644
 --- /dev/null
 +++ b/terminal/terminal-titlebar-tabs.c
-@@ -0,0 +1,1150 @@
+@@ -0,0 +1,1151 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later
 + * Disposable X11 title tabs; GTK notebooks/pages always stay in the client.
 + * Adapted from experiments/titlebar-tab-strip; terminal pages never leave GTK.
@@ -381,8 +381,9 @@ new file mode 100644
 +  }
 +  gboolean overflow = n > 1 && (gint64)n*minimum > available;
 +  if (overflow) available = MAX(1, available - 2*button);
-+  /* Share all available tab pixels equally, independent of title length.
-+   * Overflow keeps a fixed viewport, independent of the displayed subset. */
++  else available = MIN((gint64)available, (gint64)n*MAX(minimum, 160*scale));
++  /* Share tab pixels equally, independent of title length, up to the default
++   * maximum. Overflow keeps a fixed viewport and uses all its tab pixels. */
 +  gint visible = overflow ? MIN(n, MAX(1, available/minimum)) : n;
 +  s->first = overflow ? CLAMP(s->first, 0, MAX(0, n-visible)) : 0;
 +  if (app->reveal_selected && n > 0) {
