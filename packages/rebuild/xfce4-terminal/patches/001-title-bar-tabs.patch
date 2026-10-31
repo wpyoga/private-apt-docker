@@ -1,0 +1,1730 @@
+diff --git a/meson.build b/meson.build
+index 4554468d..97d15900 100644
+--- a/meson.build
++++ b/meson.build
+@@ -44,6 +44,7 @@ xfconf = dependency('libxfconf-0', version: dependency_versions['xfce4'])
+ x11_deps = []
+ x11_deps += dependency('gdk-x11-3.0', version: dependency_versions['gtk'], required: get_option('x11'))
+ x11_deps += dependency('x11', version: dependency_versions['libx11'], required: get_option('x11'))
++x11_deps += dependency('xext', required: get_option('x11'))
+ 
+ # Feature: 'wayland'
+ wayland_deps = []
+diff --git a/terminal/meson.build b/terminal/meson.build
+index 54e44b0c..7cc9a9ba 100644
+--- a/terminal/meson.build
++++ b/terminal/meson.build
+@@ -26,6 +26,9 @@ terminal_sources = [
+   'terminal-window-dropdown.h',
+   'terminal-window.c',
+   'terminal-window.h',
++  'terminal-window-private.h',
++  'terminal-titlebar-tabs.c',
++  'terminal-titlebar-tabs.h',
+ ]
+ 
+ terminal_sources += gnome.genmarshal(
+diff --git a/terminal/terminal-preferences-dialog.c b/terminal/terminal-preferences-dialog.c
+index 5cd3d48e..d59d2fdb 100644
+--- a/terminal/terminal-preferences-dialog.c
++++ b/terminal/terminal-preferences-dialog.c
+@@ -1135,6 +1135,19 @@ terminal_preferences_dialog_init (TerminalPreferencesDialog *dialog)
+   /* next row */
+   row++;
+ 
++  button = gtk_check_button_new_with_mnemonic (_("Show tabs in the window _title bar"));
++  g_object_bind_property (G_OBJECT (dialog->preferences), "misc-titlebar-tabs",
++                          G_OBJECT (button), "active",
++                          G_BINDING_BIDIRECTIONAL | G_BINDING_SYNC_CREATE);
++  gtk_widget_set_tooltip_text (button, _("Use compact title-bar tabs in ordinary X11/Xfwm windows. Fullscreen uses the same tabs inside the window. The drop-down terminal is unaffected."));
++#ifdef ENABLE_X11
++  gtk_widget_set_sensitive (button, GDK_IS_X11_DISPLAY (gtk_widget_get_display (button)));
++#else
++  gtk_widget_set_sensitive (button, FALSE);
++#endif
++  gtk_grid_attach (GTK_GRID (grid), button, 0, row++, 3, 1);
++  gtk_widget_show (button);
++
+   button = gtk_check_button_new_with_mnemonic (_("_Use custom styling to make tabs slim (restart required)"));
+   g_object_bind_property (G_OBJECT (dialog->preferences), "misc-slim-tabs",
+                           G_OBJECT (button), "active",
+diff --git a/terminal/terminal-preferences.c b/terminal/terminal-preferences.c
+index 963acd61..85a18ee4 100644
+--- a/terminal/terminal-preferences.c
++++ b/terminal/terminal-preferences.c
+@@ -112,6 +112,7 @@ enum
+   PROP_DEFAULT_WORKING_DIR,
+   PROP_MISC_REWRAP_ON_RESIZE,
+   PROP_MISC_SLIM_TABS,
++  PROP_MISC_TITLEBAR_TABS,
+   PROP_MISC_NEW_TAB_ADJACENT,
+   PROP_MISC_SEARCH_DIALOG_OPACITY,
+   PROP_MISC_SHOW_UNSAFE_PASTE_DIALOG,
+@@ -1041,6 +1042,13 @@ terminal_preferences_class_init (TerminalPreferencesClass *klass)
+                           TRUE,
+                           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+ 
++  preferences_props[PROP_MISC_TITLEBAR_TABS] =
++    g_param_spec_boolean ("misc-titlebar-tabs",
++                          NULL,
++                          "MiscTitlebarTabs",
++                          FALSE,
++                          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
++
+   /**
+    * TerminalPreferences:misc-slim-tabs:
+    **/
+diff --git a/terminal/terminal-screen.c b/terminal/terminal-screen.c
+index f316439e..26b42aa0 100644
+--- a/terminal/terminal-screen.c
++++ b/terminal/terminal-screen.c
+@@ -3262,3 +3262,11 @@ terminal_screen_widget_append_accels (TerminalScreen *screen,
+ 
+   g_object_set (G_OBJECT (screen->terminal), "accel-group", accel_group, NULL);
+ }
++
++
++GtkWidget *
++terminal_screen_peek_tab_label (TerminalScreen *screen)
++{
++  g_return_val_if_fail (TERMINAL_IS_SCREEN (screen), NULL);
++  return screen->tab_label;
++}
+diff --git a/terminal/terminal-screen.h b/terminal/terminal-screen.h
+index 7cf634ca..10ff1b63 100644
+--- a/terminal/terminal-screen.h
++++ b/terminal/terminal-screen.h
+@@ -107,6 +107,10 @@ terminal_screen_reset_activity (TerminalScreen *screen);
+ GtkWidget *
+ terminal_screen_get_tab_label (TerminalScreen *screen);
+ 
++/* Borrow the existing label; unlike get_tab_label(), this creates no widgets. */
++GtkWidget *
++terminal_screen_peek_tab_label (TerminalScreen *screen);
++
+ void
+ terminal_screen_focus (TerminalScreen *screen);
+ 
+diff --git a/terminal/terminal-titlebar-tabs.c b/terminal/terminal-titlebar-tabs.c
+new file mode 100644
+index 00000000..086bea83
+--- /dev/null
++++ b/terminal/terminal-titlebar-tabs.c
+@@ -0,0 +1,1164 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later
++ * Disposable X11 title tabs; GTK notebooks/pages always stay in the client.
++ * Adapted from experiments/titlebar-tab-strip; terminal pages never leave GTK.
++ */
++#include "terminal-titlebar-tabs.h"
++#include "terminal-window-private.h"
++#include "terminal-private.h"
++
++#ifdef ENABLE_X11
++#include <gtk/gtk.h>
++#include <X11/Xatom.h>
++#include <gdk/gdkx.h>
++#include <pango/pangocairo.h>
++#include <X11/Xlib.h>
++#include <X11/Xutil.h>
++#include <X11/cursorfont.h>
++#include <X11/keysym.h>
++#include <X11/extensions/shape.h>
++#include <math.h>
++#include <stdlib.h>
++#include <string.h>
++
++typedef struct App App;
++typedef enum { SLOT_TAB, SLOT_NEW, SLOT_PREV, SLOT_NEXT } SlotKind;
++typedef struct { SlotKind kind; TerminalScreen *screen; gint index, x, width; } Slot;
++typedef struct {
++  Window xid, parent;
++  GC gc;
++  Visual *visual;
++  gint depth, x, y, width, height, first, hover;
++  gboolean native, dead, dirty, close_hover;
++  GArray *slots, *shape_rects;
++} Strip;
++struct App {
++  guint id, recoveries;
++  GtkWidget *window, *notebook, *anchor;
++  gchar *title;
++  gboolean title_dirty;
++  GtkWidget *tooltip;
++  guint tooltip_source;
++  gint tooltip_slot;
++  gboolean tooltip_close;
++  gboolean close_buttons;
++  guint32 last_click;
++  GtkWidget *last_click_page;
++  Window client;
++  Strip strip;
++  gboolean closed, reveal_selected;
++  gint64 missing_since;
++  gint last_height;
++};
++typedef struct {
++  App *source;
++  GtkWidget *page; /* Strong reference until release/cancel. */
++  gint start_x, start_y;
++  gboolean active, raw;
++  gint action; /* 0 select/drag, 1 close (on matching release). */
++  GdkSeat *seat;
++  App *target;
++  gint insertion;
++} Drag;
++
++static Display *xdpy;
++static Window root_window;
++static GPtrArray *apps;
++static gboolean debug, shapes, syncing;
++static guint sync_idle, timer_source, x_source, next_app;
++static Drag drag;
++static int (*old_x_error)(Display *, XErrorEvent *);
++static void sync_app(App *app);
++static void schedule_sync(void);
++static void paint(App *app);
++static void cancel_drag(void);
++static void hide_tooltip(App *app);
++static GdkFilterReturn owner_events(GdkXEvent *native, GdkEvent *event, gpointer data);
++
++/* Layout slots retain pages until replaced. They are view snapshots, not a
++ * second tab model: order/selection/ownership remain in the notebook. */
++static void
++slot_clear(gpointer data)
++{
++  Slot *slot = data;
++  g_clear_object(&slot->screen);
++}
++
++static GtkLabel *
++tab_label(TerminalScreen *screen)
++{
++  return GTK_LABEL(terminal_screen_peek_tab_label(screen));
++}
++
++static int
++x_error(Display *display, XErrorEvent *error)
++{
++  if (display != xdpy) return old_x_error ? old_x_error(display, error) : 0;
++  for (guint i = 0; i < apps->len; i++) {
++    App *app = g_ptr_array_index(apps, i);
++    if (app->strip.xid && error->resourceid == app->strip.xid) {
++      app->strip.dead = TRUE;
++      schedule_sync();
++    }
++  }
++  if (debug || (error->error_code != BadWindow && error->error_code != BadDrawable)) {
++    gchar message[160];
++    XGetErrorText(display, error->error_code, message, sizeof message);
++    g_printerr("strip X11: %s request=%u resource=0x%lx\n", message,
++               error->request_code, error->resourceid);
++  }
++  return 0;
++}
++
++static void
++discard_strip(App *app, gboolean destroy)
++{
++  Strip *s = &app->strip;
++  hide_tooltip(app);
++  if (s->gc) XFreeGC(xdpy, s->gc);
++  if (destroy && s->xid && !s->dead) XDestroyWindow(xdpy, s->xid);
++  s->gc = NULL; s->xid = s->parent = None; s->dead = FALSE;
++  s->hover = -1; s->close_hover = FALSE; s->dirty = TRUE;
++  g_array_set_size(s->slots, 0);
++  g_array_set_size(s->shape_rects, 0);
++}
++
++typedef struct {
++  Window frame, title;
++  gint x, y, width, height;
++} Title;
++
++/* Xfwm private hierarchy, not a supported WM API. Pick a wide title window
++ * by visible area above the client. Subtract every mapped decoration sibling
++ * overlapping the band: this protects icons/buttons even without event masks. */
++static gboolean
++locate_title(App *app, Title *out)
++{
++  Window root, parent, unused, *children = NULL;
++  guint count;
++  XWindowAttributes client, frame;
++  gint cx, cy;
++  if (!XQueryTree(xdpy, app->client, &root, &parent, &children, &count)) return FALSE;
++  if (children) XFree(children);
++  if (parent == root || parent == None) return FALSE;
++  if (!XGetWindowAttributes(xdpy, app->client, &client) || client.map_state != IsViewable
++      || !XGetWindowAttributes(xdpy, parent, &frame)
++      || !XTranslateCoordinates(xdpy, app->client, parent, 0, 0, &cx, &cy, &unused)
++      || cy < 8) return FALSE;
++  Window frame_xid = parent;
++  if (!XQueryTree(xdpy, frame_xid, &root, &parent, &children, &count)) return FALSE;
++  XWindowAttributes title = {0};
++  Window title_xid = None;
++  gint best = 0;
++  for (guint i = 0; i < count; i++) {
++    XWindowAttributes a;
++    if (children[i] == app->client || !XGetWindowAttributes(xdpy, children[i], &a)
++        || a.class != InputOutput || a.map_state != IsViewable) continue;
++    gint h = MAX(0, MIN(cy, a.y+a.height)-MAX(0, a.y));
++    gint area = h * a.width;
++    if (a.width > frame.width/2 && area > best) {
++      title = a; title_xid = children[i]; best = area;
++    }
++  }
++  gint left = MAX(cx, title.x), right = MIN(cx+client.width, title.x+title.width);
++  gint top = MAX(0, title.y), bottom = MIN(cy, title.y+title.height);
++  for (guint i = 0; i < count; i++) {
++    XWindowAttributes a;
++    if (children[i] == app->client || children[i] == title_xid
++        || !XGetWindowAttributes(xdpy, children[i], &a)
++        || a.map_state != IsViewable || a.class != InputOutput
++        || a.y >= bottom || a.y+a.height <= top) continue;
++    if (a.width > frame.width/2 && a.height < bottom-top) {
++      top = MAX(top, a.y+a.height); /* Native top resize edge. */
++    } else if (a.width < frame.width/3) {
++      if (a.x+a.width/2 < frame.width/2) left = MAX(left, a.x+a.width);
++      else right = MIN(right, a.x);
++    }
++  }
++  if (children) XFree(children);
++  gint scale = gtk_widget_get_scale_factor(app->window);
++  left += 4*scale; right -= 4*scale;
++  top += 1; /* Preserve the top resize edge; extend down to the client boundary. */
++  *out = (Title){frame_xid, title_xid, left-title.x, top-title.y, right-left, bottom-top};
++  if (debug && title_xid && app->strip.parent != title_xid)
++    g_printerr("window %u: title=0x%lx visible=%d,%d %dx%d controls excluded\n",
++      app->id, title_xid, out->x, out->y, out->width, out->height);
++  return title_xid && out->width >= 220*scale && out->height >= 10;
++}
++
++static gint
++current_page(App *app)
++{
++  return gtk_notebook_get_current_page(GTK_NOTEBOOK(app->notebook));
++}
++
++/* Measurement and drawing must use exactly the same fitted font. The WM
++ * owns the available physical height, independently of GTK's scale factor. */
++static PangoLayout *
++make_layout(App *app)
++{
++  PangoContext *context = gtk_widget_get_pango_context(app->notebook);
++  PangoLayout *layout = pango_layout_new(context);
++  PangoFontDescription *font = pango_font_description_copy(pango_context_get_font_description(context));
++  gdouble size = pango_font_description_get_size(font)/(gdouble)PANGO_SCALE;
++  if (!pango_font_description_get_size_is_absolute(font)) {
++    gdouble dpi = pango_cairo_context_get_resolution(context);
++    if (dpi <= 0) dpi = pango_cairo_font_map_get_resolution(PANGO_CAIRO_FONT_MAP(pango_context_get_font_map(context)));
++    size *= dpi/72.0;
++  }
++  size *= gtk_widget_get_scale_factor(app->window);
++  pango_font_description_set_absolute_size(font, MIN(size, MAX(6, app->strip.height-7))*PANGO_SCALE);
++  pango_layout_set_font_description(layout, font);
++  pango_font_description_free(font);
++  pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
++  pango_layout_set_single_paragraph_mode(layout, TRUE);
++  return layout;
++}
++
++static gboolean
++build_slots(App *app, PangoLayout *layout)
++{
++  Strip *s = &app->strip;
++  gint scale = gtk_widget_get_scale_factor(app->window);
++  gint n = gtk_notebook_get_n_pages(GTK_NOTEBOOK(app->notebook));
++  gint button = MIN(30*scale, MAX(16*scale, s->height));
++  gint margin = s->native ? 24*scale : 0;
++  gint available = MAX(1, s->width - button - 2*margin);
++  gint close_width = app->close_buttons ? MIN(22*scale, s->height) : 0;
++  /* Like the stock ellipsizing labels, allow tabs to shrink before scrolling.
++   * Leave enough room for the actual fitted ellipsis and close hit area. */
++  gint ellipsis_width;
++  pango_layout_set_width(layout, -1);
++  pango_layout_set_text(layout, "…", -1);
++  pango_layout_get_pixel_size(layout, &ellipsis_width, NULL);
++  gint minimum = MAX(32*scale, close_width + 8*scale + 1 + ellipsis_width);
++  gint *widths = g_new0(gint, MAX(1, n));
++  gint64 total = 0;
++  pango_layout_set_width(layout, -1);
++  for (gint i = 0; i < n; i++) {
++    GtkWidget *page = gtk_notebook_get_nth_page(GTK_NOTEBOOK(app->notebook), i);
++    if (!TERMINAL_IS_SCREEN(page)) {
++      g_free(widths);
++      return FALSE; /* Do not paint an incomplete notebook model. */
++    }
++    gint text_width;
++    GtkLabel *label = tab_label(TERMINAL_SCREEN(page));
++    pango_layout_set_attributes(layout, label ? gtk_label_get_attributes(GTK_LABEL(label)) : NULL);
++    pango_layout_set_text(layout, gtk_label_get_text(label), -1);
++    pango_layout_get_pixel_size(layout, &text_width, NULL);
++    /* Include the close area, scaled text padding and one text-inset pixel. */
++    widths[i] = CLAMP(text_width + close_width + 8*scale + 1, minimum, MAX(minimum, 160*scale));
++    total += widths[i];
++  }
++  gboolean overflow = n > 1 && (gint64)n*minimum > available;
++  if (overflow) available = MAX(1, available - 2*button);
++  gboolean compressed = overflow || total > available;
++  /* Overflow has a fixed viewport, independent of the displayed subset.
++   * Share ALL remaining pixels between its tabs, rather than leaving the
++   * unused tail from packing individual preferred widths as native space. */
++  gint visible = overflow ? MIN(n, MAX(1, available/minimum)) : n;
++  s->first = overflow ? CLAMP(s->first, 0, MAX(0, n-visible)) : 0;
++  if (app->reveal_selected && n > 0) {
++    gint selected = CLAMP(current_page(app), 0, n-1);
++    if (selected < s->first) s->first = selected;
++    if (selected >= s->first+visible) s->first = selected-visible+1;
++  }
++  app->reveal_selected = FALSE;
++  gint end = s->first+visible;
++  gint x = margin;
++  g_array_set_size(s->slots, 0);
++  if (overflow) {
++    Slot slot = {SLOT_PREV, NULL, -1, x, button};
++    g_array_append_val(s->slots, slot); x += button;
++  }
++  for (gint i = s->first; i < end; i++) {
++    TerminalScreen *screen = TERMINAL_SCREEN(gtk_notebook_get_nth_page(GTK_NOTEBOOK(app->notebook), i));
++    gint width = compressed
++      ? available/visible + (i-s->first < available%visible ? 1 : 0)
++      : MIN(widths[i], available);
++    Slot slot = {SLOT_TAB, g_object_ref(screen), i, x, width};
++    g_array_append_val(s->slots, slot); x += width;
++  }
++  if (overflow) {
++    Slot slot = {SLOT_NEXT, NULL, -1, x, button};
++    g_array_append_val(s->slots, slot); x += button;
++  }
++  Slot plus = {SLOT_NEW, NULL, -1, x, MIN(button, MAX(1, s->width-margin-x))};
++  g_array_append_val(s->slots, plus);
++  g_free(widths);
++  return TRUE;
++}
++
++static gint
++hit_slot(App *app, gint x, gint y)
++{
++  if (y < 0 || y >= app->strip.height) return -1;
++  for (guint i = 0; i < app->strip.slots->len; i++) {
++    Slot *slot = &g_array_index(app->strip.slots, Slot, i);
++    if (x >= slot->x && x < slot->x+slot->width) return i;
++  }
++  return -1;
++}
++
++static gboolean
++close_hit(App *app, Slot *slot, gint x)
++{
++  gint close_width = MIN(22*gtk_widget_get_scale_factor(app->window), app->strip.height);
++  return app->close_buttons && slot->kind == SLOT_TAB && x >= slot->x+slot->width-close_width;
++}
++
++static void
++rgba(cairo_t *cr, const GdkRGBA *c)
++{
++  cairo_set_source_rgb(cr, c->red, c->green, c->blue);
++}
++
++static gulong
++component(guint value, gulong mask)
++{
++  if (!mask) return 0;
++  guint shift = 0;
++  while (!(mask & 1)) { mask >>= 1; shift++; }
++  return (((gulong)value * mask + 127)/255) << shift;
++}
++
++/* Cairo/Pango render into RAM only. XPutImage uploads through an ordinary GC.
++ * There are no Cairo-Xlib surfaces or XRender Pictures to outlive a WM parent. */
++static void
++paint(App *app)
++{
++  Strip *s = &app->strip;
++  if (!s->xid || s->dead || app->closed || s->width < 1 || s->height < 1) return;
++  GdkRGBA fg, bg, selected, accent;
++  GtkStyleContext *context = gtk_widget_get_style_context(app->notebook);
++  gtk_style_context_get_color(context, GTK_STATE_FLAG_NORMAL, &fg);
++  bg = (GdkRGBA){0.25, 0.25, 0.25, 1};
++  gtk_style_context_lookup_color(context, "theme_bg_color", &bg);
++  selected = bg;
++  gtk_style_context_lookup_color(context, "theme_base_color", &selected);
++  accent = (GdkRGBA){0.21, 0.52, 0.89, 1};
++  gtk_style_context_lookup_color(context, "theme_selected_bg_color", &accent);
++  cairo_surface_t *image = cairo_image_surface_create(CAIRO_FORMAT_RGB24, s->width, s->height);
++  if (cairo_surface_status(image) != CAIRO_STATUS_SUCCESS) { cairo_surface_destroy(image); return; }
++  cairo_t *cr = cairo_create(image);
++  rgba(cr, &bg); cairo_paint(cr);
++  PangoLayout *layout = make_layout(app);
++  if (!build_slots(app, layout)) {
++    g_object_unref(layout); cairo_destroy(cr); cairo_surface_destroy(image);
++    return;
++  }
++  XRectangle *rects = g_new0(XRectangle, MAX(1, s->slots->len));
++  gint selected_page = current_page(app);
++  for (guint i = 0; i < s->slots->len; i++) {
++    Slot *slot = &g_array_index(s->slots, Slot, i);
++    gboolean active = slot->kind == SLOT_TAB && slot->index == selected_page;
++    rgba(cr, active || s->hover == (gint)i ? &selected : &bg);
++    cairo_rectangle(cr, slot->x, 0, slot->width, s->height); cairo_fill(cr);
++    rgba(cr, &fg);
++    if (slot->kind == SLOT_TAB) {
++      gint cw = app->close_buttons ? MIN(22*gtk_widget_get_scale_factor(app->window), s->height) : 0;
++      GtkLabel *label = tab_label(slot->screen);
++      pango_layout_set_text(layout, gtk_label_get_text(label), -1);
++      pango_layout_set_attributes(layout, label ? gtk_label_get_attributes(GTK_LABEL(label)) : NULL);
++      pango_layout_set_width(layout, MAX(1, slot->width-cw-8*gtk_widget_get_scale_factor(app->window)-1)*PANGO_SCALE);
++      gint tw, th; pango_layout_get_pixel_size(layout, &tw, &th);
++      cairo_move_to(cr, slot->x+4*gtk_widget_get_scale_factor(app->window), (s->height-th)/2.0);
++      pango_cairo_show_layout(cr, layout);
++      if (app->close_buttons) {
++        gdouble cx = slot->x+slot->width-cw/2.0, cy = s->height/2.0;
++        gdouble radius = MIN(4.0*gtk_widget_get_scale_factor(app->window), s->height/5.0);
++        if (s->hover == (gint)i && s->close_hover) {
++          /* Theme-derived close hover, independent of the whole tab face. */
++          cairo_set_source_rgba(cr, accent.red, accent.green, accent.blue, 0.35);
++          gdouble highlight = MAX(1.0, MIN(cw, s->height)/2.0-2);
++          cairo_arc(cr, cx, cy, highlight, 0, 2*G_PI); cairo_fill(cr);
++          rgba(cr, &fg);
++        }
++        cairo_set_line_width(cr, 1.3);
++        cairo_move_to(cr, cx-radius, cy-radius); cairo_line_to(cr, cx+radius, cy+radius);
++        cairo_move_to(cr, cx+radius, cy-radius); cairo_line_to(cr, cx-radius, cy+radius); cairo_stroke(cr);
++      }
++      if (active) {
++        rgba(cr, &accent); cairo_rectangle(cr, slot->x, MAX(0, s->height-2), slot->width, 2); cairo_fill(cr);
++      }
++    } else {
++      const gchar *label = slot->kind == SLOT_NEW ? "+" : slot->kind == SLOT_PREV ? "‹" : "›";
++      pango_layout_set_attributes(layout, NULL);
++      pango_layout_set_width(layout, -1); pango_layout_set_text(layout, label, -1);
++      gint tw, th; pango_layout_get_pixel_size(layout, &tw, &th);
++      cairo_move_to(cr, slot->x+(slot->width-tw)/2.0, (s->height-th)/2.0);
++      pango_cairo_show_layout(cr, layout);
++    }
++    rects[i] = (XRectangle){slot->x, 0, slot->width, s->height};
++  }
++  if (drag.active && drag.target == app) {
++    gint marker = -1;
++    for (guint i = 0; i < s->slots->len; i++) {
++      Slot *slot = &g_array_index(s->slots, Slot, i);
++      if (slot->kind != SLOT_TAB) continue;
++      if (slot->index >= drag.insertion) { marker = slot->x; break; }
++      marker = slot->x+slot->width-3;
++    }
++    if (marker >= 0) { rgba(cr, &accent); cairo_rectangle(cr, marker, 0, 3, s->height); cairo_fill(cr); }
++  }
++  cairo_surface_flush(image);
++  XImage *upload = XCreateImage(xdpy, s->visual, s->depth, ZPixmap, 0, NULL,
++                               s->width, s->height, 32, 0);
++  if (upload) {
++    upload->data = calloc(upload->bytes_per_line, s->height);
++    if (upload->data) {
++      guchar *pixels = cairo_image_surface_get_data(image);
++      gint stride = cairo_image_surface_get_stride(image);
++      gulong rgb_mask = s->visual->red_mask | s->visual->green_mask | s->visual->blue_mask;
++      gulong alpha = s->depth == 32 ? (0xffffffffUL & ~rgb_mask) : 0;
++      for (gint y = 0; y < s->height; y++) {
++        guint32 *row = (guint32 *)(pixels+y*stride);
++        for (gint x = 0; x < s->width; x++) {
++          guint32 p = row[x];
++          gulong pixel = component((p>>16)&255, s->visual->red_mask)
++                       | component((p>>8)&255, s->visual->green_mask)
++                       | component(p&255, s->visual->blue_mask) | alpha;
++          XPutPixel(upload, x, y, pixel);
++        }
++      }
++      /* Enlarge the actual window shape BEFORE uploading pixels. Painting
++       * against the previous shape clips newly added tabs until an Expose or
++       * pointer-triggered repaint happens to repair them. */
++      if (s->native && (s->shape_rects->len != s->slots->len
++          || memcmp(s->shape_rects->data, rects, s->slots->len*sizeof(*rects)) != 0)) {
++        XShapeCombineRectangles(xdpy, s->xid, ShapeBounding, 0, 0,
++          rects, s->slots->len, ShapeSet, Unsorted);
++        XShapeCombineRectangles(xdpy, s->xid, ShapeInput, 0, 0,
++          rects, s->slots->len, ShapeSet, Unsorted);
++        g_array_set_size(s->shape_rects, s->slots->len);
++        memcpy(s->shape_rects->data, rects, s->slots->len*sizeof(*rects));
++      }
++      XClearWindow(xdpy, s->xid);
++      if (s->native) XSetClipRectangles(xdpy, s->gc, 0, 0, rects, s->slots->len, Unsorted);
++      XPutImage(xdpy, s->xid, s->gc, upload, 0, 0, 0, 0, s->width, s->height);
++      XSetClipMask(xdpy, s->gc, None);
++    }
++    XDestroyImage(upload);
++  }
++  g_free(rects); g_object_unref(layout);
++  cairo_destroy(cr); cairo_surface_destroy(image);
++  s->dirty = FALSE;
++  XFlush(xdpy);
++}
++
++static void
++mark_dirty(App *app)
++{
++  if (!app->closed) { app->strip.dirty = TRUE; schedule_sync(); }
++}
++
++static void
++arm_drag(App *app, TerminalScreen *screen, gint x, gint y, gint action)
++{
++  cancel_drag();
++  hide_tooltip(app);
++  drag.source = app; drag.page = g_object_ref(GTK_WIDGET(screen));
++  drag.start_x = x; drag.start_y = y; drag.raw = TRUE; drag.action = action;
++}
++
++static void
++cancel_drag(void)
++{
++  App *target = drag.target, *source = drag.source;
++  if (drag.seat) gdk_seat_ungrab(drag.seat);
++  if (drag.raw && drag.page) XUngrabPointer(xdpy, CurrentTime);
++  g_clear_object(&drag.page);
++  memset(&drag, 0, sizeof drag);
++  if (target) mark_dirty(target);
++  if (source) mark_dirty(source);
++}
++
++static gboolean
++strip_root_rect(App *app, GdkRectangle *rect)
++{
++  Strip *s = &app->strip;
++  Window child;
++  if (!s->xid || s->dead) return FALSE;
++  if (!XTranslateCoordinates(xdpy, s->xid, root_window, 0, 0, &rect->x, &rect->y, &child)) return FALSE;
++  rect->width = s->width; rect->height = s->height;
++  return TRUE;
++}
++
++static void
++hide_tooltip(App *app)
++{
++  if (app->tooltip_source) g_source_remove(app->tooltip_source);
++  app->tooltip_source = 0;
++  g_clear_pointer(&app->tooltip, gtk_widget_destroy);
++}
++
++static gboolean
++show_tooltip(gpointer data)
++{
++  App *app = data;
++  Strip *s = &app->strip;
++  app->tooltip_source = 0;
++  if (app->closed || s->dead || s->dirty || drag.page
++      || app->tooltip_slot < 0 || app->tooltip_slot >= (gint)s->slots->len) return G_SOURCE_REMOVE;
++  Slot *slot = &g_array_index(s->slots, Slot, app->tooltip_slot);
++  GdkRectangle rect;
++  if (!strip_root_rect(app, &rect)) return G_SOURCE_REMOVE;
++  const gchar *text = slot->kind == SLOT_TAB
++    ? (app->tooltip_close ? _("Close this tab") : gtk_label_get_text(tab_label(slot->screen)))
++    : slot->kind == SLOT_NEW ? _("New Tab")
++    : slot->kind == SLOT_PREV ? _("Previous tabs") : _("Next tabs");
++  app->tooltip = gtk_window_new(GTK_WINDOW_POPUP);
++  gtk_window_set_screen(GTK_WINDOW(app->tooltip), gtk_widget_get_screen(app->window));
++  gtk_window_set_type_hint(GTK_WINDOW(app->tooltip), GDK_WINDOW_TYPE_HINT_TOOLTIP);
++  gtk_window_set_accept_focus(GTK_WINDOW(app->tooltip), FALSE);
++  gtk_window_set_transient_for(GTK_WINDOW(app->tooltip), GTK_WINDOW(app->window));
++  gtk_style_context_add_class(gtk_widget_get_style_context(app->tooltip), GTK_STYLE_CLASS_TOOLTIP);
++  GtkWidget *label = gtk_label_new(text);
++  gtk_container_set_border_width(GTK_CONTAINER(app->tooltip), 6);
++  gtk_container_add(GTK_CONTAINER(app->tooltip), label);
++  gint scale = gtk_widget_get_scale_factor(app->window);
++  gtk_window_move(GTK_WINDOW(app->tooltip), (rect.x+slot->x)/scale, (rect.y+rect.height)/scale+2);
++  gtk_widget_show_all(app->tooltip);
++  return G_SOURCE_REMOVE;
++}
++
++static void
++queue_tooltip(App *app, gint slot, gboolean close)
++{
++  hide_tooltip(app);
++  app->tooltip_slot = slot; app->tooltip_close = close;
++  if (slot >= 0) app->tooltip_source = g_timeout_add(500, show_tooltip, app);
++}
++
++static gboolean
++inside(GdkRectangle *rect, gint x, gint y)
++{
++  return x >= rect->x && y >= rect->y && x < rect->x+rect->width && y < rect->y+rect->height;
++}
++
++static gboolean
++client_root_rect(App *app, GdkRectangle *rect, Window *frame_out)
++{
++  Window child, root, parent, *children = NULL;
++  guint count;
++  XWindowAttributes a;
++  if (!XGetWindowAttributes(xdpy, app->client, &a) || a.map_state != IsViewable) return FALSE;
++  if (!XTranslateCoordinates(xdpy, app->client, root_window, 0, 0, &rect->x, &rect->y, &child)) return FALSE;
++  rect->width = a.width; rect->height = a.height;
++  if (!XQueryTree(xdpy, app->client, &root, &parent, &children, &count)) return FALSE;
++  if (children) XFree(children);
++  *frame_out = parent == root ? app->client : parent;
++  return TRUE;
++}
++
++/* Only consider the application's topmost frame under the actual pointer.
++ * Do not transfer into one of our windows hidden behind another application. */
++static App *
++find_target(gint x, gint y, gint *insertion)
++{
++  Window root, top_child;
++  gint rx, ry, wx, wy;
++  guint mask;
++  if (!XQueryPointer(xdpy, root_window, &root, &top_child, &rx, &ry, &wx, &wy, &mask)) return NULL;
++  for (guint i = 0; i < apps->len; i++) {
++    App *app = g_ptr_array_index(apps, i);
++    if (app->closed) continue;
++    GdkRectangle client, strip;
++    Window frame;
++    if (!client_root_rect(app, &client, &frame) || top_child != frame) continue;
++    gint n = gtk_notebook_get_n_pages(GTK_NOTEBOOK(app->notebook));
++    if (strip_root_rect(app, &strip) && inside(&strip, x, y)) {
++      *insertion = n;
++      for (guint j = 0; j < app->strip.slots->len; j++) {
++        Slot *slot = &g_array_index(app->strip.slots, Slot, j);
++        if (slot->kind == SLOT_TAB && x-strip.x < slot->x+slot->width/2) {
++          *insertion = slot->index; break;
++        }
++        if (slot->kind == SLOT_TAB) *insertion = slot->index+1;
++      }
++      return app;
++    }
++    if (!inside(&client, x, y)) continue;
++    *insertion = n;
++    if (app == drag.source)
++      *insertion = -1; /* Releasing over own page content is a no-op. */
++    return app;
++  }
++  return NULL;
++}
++
++static void
++update_drag(gint x, gint y)
++{
++  if (!drag.page) return;
++  if (!drag.active) {
++    gint threshold = 8;
++    g_object_get(gtk_widget_get_settings(drag.source->window),
++                 "gtk-dnd-drag-threshold", &threshold, NULL);
++    threshold = MAX(1, threshold)*gtk_widget_get_scale_factor(drag.source->window);
++    if (drag.action || (abs(x-drag.start_x) < threshold && abs(y-drag.start_y) < threshold)) return;
++    if (drag.raw) {
++      XUngrabPointer(xdpy, CurrentTime); XSync(xdpy, False);
++      drag.raw = FALSE;
++    }
++    GdkDisplay *gd = gtk_widget_get_display(drag.source->window);
++    GdkSeat *seat = gdk_display_get_default_seat(gd);
++    GdkCursor *cursor = gdk_cursor_new_from_name(gd, "grabbing");
++    GdkGrabStatus result = gdk_seat_grab(seat, gtk_widget_get_window(drag.source->window),
++      GDK_SEAT_CAPABILITY_POINTER|GDK_SEAT_CAPABILITY_KEYBOARD, FALSE, cursor, NULL, NULL, NULL);
++    if (cursor) g_object_unref(cursor);
++    if (result != GDK_GRAB_SUCCESS) {
++      g_printerr("tab drag grab failed: %d; cancelled\n", result); cancel_drag(); return;
++    }
++    drag.seat = seat; drag.active = TRUE;
++  }
++  App *old = drag.target;
++  drag.target = find_target(x, y, &drag.insertion);
++  if (old) mark_dirty(old);
++  if (drag.target) mark_dirty(drag.target);
++}
++
++static void
++finish_drag(gint x, gint y, guint32 time)
++{
++  if (!drag.page) return;
++  GtkWidget *page = g_object_ref(drag.page);
++  gboolean active = drag.active;
++  gint action = drag.action, insertion = -1;
++  App *target = active ? find_target(x, y, &insertion) : NULL;
++  App *source = drag.source;
++  gint start_x = drag.start_x, start_y = drag.start_y;
++  gint scale = gtk_widget_get_scale_factor(source->window);
++  gint click_slop = 8*scale;
++  cancel_drag();
++  if (!source->closed && gtk_widget_get_parent(page) == source->notebook) {
++    if (active) {
++      if (!target) {
++        terminal_window_tab_drop_outside(TERMINAL_WINDOW(source->window),
++          TERMINAL_SCREEN(page), MAX(0, x/scale-60), MAX(0, y/scale-12));
++      } else if (target != source || insertion >= 0) {
++        /* Hit testing yields a boundary before removal. The shared operation
++         * takes a final notebook index, like GTK's existing drop handler. */
++        gint old = gtk_notebook_page_num(GTK_NOTEBOOK(source->notebook), page);
++        if (target == source && insertion > old) insertion--;
++        terminal_window_tab_transfer(TERMINAL_WINDOW(source->window),
++          TERMINAL_WINDOW(target->window), TERMINAL_SCREEN(page), insertion);
++        mark_dirty(source); mark_dirty(target);
++      }
++      if (target && !target->closed) gtk_window_present_with_time(GTK_WINDOW(target->window), time);
++    } else if (action && abs(x-start_x) < click_slop && abs(y-start_y) < click_slop) {
++      terminal_window_close_tab_request(TERMINAL_SCREEN(page), TERMINAL_WINDOW(source->window));
++    }
++  }
++  g_object_unref(page);
++}
++
++static gboolean
++pointer_motion(GtkWidget *widget, GdkEventMotion *event, gpointer data)
++{
++  if (!drag.page) return FALSE;
++  gint scale = gdk_window_get_scale_factor(event->window);
++  update_drag(event->x_root*scale, event->y_root*scale);
++  return TRUE;
++}
++
++static gboolean
++pointer_release(GtkWidget *widget, GdkEventButton *event, gpointer data)
++{
++  if (event->button != 1 || !drag.page) return FALSE;
++  gint scale = gdk_window_get_scale_factor(event->window);
++  finish_drag(event->x_root*scale, event->y_root*scale, event->time);
++  return TRUE;
++}
++
++static gboolean
++grab_broken(GtkWidget *widget, GdkEventGrabBroken *event, gpointer data)
++{
++  if (drag.active && !event->implicit) cancel_drag();
++  return FALSE;
++}
++
++static void
++notebook_changed(GtkNotebook *notebook, GtkWidget *page, guint index, gpointer data)
++{
++  App *app = data;
++  if (drag.page == page && gtk_widget_get_parent(page) != app->notebook) cancel_drag();
++  hide_tooltip(app);
++  mark_dirty(app);
++}
++
++static void
++page_selected(GtkNotebook *notebook, GtkWidget *page, guint index, gpointer data)
++{
++  App *app = data;
++  app->reveal_selected = TRUE;
++  mark_dirty(app);
++}
++
++static void
++style_changed(GtkWidget *widget, gpointer data)
++{
++  mark_dirty(data);
++}
++
++static void
++anchor_size(GtkWidget *widget, GtkAllocation *allocation, gpointer data)
++{
++  schedule_sync();
++}
++
++static gboolean
++key_press(GtkWidget *widget, GdkEventKey *event, gpointer data)
++{
++  if (event->keyval == GDK_KEY_Escape && drag.page) { cancel_drag(); return TRUE; }
++  return FALSE; /* All terminal shortcuts remain in the existing action system. */
++}
++
++static void
++window_destroy(GtkWidget *widget, gpointer data)
++{
++  App *app = data;
++  if (drag.source == app || drag.target == app) cancel_drag();
++  app->closed = TRUE;
++  discard_strip(app, TRUE);
++  g_object_set_data(G_OBJECT(widget), "terminal-titlebar-strip", NULL);
++  g_signal_handlers_disconnect_by_data(app->notebook, app);
++  g_signal_handlers_disconnect_by_data(app->window, app);
++  g_signal_handlers_disconnect_by_data(app->anchor, app);
++  /* Defer freeing until dispatch/sync has finished using this App. */
++  schedule_sync();
++}
++
++static void
++publish_title(App *app)
++{
++  if (!app->title_dirty) return;
++  gtk_window_set_title(GTK_WINDOW(app->window), "");
++  /* Complete GTK's blank-name requests before using the separate connection. */
++  gdk_display_sync(gtk_widget_get_display(app->window));
++  Atom property = XInternAtom(xdpy, "_NET_WM_VISIBLE_NAME", False);
++  Atom utf8 = XInternAtom(xdpy, "UTF8_STRING", False);
++  const gchar *title = app->title ? app->title : "";
++  XChangeProperty(xdpy, app->client, property, utf8, 8, PropModeReplace,
++    (const unsigned char *)title, strlen(title));
++  app->title_dirty = FALSE;
++}
++
++static void
++sync_app(App *app)
++{
++  if (app->closed) return;
++  GdkWindow *owner = gtk_widget_get_window(app->window);
++  if (!owner) return;
++  Strip *s = &app->strip;
++  if (s->dead) {
++    discard_strip(app, FALSE);
++    app->title_dirty = TRUE;
++  }
++  /* Panel metadata must still follow shell titles in minimized/hidden windows. */
++  publish_title(app);
++  if (!gdk_window_is_viewable(owner)) return;
++  gboolean close_buttons;
++  g_object_get(terminal_window_get_preferences(TERMINAL_WINDOW(app->window)),
++    "misc-tab-close-buttons", &close_buttons, NULL);
++  if (close_buttons != app->close_buttons) {
++    app->close_buttons = close_buttons; s->dirty = TRUE;
++  }
++  Title title;
++  GdkWindowState state = gdk_window_get_state(owner);
++  gboolean native = shapes && !(state & GDK_WINDOW_STATE_FULLSCREEN) && locate_title(app, &title);
++  /* Theme reload/reframing can briefly remove the native title. Do not
++   * introduce/remove client chrome for that transient condition. */
++  if (!native && s->native && !(state & GDK_WINDOW_STATE_FULLSCREEN)
++      && gtk_window_get_decorated(GTK_WINDOW(app->window))) {
++    if (!app->missing_since) app->missing_since = g_get_monotonic_time();
++    if (g_get_monotonic_time()-app->missing_since < 300000) return;
++  } else app->missing_since = 0;
++  Window parent;
++  gint x, y, width, height;
++  gint scale = gtk_widget_get_scale_factor(app->window);
++  if (native) {
++    terminal_window_titlebar_anchor(TERMINAL_WINDOW(app->window), app->anchor, FALSE, app->last_height);
++    app->last_height = MAX(10, (title.height+scale-1)/scale);
++    parent = title.title; x = title.x; y = title.y; width = title.width; height = title.height;
++  } else {
++    terminal_window_titlebar_anchor(TERMINAL_WINDOW(app->window), app->anchor, TRUE, app->last_height);
++    GdkWindow *anchor = gtk_widget_get_window(app->anchor);
++    if (!anchor) return;
++    gdk_window_ensure_native(anchor);
++    parent = gdk_x11_window_get_xid(anchor);
++    XWindowAttributes attributes;
++    if (!XGetWindowAttributes(xdpy, parent, &attributes) || attributes.map_state != IsViewable) return;
++    x = y = 0; width = attributes.width; height = attributes.height;
++  }
++  XWindowAttributes a;
++  if (!XGetWindowAttributes(xdpy, parent, &a) || a.class != InputOutput || width < 1 || height < 1) return;
++  gboolean created = !s->xid || s->parent != parent || s->native != native;
++  gboolean changed = created || s->x != x || s->y != y || s->width != width || s->height != height;
++  if (created) {
++    discard_strip(app, TRUE);
++    s->parent = parent; s->native = native; s->visual = a.visual; s->depth = a.depth;
++    XSetWindowAttributes attributes = {0};
++    attributes.override_redirect = True; attributes.background_pixmap = ParentRelative;
++    attributes.colormap = a.colormap; attributes.border_pixel = 0;
++    attributes.event_mask = ExposureMask|StructureNotifyMask|ButtonPressMask|ButtonReleaseMask|PointerMotionMask|LeaveWindowMask;
++    s->xid = XCreateWindow(xdpy, parent, x, y, width, height, 0, a.depth, InputOutput, a.visual,
++      CWOverrideRedirect|CWBackPixmap|CWColormap|CWBorderPixel|CWEventMask, &attributes);
++    s->gc = XCreateGC(xdpy, s->xid, 0, NULL);
++    if (debug) g_printerr("window %u: created disposable %s strip=0x%lx parent=0x%lx; GTK owner=%s\n",
++      app->id, native ? "title" : "client", s->xid, parent,
++      gtk_widget_get_toplevel(app->notebook) == app->window ? "OK" : "WRONG");
++  } else if (changed) XMoveResizeWindow(xdpy, s->xid, x, y, width, height);
++  s->x = x; s->y = y; s->width = width; s->height = height;
++  XMapWindow(xdpy, s->xid);
++  if (changed || s->dirty) paint(app);
++
++}
++
++static gboolean
++sync_all(gpointer data)
++{
++  sync_idle = 0; syncing = TRUE;
++  for (guint i = 0; i < apps->len; i++) sync_app(g_ptr_array_index(apps, i));
++  XFlush(xdpy);
++  syncing = FALSE;
++  for (guint i = apps->len; i > 0; i--) {
++    App *app = g_ptr_array_index(apps, i-1);
++    if (!app->closed) continue;
++    g_array_free(app->strip.slots, TRUE);
++    g_array_free(app->strip.shape_rects, TRUE);
++    g_free(app->title);
++    g_object_unref(app->notebook);
++    g_object_unref(app->anchor);
++    g_free(app);
++    g_ptr_array_remove_index(apps, i-1);
++  }
++  if (!apps->len) {
++    if (timer_source) g_source_remove(timer_source);
++    if (x_source) g_source_remove(x_source);
++    timer_source = x_source = 0;
++    gdk_window_remove_filter(NULL, owner_events, NULL);
++    XSync(xdpy, False);
++    XCloseDisplay(xdpy);
++    xdpy = NULL;
++    XSetErrorHandler(old_x_error);
++  }
++  return G_SOURCE_REMOVE;
++}
++
++static void
++schedule_sync(void)
++{
++  if (!syncing && !sync_idle) sync_idle = g_idle_add(sync_all, NULL);
++}
++
++static gboolean
++poll_windows(gpointer data)
++{
++  schedule_sync(); return G_SOURCE_CONTINUE;
++}
++
++/* GTK must own the pointer before a menu/popover can take its grab. A raw
++ * button press belongs to our other X connection, even in the same process. */
++static void
++tab_button(App *app, TerminalScreen *screen, XButtonEvent *event, GdkEventType type)
++{
++  g_object_ref(screen); /* A middle click may close the last page/window. */
++  cancel_drag();
++  if (event->button != Button2) gtk_window_present_with_time(GTK_WINDOW(app->window), event->time);
++  XUngrabPointer(xdpy, CurrentTime);
++  XSync(xdpy, False);
++  GdkEvent *trigger = gdk_event_new(type);
++  trigger->button.window = g_object_ref(gtk_widget_get_window(app->window));
++  trigger->button.time = event->time;
++  trigger->button.button = event->button;
++  trigger->button.state = event->state;
++  gint scale = gtk_widget_get_scale_factor(app->window);
++  gint client_x, client_y;
++  gdk_window_get_origin(trigger->button.window, &client_x, &client_y);
++  trigger->button.x_root = event->x_root/(gdouble)scale;
++  trigger->button.y_root = event->y_root/(gdouble)scale;
++  trigger->button.x = trigger->button.x_root-client_x;
++  trigger->button.y = trigger->button.y_root-client_y;
++  gdk_event_set_device(trigger, gdk_seat_get_pointer(gdk_display_get_default_seat(gtk_widget_get_display(app->window))));
++  terminal_window_tab_button_press(TERMINAL_WINDOW(app->window), screen, &trigger->button);
++  gdk_event_free(trigger);
++  g_object_unref(screen);
++}
++
++static void
++raw_press(App *app, XButtonEvent *event)
++{
++  Strip *s = &app->strip;
++  /* Page removal can precede the idle repaint. Refresh layout slots before
++   * resolving input against the current notebook. */
++  hide_tooltip(app);
++  if (s->dirty) paint(app);
++  gint hit = hit_slot(app, event->x, event->y);
++  if (hit < 0) return;
++  Slot slot = g_array_index(s->slots, Slot, hit);
++  if (event->button == Button4 || event->button == Button5) {
++    s->first = MAX(0, s->first+(event->button == Button4 ? -1 : 1)); mark_dirty(app); return;
++  }
++  if (slot.kind == SLOT_TAB) {
++    if (event->button == Button2 || event->button == Button3) {
++      tab_button(app, slot.screen, event, GDK_BUTTON_PRESS);
++      return;
++    }
++    if (event->button == Button1) {
++      gboolean close = close_hit(app, &slot, event->x);
++      if (!close) {
++        terminal_window_tab_select(TERMINAL_WINDOW(app->window), slot.screen, event->time);
++        gint double_time;
++        g_object_get(gtk_widget_get_settings(app->window), "gtk-double-click-time", &double_time, NULL);
++        if (app->last_click_page == GTK_WIDGET(slot.screen) && event->time-app->last_click < (guint)double_time) {
++          app->last_click = 0; app->last_click_page = NULL;
++          tab_button(app, slot.screen, event, GDK_2BUTTON_PRESS);
++          return;
++        }
++        app->last_click = event->time; app->last_click_page = GTK_WIDGET(slot.screen);
++      }
++      arm_drag(app, slot.screen, event->x_root, event->y_root, close);
++    }
++  } else if (event->button == Button1) {
++    if (slot.kind == SLOT_NEW) {
++      gtk_window_present_with_time(GTK_WINDOW(app->window), event->time);
++      terminal_window_tab_new(TERMINAL_WINDOW(app->window));
++    }
++    else { s->first = MAX(0, s->first+(slot.kind == SLOT_PREV ? -1 : 1)); mark_dirty(app); }
++  }
++}
++
++static void
++drain_x_events(void)
++{
++  /* Bound each dispatch so pointer/exposure bursts cannot starve GTK. The
++   * source stays ready while Xlib still holds buffered events. */
++  for (guint dispatched = 0; dispatched < 256 && XPending(xdpy); dispatched++) {
++    XEvent event; XNextEvent(xdpy, &event);
++    for (guint i = 0; i < apps->len; i++) {
++      App *app = g_ptr_array_index(apps, i);
++      if (app->closed || !app->strip.xid) continue;
++      if (event.type == DestroyNotify && event.xdestroywindow.window == app->strip.xid) {
++        if (drag.source == app) cancel_drag();
++        discard_strip(app, FALSE); app->recoveries++;
++        if (debug) g_printerr("window %u: strip lost; %d GTK pages remain realized; owner=%s\n", app->id,
++          gtk_notebook_get_n_pages(GTK_NOTEBOOK(app->notebook)),
++          gtk_widget_get_toplevel(app->notebook) == app->window ? "OK" : "WRONG");
++        schedule_sync(); break;
++      }
++      if (event.xany.window != app->strip.xid) continue;
++      if (event.type == Expose && event.xexpose.count == 0) paint(app);
++      else if (event.type == ButtonPress) raw_press(app, &event.xbutton);
++      else if (event.type == ButtonRelease && event.xbutton.button == Button1)
++        finish_drag(event.xbutton.x_root, event.xbutton.y_root, event.xbutton.time);
++      else if (event.type == MotionNotify) {
++        if (app->strip.dirty) paint(app);
++        if (drag.page) update_drag(event.xmotion.x_root, event.xmotion.y_root);
++        else {
++          gint hit = hit_slot(app, event.xmotion.x, event.xmotion.y);
++          gboolean close = hit >= 0 && close_hit(app,
++            &g_array_index(app->strip.slots, Slot, hit), event.xmotion.x);
++          if (hit != app->strip.hover || close != app->strip.close_hover) {
++            app->strip.hover = hit; app->strip.close_hover = close;
++            queue_tooltip(app, hit, close); mark_dirty(app);
++          }
++        }
++      } else if (event.type == LeaveNotify && (app->strip.hover != -1 || app->strip.close_hover)) {
++        hide_tooltip(app);
++        app->strip.hover = -1; app->strip.close_hover = FALSE; mark_dirty(app);
++      }
++      break;
++    }
++  }
++}
++
++typedef struct {
++  GSource source;
++  GPollFD poll;
++} XEventSource;
++
++static gboolean
++x_events_prepare(GSource *source, gint *timeout)
++{
++  *timeout = -1;
++  return XEventsQueued(xdpy, QueuedAlready) > 0;
++}
++
++static gboolean
++x_events_check(GSource *source)
++{
++  XEventSource *events = (XEventSource *)source;
++  return (events->poll.revents & (G_IO_IN|G_IO_HUP|G_IO_ERR|G_IO_NVAL))
++    || XEventsQueued(xdpy, QueuedAlready) > 0;
++}
++
++static gboolean
++x_events_dispatch(GSource *source, GSourceFunc callback, gpointer data)
++{
++  XEventSource *events = (XEventSource *)source;
++  if (events->poll.revents & (G_IO_HUP|G_IO_ERR|G_IO_NVAL)) {
++    x_source = 0;
++    g_warning("Title-bar strip X11 connection was lost");
++    return G_SOURCE_REMOVE;
++  }
++  drain_x_events();
++  return G_SOURCE_CONTINUE;
++}
++
++static guint
++watch_x_events(void)
++{
++  static GSourceFuncs functions = {
++    x_events_prepare, x_events_check, x_events_dispatch, NULL, NULL, NULL
++  };
++  GSource *source = g_source_new(&functions, sizeof(XEventSource));
++  XEventSource *events = (XEventSource *)source;
++  events->poll.fd = ConnectionNumber(xdpy);
++  events->poll.events = G_IO_IN|G_IO_HUP|G_IO_ERR;
++  g_source_add_poll(source, &events->poll);
++  g_source_set_name(source, "titlebar-strip-Xlib-events");
++  /* Synchronous Xlib queries for a later window may have already moved an
++   * earlier window's Expose events out of the socket into Xlib's queue. A
++   * socket-only watcher misses those; prepare/check cover both locations. */
++  guint id = g_source_attach(source, NULL);
++  g_source_unref(source);
++  return id;
++}
++
++static GdkFilterReturn
++owner_events(GdkXEvent *native, GdkEvent *event, gpointer data)
++{
++  XEvent *x = native;
++  if (x->type == ConfigureNotify || x->type == MapNotify || x->type == ReparentNotify)
++    schedule_sync();
++  return GDK_FILTER_CONTINUE;
++}
++
++static void
++screen_changed(GObject *object, GParamSpec *pspec, gpointer screen)
++{
++  GtkWidget *window = gtk_widget_get_toplevel(GTK_WIDGET(screen));
++  if (TERMINAL_IS_WINDOW(window)) terminal_titlebar_tabs_changed(TERMINAL_WINDOW(window));
++}
++
++static void
++watch_screen(GtkNotebook *notebook, GtkWidget *page, guint index, gpointer data)
++{
++  App *app = data;
++  GtkWidget *label = terminal_screen_peek_tab_label(TERMINAL_SCREEN(page));
++  if (label) {
++    g_signal_handlers_disconnect_by_func(label, screen_changed, page);
++    g_signal_connect_object(label, "notify::attributes", G_CALLBACK(screen_changed), page, 0);
++    g_signal_connect_object(label, "notify::label", G_CALLBACK(screen_changed), page, 0);
++  }
++  mark_dirty(app);
++}
++
++static gboolean
++start_connection(GtkWidget *window)
++{
++  if (xdpy) return TRUE;
++  debug = g_getenv("XFCE_TERMINAL_TITLEBAR_DEBUG") != NULL;
++  xdpy = XOpenDisplay(gdk_display_get_name(gtk_widget_get_display(window)));
++  if (!xdpy) { g_warning("Cannot open title-bar strip X11 connection"); return FALSE; }
++  if (!apps) apps = g_ptr_array_new();
++  old_x_error = XSetErrorHandler(x_error);
++  root_window = DefaultRootWindow(xdpy);
++  gint shape_event, shape_error, major = 0, minor = 0;
++  shapes = XShapeQueryExtension(xdpy, &shape_event, &shape_error)
++    && XShapeQueryVersion(xdpy, &major, &minor) && (major > 1 || (major == 1 && minor >= 1));
++  gdk_window_add_filter(NULL, owner_events, NULL);
++  x_source = watch_x_events();
++  timer_source = g_timeout_add(100, poll_windows, NULL);
++  return TRUE;
++}
++
++void
++terminal_titlebar_tabs_update(TerminalWindow *window)
++{
++  if (terminal_window_is_drop_down(window)
++      || !GDK_IS_X11_DISPLAY(gtk_widget_get_display(GTK_WIDGET(window)))) return;
++  gboolean enabled;
++  g_object_get(terminal_window_get_preferences(window), "misc-titlebar-tabs", &enabled, NULL);
++  App *app = g_object_get_data(G_OBJECT(window), "terminal-titlebar-strip");
++  if (!enabled) {
++    if (!app) return;
++    XDeleteProperty(xdpy, app->client, XInternAtom(xdpy, "_NET_WM_VISIBLE_NAME", False));
++    XSync(xdpy, False);
++    GtkWidget *anchor = app->anchor;
++    window_destroy(GTK_WIDGET(window), app);
++    gtk_widget_destroy(anchor);
++    return;
++  }
++  if (app) { mark_dirty(app); return; }
++  const gchar *wm = gdk_x11_screen_get_window_manager_name(gtk_widget_get_screen(GTK_WIDGET(window)));
++  if (!wm || g_ascii_strcasecmp(wm, "Xfwm4") != 0)
++    return; /* Native title discovery is deliberately specific to Xfwm. */
++  if (!gtk_widget_get_realized(GTK_WIDGET(window)) || !start_connection(GTK_WIDGET(window))) return;
++  app = g_new0(App, 1);
++  app->id = ++next_app; app->last_height = 26; app->close_buttons = TRUE;
++  app->window = GTK_WIDGET(window);
++  app->notebook = g_object_ref(terminal_window_get_notebook(window));
++  app->client = gdk_x11_window_get_xid(gtk_widget_get_window(GTK_WIDGET(window)));
++  app->strip.slots = g_array_new(FALSE, FALSE, sizeof(Slot)); app->strip.hover = -1;
++  g_array_set_clear_func(app->strip.slots, slot_clear);
++  app->strip.shape_rects = g_array_new(FALSE, FALSE, sizeof(XRectangle));
++  g_ptr_array_add(apps, app);
++  g_object_set_data(G_OBJECT(window), "terminal-titlebar-strip", app);
++  app->anchor = gtk_event_box_new();
++  gtk_widget_set_no_show_all(app->anchor, TRUE);
++  gtk_style_context_add_class(gtk_widget_get_style_context(app->anchor), "background");
++  gtk_widget_set_size_request(app->anchor, -1, app->last_height);
++  GtkWidget *box = terminal_window_get_vbox(window);
++  gtk_box_pack_start(GTK_BOX(box), app->anchor, FALSE, FALSE, 0);
++  gtk_box_reorder_child(GTK_BOX(box), app->anchor, 0);
++  g_object_ref(app->anchor);
++  g_signal_connect(app->notebook, "switch-page", G_CALLBACK(page_selected), app);
++  g_signal_connect(app->notebook, "page-added", G_CALLBACK(watch_screen), app);
++  g_signal_connect(app->notebook, "page-removed", G_CALLBACK(notebook_changed), app);
++  g_signal_connect(app->notebook, "page-reordered", G_CALLBACK(notebook_changed), app);
++  g_signal_connect(app->window, "style-updated", G_CALLBACK(style_changed), app);
++  g_signal_connect(app->anchor, "size-allocate", G_CALLBACK(anchor_size), app);
++  g_signal_connect(app->window, "key-press-event", G_CALLBACK(key_press), app);
++  g_signal_connect(app->window, "motion-notify-event", G_CALLBACK(pointer_motion), app);
++  g_signal_connect(app->window, "button-release-event", G_CALLBACK(pointer_release), app);
++  g_signal_connect(app->window, "grab-broken-event", G_CALLBACK(grab_broken), app);
++  g_signal_connect(app->window, "destroy", G_CALLBACK(window_destroy), app);
++  gtk_widget_add_events(app->window, GDK_POINTER_MOTION_MASK|GDK_BUTTON_RELEASE_MASK);
++  for (gint i = 0; i < gtk_notebook_get_n_pages(GTK_NOTEBOOK(app->notebook)); i++)
++    watch_screen(GTK_NOTEBOOK(app->notebook), gtk_notebook_get_nth_page(GTK_NOTEBOOK(app->notebook), i), i, app);
++  gtk_notebook_set_show_tabs(GTK_NOTEBOOK(app->notebook), FALSE);
++  app->reveal_selected = TRUE;
++  mark_dirty(app);
++}
++
++gboolean
++terminal_titlebar_tabs_active(TerminalWindow *window)
++{
++  return g_object_get_data(G_OBJECT(window), "terminal-titlebar-strip") != NULL;
++}
++
++void
++terminal_titlebar_tabs_changed(TerminalWindow *window)
++{
++  App *app = g_object_get_data(G_OBJECT(window), "terminal-titlebar-strip");
++  if (app) { hide_tooltip(app); mark_dirty(app); }
++}
++
++void
++terminal_titlebar_tabs_set_title(TerminalWindow *window, const gchar *title)
++{
++  App *app = g_object_get_data(G_OBJECT(window), "terminal-titlebar-strip");
++  if (!app || g_strcmp0(app->title, title) == 0) return;
++  g_free(app->title);
++  app->title = g_strdup(title);
++  app->title_dirty = TRUE;
++  schedule_sync();
++}
++
++#else
++void terminal_titlebar_tabs_update(TerminalWindow *window) {}
++gboolean terminal_titlebar_tabs_active(TerminalWindow *window) { return FALSE; }
++void terminal_titlebar_tabs_changed(TerminalWindow *window) {}
++void terminal_titlebar_tabs_set_title(TerminalWindow *window, const gchar *title) {}
++#endif
+diff --git a/terminal/terminal-titlebar-tabs.h b/terminal/terminal-titlebar-tabs.h
+new file mode 100644
+index 00000000..49fdb237
+--- /dev/null
++++ b/terminal/terminal-titlebar-tabs.h
+@@ -0,0 +1,9 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#ifndef TERMINAL_TITLEBAR_TABS_H
++#define TERMINAL_TITLEBAR_TABS_H
++#include "terminal-window.h"
++void terminal_titlebar_tabs_update (TerminalWindow *window);
++gboolean terminal_titlebar_tabs_active (TerminalWindow *window);
++void terminal_titlebar_tabs_changed (TerminalWindow *window);
++void terminal_titlebar_tabs_set_title (TerminalWindow *window, const gchar *title);
++#endif
+diff --git a/terminal/terminal-window-private.h b/terminal/terminal-window-private.h
+new file mode 100644
+index 00000000..869c4e55
+--- /dev/null
++++ b/terminal/terminal-window-private.h
+@@ -0,0 +1,17 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#ifndef TERMINAL_WINDOW_PRIVATE_H
++#define TERMINAL_WINDOW_PRIVATE_H
++#include "terminal-window.h"
++
++/* Shared tab operations. Both presentations pass the actual notebook page. */
++void terminal_window_tab_new (TerminalWindow *window);
++void terminal_window_close_tab_request (TerminalScreen *screen, TerminalWindow *window);
++void terminal_window_tab_select (TerminalWindow *window, TerminalScreen *screen, guint32 time);
++gboolean terminal_window_tab_button_press (TerminalWindow *window, TerminalScreen *screen,
++                                           GdkEventButton *event);
++/* position is a final notebook index, or -1 to append. */
++void terminal_window_tab_transfer (TerminalWindow *source, TerminalWindow *target,
++                                   TerminalScreen *screen, gint position);
++void terminal_window_tab_drop_outside (TerminalWindow *window, TerminalScreen *screen, gint x, gint y);
++void terminal_window_titlebar_anchor (TerminalWindow *window, GtkWidget *anchor, gboolean visible, gint height);
++#endif
+diff --git a/terminal/terminal-window.c b/terminal/terminal-window.c
+index c5cac34d..a4fa32fd 100644
+--- a/terminal/terminal-window.c
++++ b/terminal/terminal-window.c
+@@ -46,6 +46,8 @@
+ #include "terminal-widget.h"
+ #include "terminal-window-dropdown.h"
+ #include "terminal-window.h"
++#include "terminal-window-private.h"
++#include "terminal-titlebar-tabs.h"
+ 
+ 
+ 
+@@ -137,6 +139,8 @@ terminal_window_set_size_force_grid (TerminalWindow *window,
+ static void
+ terminal_window_update_slim_tabs (TerminalWindow *window);
+ static void
++terminal_window_update_titlebar_tabs (TerminalWindow *window);
++static void
+ terminal_window_update_mnemonic_modifier (TerminalWindow *window);
+ static void
+ terminal_window_notebook_page_switched (GtkNotebook *notebook,
+@@ -1203,6 +1207,9 @@ terminal_window_init (TerminalWindow *window)
+   g_signal_connect_swapped (G_OBJECT (window->priv->preferences), "notify::shortcuts-no-mnemonics",
+                             G_CALLBACK (terminal_window_update_mnemonic_modifier), window);
+ 
++  g_signal_connect_object (window->priv->preferences, "notify::misc-titlebar-tabs",
++                           G_CALLBACK (terminal_window_update_titlebar_tabs), window, G_CONNECT_SWAPPED);
++
+   window->fullscreen_supported = TRUE;
+ #ifdef ENABLE_X11
+   if (GDK_IS_X11_SCREEN (screen))
+@@ -1388,6 +1395,8 @@ terminal_window_map_event (GtkWidget *widget,
+   if (window->is_fullscreen)
+     gtk_window_fullscreen (GTK_WINDOW (widget));
+ 
++  terminal_window_update_titlebar_tabs (window);
++
+   return FALSE;
+ }
+ 
+@@ -1618,7 +1627,9 @@ terminal_window_set_size_force_grid (TerminalWindow *window,
+   if (gtk_widget_get_realized (GTK_WIDGET (screen))
+       && gdk_window != NULL
+       && (gdk_window_get_state (gdk_window) & (GDK_WINDOW_STATE_FULLSCREEN | WINDOW_STATE_TILED)) == 0
+-      && !window->priv->drop_down)
++      && !window->priv->drop_down
++      && !(terminal_titlebar_tabs_active (window)
++           && (gdk_window_get_state (gdk_window) & GDK_WINDOW_STATE_MAXIMIZED)))
+     {
+       terminal_screen_force_resize_window (screen, GTK_WINDOW (window),
+                                            force_grid_width, force_grid_height);
+@@ -1700,7 +1711,7 @@ terminal_window_notebook_page_switched (GtkNotebook *notebook,
+ 
+ 
+ 
+-static void
++void
+ terminal_window_close_tab_request (TerminalScreen *screen,
+                                    TerminalWindow *window)
+ {
+@@ -1840,78 +1851,73 @@ terminal_window_notebook_event_in_allocation (gint event_x,
+ 
+ 
+ 
++gboolean
++terminal_window_tab_button_press (TerminalWindow *window,
++                                  TerminalScreen *screen,
++                                  GdkEventButton *event)
++{
++  GtkNotebook *notebook = GTK_NOTEBOOK (window->priv->notebook);
++  gint page = gtk_notebook_page_num (notebook, GTK_WIDGET (screen));
++  if (page < 0)
++    return FALSE;
++  if (event->button == 1 && event->type == GDK_2BUTTON_PRESS)
++    {
++      gtk_notebook_set_current_page (notebook, page);
++      terminal_window_action_set_title (window);
++      return TRUE;
++    }
++  if (event->type != GDK_BUTTON_PRESS)
++    return FALSE;
++  if (event->button == 2)
++    {
++      gboolean close_middle_click;
++      g_object_get (window->priv->preferences, "misc-tab-close-middle-click", &close_middle_click, NULL);
++      if (close_middle_click)
++        terminal_window_close_tab_request (screen, window);
++      return TRUE;
++    }
++  if (event->button == 3)
++    {
++      gtk_notebook_set_current_page (notebook, page);
++      GtkWidget *menu = gtk_menu_new ();
++      terminal_window_update_tabs_menu (window, menu);
++      gtk_menu_attach_to_widget (GTK_MENU (menu), GTK_WIDGET (window), NULL);
++      g_signal_connect_swapped (menu, "selection-done", G_CALLBACK (gtk_widget_destroy), menu);
++      gtk_menu_popup_at_pointer (GTK_MENU (menu), (GdkEvent *) event);
++      return TRUE;
++    }
++  return FALSE;
++}
++
++
++
+ static gboolean
+ terminal_window_notebook_button_press_event (GtkNotebook *notebook,
+                                              GdkEventButton *event,
+                                              TerminalWindow *window)
+ {
+-  GtkWidget *page, *label, *menu;
+-  gint page_num = 0;
+-  gboolean close_middle_click;
++  GtkWidget *page, *label;
+   gint x, y;
+ 
+   g_return_val_if_fail (TERMINAL_IS_WINDOW (window), FALSE);
+   g_return_val_if_fail (GTK_IS_NOTEBOOK (notebook), FALSE);
+ 
++  if (!(event->button == 1 && event->type == GDK_2BUTTON_PRESS)
++      && !(event->type == GDK_BUTTON_PRESS && (event->button == 2 || event->button == 3)))
++    return FALSE;
+   gdk_window_get_position (event->window, &x, &y);
+   x += event->x;
+   y += event->y;
+-
+-  if (event->button == 1)
+-    {
+-      if (event->type == GDK_2BUTTON_PRESS)
+-        {
+-          /* check if the user double-clicked on the label */
+-          label = gtk_notebook_get_tab_label (notebook, GTK_WIDGET (window->priv->active));
+-          if (terminal_window_notebook_event_in_allocation (x, y, label))
+-            {
+-              terminal_window_action_set_title (window);
+-              return TRUE;
+-            }
+-        }
+-    }
+-  else if (event->type == GDK_BUTTON_PRESS && event->button <= 3)
++  for (gint i = 0; (page = gtk_notebook_get_nth_page (notebook, i)) != NULL; i++)
+     {
+-      /* select the page the user clicked on */
+-      while ((page = gtk_notebook_get_nth_page (notebook, page_num)) != NULL)
+-        {
+-          label = gtk_notebook_get_tab_label (notebook, page);
+-          if (terminal_window_notebook_event_in_allocation (x, y, label))
+-            break;
+-          page_num++;
+-        }
+-
+-      /* leave if somehow no tab was found */
+-      if (G_UNLIKELY (page == NULL))
+-        return FALSE;
+-
+-      if (event->button == 2)
+-        {
+-          /* close the tab on middle click */
+-          g_object_get (G_OBJECT (window->priv->preferences),
+-                        "misc-tab-close-middle-click", &close_middle_click, NULL);
+-          if (close_middle_click)
+-            terminal_window_close_tab_request (TERMINAL_SCREEN (page), window);
+-        }
+-      else
+-        {
+-          /* update the current tab before we show the menu */
+-          gtk_notebook_set_current_page (notebook, page_num);
+-
+-          /* show the tab menu */
+-          menu = gtk_menu_new ();
+-          terminal_window_update_tabs_menu (window, menu);
+-          gtk_menu_popup_at_pointer (GTK_MENU (menu), NULL);
+-        }
+-
+-      return TRUE;
++      label = gtk_notebook_get_tab_label (notebook, page);
++      if (terminal_window_notebook_event_in_allocation (x, y, label))
++        return terminal_window_tab_button_press (window, TERMINAL_SCREEN (page), event);
+     }
+-
+   return FALSE;
+ }
+ 
+ 
+-
+ static gboolean
+ terminal_window_notebook_button_release_event (GtkNotebook *notebook,
+                                                GdkEventButton *event,
+@@ -2020,7 +2026,7 @@ terminal_window_notebook_drag_data_received (GtkWidget *widget,
+ 
+       /* figure out where to insert the tab in the notebook */
+       n_pages = gtk_notebook_get_n_pages (GTK_NOTEBOOK (window->priv->notebook));
+-      for (i = 0; i < n_pages; i++)
++      for (i = 0; !terminal_titlebar_tabs_active (window) && i < n_pages; i++)
+         {
+           /* get the child label */
+           GtkAllocation allocation;
+@@ -2033,31 +2039,13 @@ terminal_window_notebook_drag_data_received (GtkWidget *widget,
+             break;
+         }
+ 
+-      if (notebook == window->priv->notebook)
+-        {
+-          /* if we're in the same notebook, don't risk anything and do a
+-           * simple reorder */
+-          gtk_notebook_reorder_child (GTK_NOTEBOOK (notebook), screen, i);
+-        }
+-      else
+-        {
+-          /* take a reference */
+-          g_object_ref (G_OBJECT (screen));
+-          g_object_ref (G_OBJECT (window));
++      if (terminal_titlebar_tabs_active (window))
++        i = n_pages;
+ 
+-          /* remove the document from the source notebook */
+-          gtk_notebook_detach_tab (GTK_NOTEBOOK (notebook), screen);
+-
+-          /* add the screen to the new window */
+-          terminal_window_add (window, TERMINAL_SCREEN (screen));
+-
+-          /* move the child to the correct position */
+-          gtk_notebook_reorder_child (GTK_NOTEBOOK (window->priv->notebook), screen, i);
+-
+-          /* release reference */
+-          g_object_unref (G_OBJECT (screen));
+-          g_object_unref (G_OBJECT (window));
+-        }
++      GtkWidget *source = gtk_widget_get_toplevel (notebook);
++      if (!TERMINAL_IS_WINDOW (source))
++        goto leave;
++      terminal_window_tab_transfer (TERMINAL_WINDOW (source), window, TERMINAL_SCREEN (screen), i);
+ 
+       /* looks like everything worked out */
+       succeed = TRUE;
+@@ -2154,7 +2142,10 @@ terminal_window_notify_title (TerminalScreen *screen,
+   if (screen == window->priv->active)
+     {
+       title = terminal_screen_get_title (window->priv->active);
+-      gtk_window_set_title (GTK_WINDOW (window), title);
++      if (terminal_titlebar_tabs_active (window))
++        terminal_titlebar_tabs_set_title (window, title);
++      else
++        gtk_window_set_title (GTK_WINDOW (window), title);
+       g_free (title);
+     }
+ }
+@@ -2822,7 +2813,13 @@ terminal_window_action_set_title (TerminalWindow *window)
+         }
+       else
+         {
+-          window->priv->title_popover = gtk_popover_new (GTK_WIDGET (window->menubar));
++          window->priv->title_popover = gtk_popover_new (terminal_titlebar_tabs_active (window)
++                                                          ? window->priv->vbox : GTK_WIDGET (window->menubar));
++          if (terminal_titlebar_tabs_active (window))
++            {
++              GdkRectangle rect = { 24, 0, 1, 1 };
++              gtk_popover_set_pointing_to (GTK_POPOVER (window->priv->title_popover), &rect);
++            }
+           gtk_popover_set_position (GTK_POPOVER (window->priv->title_popover), GTK_POS_BOTTOM);
+         }
+ 
+@@ -3413,6 +3410,21 @@ terminal_window_get_active (TerminalWindow *window)
+ 
+ 
+ 
++static gboolean
++terminal_window_notebook_tabs_visible (TerminalWindow *window)
++{
++  if (terminal_titlebar_tabs_active (window))
++    return FALSE;
++  gboolean show_tabs = TRUE;
++  if (gtk_notebook_get_n_pages (GTK_NOTEBOOK (window->priv->notebook)) < 2)
++    g_object_get (window->priv->preferences,
++                  window->priv->drop_down ? "dropdown-always-show-tabs" : "misc-always-show-tabs",
++                  &show_tabs, NULL);
++  return show_tabs;
++}
++
++
++
+ /**
+  * terminal_window_notebook_show_tabs:
+  * @window  : A #TerminalWindow.
+@@ -3420,21 +3432,9 @@ terminal_window_get_active (TerminalWindow *window)
+ void
+ terminal_window_notebook_show_tabs (TerminalWindow *window)
+ {
+-  GtkNotebook *notebook = GTK_NOTEBOOK (window->priv->notebook);
+-  gboolean show_tabs = TRUE;
+-  gint npages;
+-
+   g_return_if_fail (TERMINAL_IS_WINDOW (window));
+-
+-  /* check preferences */
+-  npages = gtk_notebook_get_n_pages (notebook);
+-  if (npages < 2)
+-    {
+-      g_object_get (G_OBJECT (window->priv->preferences),
+-                    window->priv->drop_down ? "dropdown-always-show-tabs" : "misc-always-show-tabs",
+-                    &show_tabs,
+-                    NULL);
+-    }
++  GtkNotebook *notebook = GTK_NOTEBOOK (window->priv->notebook);
++  gboolean show_tabs = terminal_window_notebook_tabs_visible (window);
+ 
+   /* set the visibility of the tabs */
+   if (gtk_notebook_get_show_tabs (notebook) != show_tabs)
+@@ -4181,3 +4181,106 @@ terminal_window_get_action_entries (void)
+ {
+   return action_entries;
+ }
++
++
++/* The strip is a presentation of this notebook; all terminal operations stay
++ * here so close confirmations, session ownership and action settings are shared. */
++static void
++terminal_window_update_titlebar_tabs (TerminalWindow *window)
++{
++  if (window->priv->drop_down)
++    return;
++  gboolean was_active = terminal_titlebar_tabs_active (window);
++  gboolean enabled;
++  g_object_get (window->priv->preferences, "misc-titlebar-tabs", &enabled, NULL);
++  if (!enabled && !was_active)
++    return;
++  GdkWindow *gdk_window = gtk_widget_get_window (GTK_WIDGET (window));
++  gboolean normal = gdk_window != NULL
++                    && !(gdk_window_get_state (gdk_window)
++                         & (GDK_WINDOW_STATE_MAXIMIZED | GDK_WINDOW_STATE_FULLSCREEN | WINDOW_STATE_TILED));
++  if (normal)
++    terminal_window_size_push (window);
++  terminal_titlebar_tabs_update (window);
++  if (was_active != terminal_titlebar_tabs_active (window))
++    {
++      gtk_notebook_set_show_tabs (GTK_NOTEBOOK (window->priv->notebook),
++                                 terminal_window_notebook_tabs_visible (window));
++      if (window->priv->active != NULL)
++        terminal_window_notify_title (window->priv->active, NULL, window);
++      if (window->priv->title_popover != NULL)
++        gtk_popover_popdown (GTK_POPOVER (window->priv->title_popover));
++      if (normal)
++        terminal_window_size_pop (window);
++    }
++}
++
++void
++terminal_window_tab_new (TerminalWindow *window)
++{
++  terminal_window_action_new_tab (window);
++}
++
++void
++terminal_window_tab_select (TerminalWindow *window,
++                            TerminalScreen *screen,
++                            guint32 time)
++{
++  gint page = gtk_notebook_page_num (GTK_NOTEBOOK (window->priv->notebook), GTK_WIDGET (screen));
++  if (page < 0)
++    return;
++  gtk_notebook_set_current_page (GTK_NOTEBOOK (window->priv->notebook), page);
++  gtk_window_present_with_time (GTK_WINDOW (window), time);
++  terminal_screen_focus (screen);
++}
++
++void
++terminal_window_tab_transfer (TerminalWindow *source,
++                              TerminalWindow *target,
++                              TerminalScreen *screen,
++                              gint position)
++{
++  if (source == target)
++    {
++      gtk_notebook_reorder_child (GTK_NOTEBOOK (source->priv->notebook), GTK_WIDGET (screen), position);
++      return;
++    }
++  g_object_ref (source);
++  g_object_ref (target);
++  g_object_ref (screen);
++  gtk_notebook_detach_tab (GTK_NOTEBOOK (source->priv->notebook), GTK_WIDGET (screen));
++  terminal_window_add (target, screen);
++  gtk_notebook_reorder_child (GTK_NOTEBOOK (target->priv->notebook), GTK_WIDGET (screen), position);
++  g_object_unref (screen);
++  g_object_unref (target);
++  g_object_unref (source);
++}
++
++void
++terminal_window_tab_drop_outside (TerminalWindow *window,
++                                  TerminalScreen *screen,
++                                  gint x,
++                                  gint y)
++{
++  if (gtk_notebook_get_n_pages (GTK_NOTEBOOK (window->priv->notebook)) == 1)
++    gtk_window_move (GTK_WINDOW (window), x, y);
++  else
++    terminal_window_notebook_create_window (GTK_NOTEBOOK (window->priv->notebook), GTK_WIDGET (screen), x, y, window);
++}
++
++void
++terminal_window_titlebar_anchor (TerminalWindow *window,
++                                GtkWidget *anchor,
++                                gboolean visible,
++                                gint height)
++{
++  gint requested_height;
++  gtk_widget_get_size_request (anchor, NULL, &requested_height);
++  if (gtk_widget_get_visible (anchor) == visible
++      && (!visible || requested_height == height))
++    return;
++  terminal_window_size_push (window);
++  gtk_widget_set_size_request (anchor, -1, height);
++  gtk_widget_set_visible (anchor, visible);
++  terminal_window_size_pop (window);
++}

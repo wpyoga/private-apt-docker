@@ -1,0 +1,156 @@
+commit 4898f20dedac361e481bd2fb22eaab7f10c3cb1c
+Author: William Poetra Yoga <william.poetra@gmail.com>
+Date:   Fri Oct 30 21:16:22 2026 +0700
+
+    Allow Shift-Enter to input a newline instead of the default Enter key event
+    
+    Shift-Enter is useful when using TUI apps that present a multi-line text box.
+    For example: Codex CLI, Claude Code. This allows the user to enter a newline
+    in a text box without using Ctrl-J (which is a bit cumbersome). Also, other
+    applications (like the browser) bind Ctrl-J to other actions, so repeated
+    switching between the terminal and the browser leads to typing mistakes.
+
+diff --git a/terminal/terminal-preferences-dialog.c b/terminal/terminal-preferences-dialog.c
+index 5cd3d48e..ee7829d3 100644
+--- a/terminal/terminal-preferences-dialog.c
++++ b/terminal/terminal-preferences-dialog.c
+@@ -1451,6 +1451,29 @@ terminal_preferences_dialog_init (TerminalPreferencesDialog *dialog)
+   /* next row */
+   row++;
+ 
++  label = gtk_label_new_with_mnemonic (_("Shift+Enter generates:"));
++  gtk_label_set_xalign (GTK_LABEL (label), 0.0f);
++  gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
++  gtk_widget_show (label);
++
++  combo = gtk_combo_box_text_new ();
++  gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (combo), _("No special treatment"));
++  gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (combo), _("CSI u"));
++  gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (combo), _("LF (Control-J)"));
++  g_object_bind_property (G_OBJECT (dialog->preferences), "binding-shift-enter",
++                          G_OBJECT (combo), "active",
++                          G_BINDING_BIDIRECTIONAL | G_BINDING_SYNC_CREATE);
++  gtk_widget_set_tooltip_text (combo, _("CSI u sends a distinct Shift+Enter key sequence. LF sends the same character as Control-J."
++                                      " The application determines whether this inserts a newline or submits input."));
++  gtk_widget_set_hexpand (combo, TRUE);
++  gtk_grid_attach (GTK_GRID (grid), combo, 1, row, 1, 1);
++  terminal_gtk_label_set_a11y_relation (GTK_LABEL (label), combo);
++  gtk_label_set_mnemonic_widget (GTK_LABEL (label), combo);
++  gtk_widget_show (combo);
++
++  /* next row */
++  row++;
++
+   label = gtk_label_new_with_mnemonic (_("Ambiguous-width characters:"));
+   gtk_label_set_xalign (GTK_LABEL (label), 0.0f);
+   gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
+@@ -2149,7 +2172,7 @@ static void
+ terminal_preferences_dialog_reset_compatibility_options (TerminalPreferencesDialog *dialog,
+                                                          GtkWidget *widget)
+ {
+-  const gchar *properties[] = { "binding-backspace", "binding-delete", "binding-ambiguous-width" };
++  const gchar *properties[] = { "binding-backspace", "binding-delete", "binding-shift-enter", "binding-ambiguous-width" };
+   terminal_preferences_dialog_reset_properties (dialog, G_N_ELEMENTS (properties), properties);
+ }
+ 
+diff --git a/terminal/terminal-preferences.c b/terminal/terminal-preferences.c
+index 963acd61..4d135193 100644
+--- a/terminal/terminal-preferences.c
++++ b/terminal/terminal-preferences.c
+@@ -48,6 +48,7 @@ enum
+   PROP_BACKGROUND_IMAGE_SHADING,
+   PROP_BINDING_BACKSPACE,
+   PROP_BINDING_DELETE,
++  PROP_BINDING_SHIFT_ENTER,
+   PROP_BINDING_AMBIGUOUS_WIDTH,
+   PROP_COLOR_FOREGROUND,
+   PROP_COLOR_BACKGROUND,
+@@ -272,6 +273,7 @@ terminal_preferences_class_init (TerminalPreferencesClass *klass)
+     TERMINAL_TYPE_SCROLLBAR,
+     TERMINAL_TYPE_TITLE,
+     TERMINAL_TYPE_ERASE_BINDING,
++    TERMINAL_TYPE_SHIFT_ENTER_BINDING,
+     TERMINAL_TYPE_AMBIGUOUS_WIDTH_BINDING,
+     TERMINAL_TYPE_CURSOR_SHAPE,
+     TERMINAL_TYPE_TEXT_BLINK_MODE,
+@@ -378,6 +380,17 @@ terminal_preferences_class_init (TerminalPreferencesClass *klass)
+                        TERMINAL_ERASE_BINDING_AUTO,
+                        G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+ 
++  /**
++   * TerminalPreferences:binding-shift-enter:
++   **/
++  preferences_props[PROP_BINDING_SHIFT_ENTER] =
++    g_param_spec_enum ("binding-shift-enter",
++                       NULL,
++                       "BindingShiftEnter",
++                       TERMINAL_TYPE_SHIFT_ENTER_BINDING,
++                       TERMINAL_SHIFT_ENTER_BINDING_DEFAULT,
++                       G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
++
+   /**
+    * TerminalPreferences:binding-ambiguous-width:
+    **/
+diff --git a/terminal/terminal-preferences.h b/terminal/terminal-preferences.h
+index 55c2b71a..479ce218 100644
+--- a/terminal/terminal-preferences.h
++++ b/terminal/terminal-preferences.h
+@@ -68,6 +68,13 @@ typedef enum /*< enum,prefix=TERMINAL_ERASE_BINDING >*/
+   TERMINAL_ERASE_BINDING_ERASE_TTY /* TTY Erase */
+ } TerminalEraseBinding;
+ 
++typedef enum /*< enum,prefix=TERMINAL_SHIFT_ENTER_BINDING >*/
++{
++  TERMINAL_SHIFT_ENTER_BINDING_DEFAULT,
++  TERMINAL_SHIFT_ENTER_BINDING_CSI_U,
++  TERMINAL_SHIFT_ENTER_BINDING_LF
++} TerminalShiftEnterBinding;
++
+ typedef enum /*< enum,prefix=TERMINAL_AMBIGUOUS_WIDTH_BINDING >*/
+ {
+   TERMINAL_AMBIGUOUS_WIDTH_BINDING_NARROW,
+diff --git a/terminal/terminal-widget.c b/terminal/terminal-widget.c
+index aa0d4ebd..f28ef08c 100644
+--- a/terminal/terminal-widget.c
++++ b/terminal/terminal-widget.c
+@@ -862,6 +862,40 @@ terminal_widget_key_press_event (GtkWidget *widget,
+       return TRUE;
+     }
+ 
++  /* Only override Shift+Enter; leave other modified Enter keys to VTE. */
++  const GdkModifierType modifiers = gtk_accelerator_get_default_mod_mask ()
++                                    | GDK_SUPER_MASK | GDK_HYPER_MASK | GDK_META_MASK | GDK_MOD4_MASK;
++  if ((event->keyval == GDK_KEY_Return || event->keyval == GDK_KEY_KP_Enter)
++      && (event->state & modifiers) == GDK_SHIFT_MASK
++      && vte_terminal_get_input_enabled (VTE_TERMINAL (widget)))
++    {
++      TerminalShiftEnterBinding binding;
++      const gchar *sequence = NULL;
++
++      g_object_get (G_OBJECT (TERMINAL_WIDGET (widget)->preferences),
++                    "binding-shift-enter", &binding, NULL);
++
++      switch (binding)
++        {
++        case TERMINAL_SHIFT_ENTER_BINDING_CSI_U:
++          sequence = "\033[13;2u";
++          break;
++
++        case TERMINAL_SHIFT_ENTER_BINDING_LF:
++          sequence = "\n";
++          break;
++
++        default:
++          break;
++        }
++
++      if (sequence != NULL)
++        {
++          vte_terminal_feed_child (VTE_TERMINAL (widget), sequence, strlen (sequence));
++          return TRUE;
++        }
++    }
++
+   return (*GTK_WIDGET_CLASS (terminal_widget_parent_class)->key_press_event) (widget, event);
+ }
+ 
