@@ -66,7 +66,9 @@ then writes UID, GID, and the key fingerprint back to `.env`.
 
 The framework explicitly supplies its directories and stream context. Scripts
 require missing or empty inputs to fail early rather than guessing paths.
-Docker sets fixed container paths; direct host invocations supply their own.
+Docker sets fixed container paths. Host entry points default FRAMEWORK_DIR to
+the current directory and export it; invoke them from the project root. Internal
+hooks still require exported context.
 
 Adapter `config` files are different: they are parsed as data and never sourced.
 They declare `RELEASE_STREAM` and either a common `BINARY_PACKAGES` list or
@@ -389,8 +391,11 @@ Both rebuild services share one output and signing identity; the existing lock
 serializes their cycles. Each builds one architecture and indexes both.
 
 Set `REPACK_REPO_DIR` and `REBUILD_REPO_DIR` to distinct absolute output
-directories. For an existing deployment, use its current `REPO_DATA_DIR/repo`
-as REPACK_REPO_DIR to preserve all packages and indexes. REPACK_GNUPG_DIR and REBUILD_GNUPG_DIR hold independent signing keys. Setup prepares both output directories.
+directories, defaulting to `/srv/apt/repack` and `/srv/apt/rebuild`.
+`REPACK_GNUPG_DIR` and `REBUILD_GNUPG_DIR` default to
+`/var/lib/apt-publisher/gnupg/repack` and `/var/lib/apt-publisher/gnupg/rebuild`.
+This keeps both signing keys outside the shared `/srv/apt` web root. Setup prepares
+both outputs with mode 0755 and each signing directory with mode 0700.
 The repack identity remains REPO_NAME; the rebuild Origin and Label are `rebuild`.
 Remove the obsolete REPOSITORY setting from .env. No data migration or cleanup
 is automatic. Serve the two outputs at separate web endpoints.
@@ -411,7 +416,9 @@ and separate `REPACK_GPG_KEY` and `REBUILD_GPG_KEY` fingerprints in the one .env
 Setup generates or selects keys independently, exports `repack-pubkey.asc` and
 `rebuild-pubkey.asc`, and never copies or synchronizes keyrings. Both rebuild
 containers mount only the rebuild keyring; repack mounts only its own.
-For existing deployments, point REPACK_GNUPG_DIR at its current gnupg directory
-and set REPACK_GPG_KEY to its existing fingerprint. Set a new REBUILD_GNUPG_DIR.
+Existing deployments can keep their current paths when the web root excludes
+both keyrings. To adopt the shared `/srv/apt` web root, follow the
+[storage migration instructions](README.md#moving-existing-storage) before serving it.
+Keep existing signing fingerprints when moving keyrings.
 Remove obsolete REPO_DATA_DIR and GPG_KEY settings after configuring these fields.
 Never serve either signing directory over HTTP.

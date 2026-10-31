@@ -95,7 +95,9 @@ and separate `REPACK_GPG_KEY` and `REBUILD_GPG_KEY` fingerprints in the one .env
 Setup generates or selects keys independently, exports `repack-pubkey.asc` and
 `rebuild-pubkey.asc`, and never copies or synchronizes keyrings. Both rebuild
 containers mount only the rebuild keyring; repack mounts only its own.
-For existing deployments, point REPACK_GNUPG_DIR at its current gnupg directory
-and set REPACK_GPG_KEY to its existing fingerprint. Set a new REBUILD_GNUPG_DIR.
+Existing deployments can keep their current paths when the web root excludes
+both keyrings. To adopt the shared `/srv/apt` web root, follow the
+[storage migration instructions](../README.md#moving-existing-storage) before serving it.
+Keep existing signing fingerprints when moving keyrings.
 Remove obsolete REPO_DATA_DIR and GPG_KEY settings after configuring these fields.
 Never serve either signing directory over HTTP.

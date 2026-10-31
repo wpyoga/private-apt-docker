@@ -9,7 +9,8 @@ Zed editor binaries repackaged with Debian shared libraries as `zed`, and
 `laya-cli`, and `laya-http`. Laya uses selected Debian Forky dependencies and
 privately bundled Click; its client setup is documented separately.
 
-The container does not serve HTTP. Point an existing Caddy instance at `repo/`.
+The containers do not serve HTTP. Point an existing Caddy instance at `/srv/apt`
+to serve the repack and rebuild repositories from separate URL subdirectories.
 
 For development, read [AGENTS.md](AGENTS.md) for coding conventions and
 [ARCHITECTURE.md](ARCHITECTURE.md) for the design rationale, adapter development
@@ -97,7 +98,6 @@ From the project directory:
 cp .env.example .env
 chmod 600 .env
 # Edit .env: set your MAINTAINER, REPO_NAME, key identity, and storage directory.
-export FRAMEWORK_DIR="$PWD"
 ./codex-repo-setup.sh
 docker compose up -d --build
 docker compose logs -f
@@ -133,7 +133,8 @@ scripts do not invent missing settings or search for alternate config paths.
 | `ARCHES` | Architectures to check and build this cycle |
 | `REPO_ARCHITECTURES` | Architectures whose repository indexes are published |
 | `CHECK_INTERVAL` | Seconds to wait after a cycle; minimum 3600 |
-| `REPACK_GNUPG_DIR`, `REBUILD_GNUPG_DIR` | Independent signing directories |
+| `REPACK_REPO_DIR`, `REBUILD_REPO_DIR` | Public repository outputs under `/srv/apt` |
+| `REPACK_GNUPG_DIR`, `REBUILD_GNUPG_DIR` | Private signing directories under `/var/lib/apt-publisher/gnupg` |
 | `REPO_USER` | System user created or reused by setup |
 | `GPG_KEY_NAME`, `GPG_KEY_TYPE`, `GPG_KEY_VALIDITY` | Explicit signing-key creation settings |
 | `REPO_UID`, `REPO_GID`, `REPACK_GPG_KEY`, `REBUILD_GPG_KEY` | Setup outputs; supply existing values when upgrading |
@@ -264,9 +265,9 @@ query errors should return a nonzero exit status.
 The framework exports the context below before calling query and build hooks.
 Hooks are part of the framework: they must use `ADAPTER_DIR` to locate their files,
 and must not rediscover their directory from `$0` or `BASH_SOURCE`. Production entry
-scripts require a non-empty `FRAMEWORK_DIR`, without directory-discovery fallbacks.
-Docker sets it to `/opt/apt-publisher`; on the host, export `FRAMEWORK_DIR="$PWD"`
-from the project directory before running shell entry points. The runner
+scripts default FRAMEWORK_DIR to the current working directory and export it to
+hooks. Run host commands from the project root; no manual export is required.
+Docker sets it to `/opt/apt-publisher`. An explicit FRAMEWORK_DIR remains supported. The runner
 exports a fresh `WORKSPACE` for each adapter. Query hooks take no arguments;
 build hooks take only the changing version, architecture, and output directory.
 Declare required context with `: "${WORKSPACE:?WORKSPACE must be set and non-empty}"`
@@ -562,21 +563,66 @@ Signing failures leave the previous live indexes intact. Stored artifacts are
 available for the next publication attempt without rebuilding.
 
 Hash-addressed indexes are retained so APT clients can finish fetching an earlier
-signed release while new indexes are being published. Back up the entire `repo/`
-and the signing key separately. Never serve the signing-key directory.
+signed release while new indexes are being published. Back up both complete
+repository outputs and the signing keys separately.
+
+The default host layout separates public repositories from private signing keys:
+
+```text
+/srv/apt/                         # Caddy document root
+├── repack/                       # pool/, dists/, and repository state
+└── rebuild/                      # pool/, dists/, and repository state
+
+/var/lib/apt-publisher/gnupg/
+├── repack/                       # private keyring, mode 0700
+└── rebuild/                      # private keyring, mode 0700
+```
+
+Each service mounts its output at `/repo` and its keyring at `/gnupg` inside the
+container. Host paths are configured independently in `.env`.
 
 For Caddy, replace the Tailnet IP with your server's address:
 
 ```caddyfile
 http://100.101.102.103:8080 {
     bind 100.101.102.103
-    root * /srv/apt/repack/repo
+    root * /srv/apt
     file_server
 }
 ```
 
-Caddy needs read access to `repo/` and traversal access through its parents. The
-publisher uses umask 022. Never grant Caddy access to `gnupg/`.
+This serves both repositories on one IP and port, at `/repack/` and `/rebuild/`.
+Caddy needs read access to both outputs and traversal access through their parents.
+The publisher uses umask 022. Keep both keyrings outside the web root and owned by
+the publisher account with mode 0700. Never grant Caddy access to them.
+
+### Moving existing storage
+
+Existing paths remain supported; setup does not move data automatically. Before
+changing Caddy to serve `/srv/apt`, move any signing directories out of that tree:
+
+1. Stop all publishers with `docker compose stop`, and stop any manual update jobs.
+   Keep Caddy stopped during the move if it already serves `/srv/apt`.
+2. Back up both complete repository outputs and both keyrings. Record the current
+   signing fingerprints from `.env`.
+3. Move each existing keyring to its new path under
+   `/var/lib/apt-publisher/gnupg/`, preserving ownership and permissions. Keep each
+   keyring directory at mode 0700. Do not leave keyring copies or backups under
+   `/srv/apt`.
+4. Move the complete repository outputs, including hidden files, to
+   `/srv/apt/repack` and `/srv/apt/rebuild`. For the old
+   `/srv/apt/repack/repo` layout, move the contents of `repo/` into its parent;
+   do the same for rebuild. Preserve all packages, indexes, by-hash files, and
+   `.state/`. Check for destination conflicts before moving anything.
+5. Update all four directory settings in `.env` to the new paths. Keep
+   `REPACK_GPG_KEY`, `REBUILD_GPG_KEY`, `REPO_UID`, and `REPO_GID` unchanged.
+   Do not run setup to generate replacement keys.
+6. Verify that `/srv/apt` contains only repository data, then update Caddy's root
+   and reload it. Recreate publishers with `docker compose up -d --force-recreate`
+   so their bind mounts use the new paths.
+7. If the repository URL changed, update client source lists to use `/repack/`
+   or `/rebuild/` and run `sudo apt update`. Existing trusted public keys remain
+   valid because the signing identities have not changed.
 
 ## Debian client
 
@@ -586,11 +632,14 @@ Transfer `repack-pubkey.asc` securely and verify its fingerprint out of band:
 sudo install -d -m 0755 /etc/apt/keyrings
 sudo install -m 0644 repack-pubkey.asc /etc/apt/keyrings/private-repo.asc
 printf '%s\n' \
-    'deb [signed-by=/etc/apt/keyrings/private-repo.asc] http://100.101.102.103:8080/ trixie main' \
+    'deb [signed-by=/etc/apt/keyrings/private-repo.asc] http://100.101.102.103:8080/repack/ trixie main' \
     | sudo tee /etc/apt/sources.list.d/private-repo.list
 sudo apt update
 sudo apt install codex-cli
 ```
+
+For rebuild packages, install `rebuild-pubkey.asc` into a separate keyring and
+add a source entry using that keyring and `http://100.101.102.103:8080/rebuild/`.
 
 Existing deployments may keep their original key and source-list filenames.
 For same-name streams, select a particular published version using
@@ -604,7 +653,6 @@ Generated files belong under ignored `build/`. Manual local repository data uses
 `build/local/repo` and `build/local/gnupg`:
 
 ```sh
-export FRAMEWORK_DIR="$PWD"
 # In .env, point both output and GnuPG directory pairs under build/local.
 ./codex-repo-setup.sh
 docker compose up -d --build
@@ -717,8 +765,11 @@ Both rebuild services share one output and signing identity; the existing lock
 serializes their cycles. Each builds one architecture and indexes both.
 
 Set `REPACK_REPO_DIR` and `REBUILD_REPO_DIR` to distinct absolute output
-directories. For an existing deployment, use its current `REPO_DATA_DIR/repo`
-as REPACK_REPO_DIR to preserve all packages and indexes. REPACK_GNUPG_DIR and REBUILD_GNUPG_DIR hold independent signing keys. Setup prepares both output directories.
+directories, defaulting to `/srv/apt/repack` and `/srv/apt/rebuild`.
+`REPACK_GNUPG_DIR` and `REBUILD_GNUPG_DIR` default to
+`/var/lib/apt-publisher/gnupg/repack` and `/var/lib/apt-publisher/gnupg/rebuild`.
+This keeps both signing keys outside the shared `/srv/apt` web root. Setup prepares
+both outputs with mode 0755 and each signing directory with mode 0700.
 The repack identity remains REPO_NAME; the rebuild Origin and Label are `rebuild`.
 Remove the obsolete REPOSITORY setting from .env. No data migration or cleanup
 is automatic. Serve the two outputs at separate web endpoints.
@@ -739,7 +790,9 @@ and separate `REPACK_GPG_KEY` and `REBUILD_GPG_KEY` fingerprints in the one .env
 Setup generates or selects keys independently, exports `repack-pubkey.asc` and
 `rebuild-pubkey.asc`, and never copies or synchronizes keyrings. Both rebuild
 containers mount only the rebuild keyring; repack mounts only its own.
-For existing deployments, point REPACK_GNUPG_DIR at its current gnupg directory
-and set REPACK_GPG_KEY to its existing fingerprint. Set a new REBUILD_GNUPG_DIR.
+Existing deployments can keep their current paths when the web root excludes
+both keyrings. To adopt the shared `/srv/apt` web root, follow the
+[storage migration instructions](#moving-existing-storage) before serving it.
+Keep existing signing fingerprints when moving keyrings.
 Remove obsolete REPO_DATA_DIR and GPG_KEY settings after configuring these fields.
 Never serve either signing directory over HTTP.
