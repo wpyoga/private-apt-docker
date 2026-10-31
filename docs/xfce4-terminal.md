@@ -7,6 +7,11 @@ Debian's existing patches, then applies the local series without patch fuzz.
 There is no persistent upstream Git checkout. Only xfce4-terminal is compiled;
 its build dependencies are installed from Debian binary packages.
 
+Before building either architecture, the adapter adds `--enable-maintainer-mode`
+to Debian's existing `dh_auto_configure -- --with-utempter` command in
+`debian/rules`. It fails if the expected command changes so the new packaging
+can be reviewed. This packaging adjustment is separate from the quilt series.
+
 ## Public patches
 
 Commit patches under `packages/rebuild/xfce4-terminal/patches/` and list their filenames,

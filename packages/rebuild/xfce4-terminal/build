@@ -30,6 +30,14 @@ while IFS= read -r PATCH || [[ -n "$PATCH" ]]; do
     quilt import "$ADAPTER_DIR/patches/$PATCH"
     quilt push --fuzz=0
 done < "$ADAPTER_DIR/patches/series"
+
+# Keep Debian's configure options and require review if its recipe changes.
+if ! grep -Fxq $'\tdh_auto_configure -- --with-utempter' debian/rules; then
+    echo "xfce4-terminal $SOURCE_VERSION: unexpected dh_auto_configure command in debian/rules" >&2
+    exit 1
+fi
+sed -i 's/^\tdh_auto_configure -- --with-utempter$/\tdh_auto_configure -- --with-utempter --enable-maintainer-mode/' debian/rules
+
 if [[ "$ARCHITECTURE" == arm64 ]]; then
     # This tool runs on the builder, rather than on the target architecture.
     if ! grep -Fq 'xfce4-dev-tools (>= 4.18.1)' debian/control; then
