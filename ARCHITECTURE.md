@@ -56,6 +56,32 @@ Another updater waits for the lock, then runs its complete cycle even if the
 previous updater failed. The kernel releases the lock when its holders exit;
 the empty lock file may remain. Its existence does not mean an update is running.
 
+## Framework scripts
+
+Scripts receive their directories and stream settings through the exported
+environment. They require that context rather than searching for paths or
+reading the adapter configuration again.
+
+| File | Responsibility |
+| --- | --- |
+| `entrypoint.sh` | Run an update, wait for the configured interval, repeat |
+| `update.sh` | Lock the repository, discover streams, process them, publish |
+| `lib/config.sh` | Read and validate one adapter's configuration as data |
+| `lib/repository.sh` | Check the shared repository settings |
+| `lib/update-package.sh` | Query and build one stream |
+| `lib/resolve-builds.py` | Validate query targets and choose revisions and missing builds |
+| `lib/store-packages.sh` | Validate the whole output set and store packages without replacing existing files |
+| `lib/publish.sh` | Generate indexes, sign them, then publish them |
+| `lib/checksum.py` | Fingerprint the packaging inputs |
+| `lib/check-activity.py` | Compare the upstream release date with the inactivity threshold |
+| `codex-repo-setup.sh` | Prepare host storage and signing identity, then update `.env` |
+
+Shell handles process coordination, file installation, and the setup config
+update. Python handles revision bookkeeping, file fingerprints, and dates with
+timezones. Target validation lives with revision selection because both use the
+same query results. Package storage has its own script because it handles the
+finished artifacts rather than deciding which builds to run.
+
 ## Configuration and ownership
 
 The operator-owned `.env` is central configuration. Setup sources it as trusted
@@ -96,66 +122,45 @@ may publish a Debian package named `gimp`; unique Debian names are not required.
 APT version ordering and client preferences decide which version is installed.
 The publisher does not implement stream migration.
 
-`ARCHES` selects which architectures to process this cycle. Separately,
-`REPO_ARCHITECTURES` selects which indexes to publish. This separation lets an
-amd64-only update retain an arm64 index. Supported architectures are amd64 and
-arm64. A build may also emit architecture-independent `all` packages. They are
-stored once, satisfy completion checks for either architecture, and appear in
-both architecture indexes. Every build returns the full set declared for its
-architecture. A name may appear in both architecture lists; revision selection
-scans their union, while completion checks and output validation use the selected
-architecture's list. Query receives the union as `BINARY_PACKAGES`; build receives
-its selected list. Existing common-list adapters keep their original behavior.
+Build architecture selection is separate from index architecture selection, so
+an amd64-only update can retain an arm64 index. Architecture-independent packages
+are stored once and indexed for both. Revision selection considers all declared
+names, while completion and output checks use the selected architecture's names.
+See [central configuration](README.md#central-configuration) and the
+[adapter configuration format](README.md#one-directory-per-configured-release-stream)
+for the settings and list forms.
 
 ## The adapter boundary
 
-The public interface is two executable hooks:
+Adapters own upstream release selection, integrity checks, dependencies, and
+packaging. The publisher owns revision selection, output validation, storage,
+and publication. This boundary supports repacking archives, compiling source,
+and importing `.deb` files without imposing one upstream layout or version scheme.
 
-```text
-query
-build VERSION ARCH OUTPUT_DIR
-```
+Query and build share a fresh per-stream workspace. Workspace metadata such as
+`assets.json` is an adapter convention, not a framework schema. Queries select
+current releases for their stream; packaging changes do not select historical
+versions for rebuilding. Missing architectures retain their stored packages and
+are retried next cycle, while network or malformed-metadata errors fail clearly.
 
-Both receive exported `ADAPTER_DIR` and a fresh per-stream `WORKSPACE`, along with
-the framework's other context. `query` receives no positional workspace argument.
-`build` receives the final Debian version, architecture, and an existing empty
-output directory. See the README's
-[hook contract](README.md#query-and-build-hooks) for every environment variable.
+Adapters validate fixed expected paths and metadata. A changed layout needs a
+maintainer's decision rather than an automatic search for replacement files.
+Archive extraction protections alone do not establish that files and links are
+safe for the adapter's later reads or permission changes; those rules belong
+with the upstream-specific validation.
 
-The query chooses the latest eligible release for each requested architecture,
-using that upstream's actual version rules. Semantic versioning is not assumed by
-the framework. Query writes newline-terminated `VERSION<TAB>ARCH` rows to
-`WORKSPACE/targets.tsv`, with at most one row per requested architecture. An empty
-file means no eligible releases. Downloads, checksums, or other query results can
-be shared with build in workspace files; `assets.json` is an adapter convention,
-not a required framework schema.
+The complete [query and build contract](README.md#query-and-build-hooks) defines
+arguments, environment, target rows, package metadata, and output validation.
+The [shared adapter operations](README.md#shared-adapter-operations) provide common
+mechanics while leaving upstream policy inside adapters.
 
-When an architecture is unavailable, return only the available targets. The
-framework warns, keeps existing packages, and retries discovery next cycle.
-Network or malformed-metadata errors should fail rather than masquerading as an
-empty release list. An adapter decides which release channel it follows; the
-framework does not infer major/minor streams from package names.
+### Shared adapter operations
 
-Build may repack an archive, compile source, or import a `.deb`. It verifies
-download integrity and expected metadata/layout before producing packages. Use
-fixed expected paths for the stream. Unexpected changes are maintainer-visible
-errors, not an invitation to guess another root or search for a replacement file.
-Archive extraction tools supply path protections, but valid archive entries can
-still violate an adapter's expectations. Link and file-type rules belong to the
-adapter; explicitly handle anything it needs before later reads or permission
-changes can follow unexpected links.
-
-Write exactly one `NAME_VERSION_ARCH.deb` per declared binary package, with no
-extra outputs. Include `X-Build-Inputs-SHA256` and `X-Publisher-Stream` in control
-metadata. Every adapter must calculate `Installed-Size` in KiB from each final
-staged package tree, excluding `DEBIAN/`, so APT can estimate disk usage. This
-also applies to imported `.deb` files: replace upstream size metadata after
-staging, even when upstream supplied a value. `dpkg-deb --build` does not generate
-the field. The framework validates the entire output set before storing any of it.
-If a resumed build regenerates an existing matching output, preserve the stored
-bytes and install only missing packages. Each new file is installed completely
-before it becomes visible, and an existing destination cannot be overwritten.
-This is per-file publication, not a transaction across all outputs.
+Shared helpers implement publisher mechanics such as downloads, control rendering,
+and package creation. Adapters explicitly declare helper dependencies so changes
+to used helpers affect their recipe checksum without rebuilding unrelated streams.
+The API and `helper-inputs` format are documented with the
+[hook contract](README.md#shared-adapter-operations).
 
 ### Existing packaging examples
 
@@ -182,7 +187,10 @@ This is per-file publication, not a transaction across all outputs.
 - **Codex** queries GitHub's latest stable release with Bash and jq, verifies its
   archive digest, and expects `bin/` and `codex-package.json` at the archive root.
   It replaces bundled bubblewrap/ripgrep paths with wrappers for Debian tools and
-  renders `control.in` with sed. Extraction checks live in its build script.
+  renders `control.in` with sed. Extraction checks live in its build script:
+  GNU tar handles extraction paths;
+  adapter checks reject special files and external links before later reads or
+  permission changes, and validate the metadata version and entrypoint.
 - **Ghostty** imports community Debian Trixie packages from
   `mkasberg/ghostty-ubuntu`. It checks the digest, package identity, and fixed
   executable/desktop/terminfo paths. It preserves dependencies, resources, and
@@ -268,8 +276,14 @@ description changes only update repository metadata. Do not reintroduce
 
 ## Publication, storage, and failures
 
-Packages live under `pool/main/STREAM/`. Publication scans all stored versions
-with `dpkg-scanpackages --multiversion`, creates release metadata with
+Packages live under `pool/main/STREAM/`. The framework validates a build's entire
+output set before storing any files. Each new package becomes visible only when
+complete, and existing destinations cannot be overwritten. Resumed builds retain
+stored bytes and install only missing packages. Storage is atomic per file, not a
+transaction across the output set.
+
+Publication scans all stored versions with `dpkg-scanpackages --multiversion`,
+creates release metadata with
 `apt-ftparchive`, and signs it with GPG. Generation and signing finish before live
 indexes are changed, so signing failures leave previous live indexes intact.
 Live metadata files are replaced individually; publication is not a single
@@ -319,124 +333,43 @@ New build dependencies in the Dockerfile affect every stream's checksum.
 
 ## Testing and resuming work
 
-Run tests from the project root. `bash tests/run.sh --offline` runs
-offline regression tests using temporary repositories, fake downloads/signatures,
-and real Debian tools. Package-specific tests mirror adapter directories under
-`tests/`; publisher/setup/runner tests remain at the test root. Shared fixtures
-and shell helpers live in `tests/lib/`, separate from production `lib/`.
-Package-local helpers stay with their tests. Explicit per-directory discovery
-includes names such as `gimp-3.2`, which ordinary recursive discovery skips.
-`bash tests/run.sh gimp-3.2` selects that adapter's offline tests, while
-`--framework` selects only framework/setup tests. Unknown selectors fail early.
+Offline tests exercise publisher behavior with temporary repositories, fixture
+downloads, fake signatures, and real Debian tools. Separate integration checks
+exercise real signing/APT and container agent isolation. Offline validation does
+not establish that a GUI application works on a target desktop; container builds
+and live publication are separate deployment checks.
 
-`bash tests/test-signed-repo.sh` checks real signing and APT version selection
-using a throwaway key and redirected APT state. It simulates installs rather than
-installing host packages. `bash tests/run.sh` runs both suites. Tests establish
-their own context and clean up temporary data. GPG may need permission to bind a
-local socket. Run appropriate checks for the change; documentation-only edits do
-not need builds or signing tests. Package selections never run real signing or
-Docker tests implicitly; the GIMP installation coordinator is invoked explicitly
-from `tests/gimp-3.2/test-install.sh` with existing built packages.
+Adapter tests mirror their directories under `tests/`. Explicit per-directory
+discovery includes names such as `gimp-3.2`, which ordinary recursive discovery
+skips. Shared test fixtures and shell coordination live in `tests/lib/`, separate
+from production `lib/`; adapter-specific fixtures stay with their tests.
 
-The shell helpers redirect command output to retained log files and enforce
-timeouts. Logs are examined after completion instead of streamed for progress.
-Test coordinators run as the host user, with matching UID/GID for containers
-writing bind-mounted workspaces. Reuse useful downloads and validated packages;
-remove obsolete temporary copies once no investigation needs them.
-
-Temporary artifacts belong under ignored `build/`. Manual local repository data
-uses `build/local/repo` and `build/local/gnupg`. Do not use production storage or
-operator secrets for fixtures. Container builds and live upstream publication
-are separate deployment verification; offline tests do not establish that a GUI
-application works on a target desktop.
+See [local testing](README.md#local-testing) for commands, prerequisites, isolated
+storage, and installation checks. [AGENTS.md](AGENTS.md#verification) defines the
+verification workflow and handling of temporary data.
 
 When resuming, inspect current files and working-tree changes first. This document
-records decisions, not a frozen task queue. The GIMP 3.2 adapter continues the
-native AppImage-repack investigation; its maintained design and deferred issues
-are recorded in [docs/gimp-3.2.md](docs/gimp-3.2.md). Generated investigation
-payloads and local dependency-root/native-root trees are not adapter inputs.
-
-### Shared adapter operations
-
-Adapters may source `lib/adapter/package.sh` through the required `FRAMEWORK_DIR`.
-It provides installed-size measurement, Debian package creation, and verified
-artifact downloads. Upstream validation and staging remain adapter-owned.
-`lib/adapter/rewrite-control.py` replaces publisher fields and explicitly supplied
-field/value pairs while preserving unrelated multiline control metadata.
-
-An optional adapter-local `helper-inputs` file lists shared implementation paths
-relative to `lib/`, one per line. Blank lines and comments are allowed. Declare
-indirect dependencies too. These files participate in recipe checksums; unrelated
-framework files remain excluded. Missing, duplicate, escaping, and symlinked
-helper paths fail checksum calculation.
-
-Shared helper calls are explicit steps, for example:
-
-```bash
-source "$FRAMEWORK_DIR/lib/adapter/package.sh"
-verify_download "$DOWNLOAD_URL" "$ARCHIVE" "$SHA256" reuse
-# Adapter validates and stages its fixed upstream layout here.
-render_control "$ADAPTER_DIR/control.in" "$PACKAGE_DIR" ARCHITECTURE "$ARCHITECTURE"
-build_deb "$PACKAGE_DIR" "$OUTPUT_PATH"
-```
-
-`verify_download URL DESTINATION SHA256 POLICY [CURL_ARGUMENTS...]` accepts
-`refresh` (always fetch), `reuse` (fail if cached bytes mismatch), or `repair`
-(refetch mismatched bytes). New bytes are verified before replacing the destination.
-`render_control TEMPLATE PACKAGE_DIR [NAME VALUE...]` supplies publisher metadata
-and final installed size; additional pairs describe adapter-owned placeholders.
-Adapters retain decisions about optional control fields. `check_deb_field` takes
-an archive, field name, and expected value. `build_deb` takes a staged tree and
-output filename and preserves the publisher's gzip and root ownership options.
-
-`github.sh` provides `fetch_github_release REPOSITORY FILE`,
-`record_github_release_date FILE DESTINATION`, and `select_github_asset FILE NAME`.
-Selection prints one validated asset, prints nothing for a missing asset, and
-fails for duplicates or invalid digests/URLs. Adapters decide how missing assets
-map to targets and retain their own version and architecture rules.
+records decisions, not a frozen task queue. Maintained adapter investigations and
+limitations belong in their linked packaging notes, outside recipe inputs.
 
 ## Repository groups and deployment
 
-Adapters live under `packages/repack/` and `packages/rebuild/`. Their parent
-selects repository membership; config files do not contain a repository key.
-One checkout, `.env`, and Compose project run three services: the existing
-`codex-repo-updater` for repacks, plus `rebuild-amd64` and `rebuild-arm64`.
-Both rebuild services share one output and signing identity; the existing lock
-serializes their cycles. Each builds one architecture and indexes both.
+The parent directory, `packages/repack/` or `packages/rebuild/`, selects repository
+membership. Keeping this out of adapter config avoids a second source of truth.
+Repack and rebuild have separate outputs and signing identities. The two rebuild
+services share their repository and keyring, using the repository lock to serialize
+cycles and private container agents to isolate GPG sockets.
 
-Set `REPACK_REPO_DIR` and `REBUILD_REPO_DIR` to distinct absolute output
-directories, defaulting to `/srv/apt/repack` and `/srv/apt/rebuild`.
-`REPACK_GNUPG_DIR` and `REBUILD_GNUPG_DIR` default to
-`/var/lib/apt-publisher/gnupg/repack` and `/var/lib/apt-publisher/gnupg/rebuild`.
-This keeps both signing keys outside the shared `/srv/apt` web root. Setup prepares
-both outputs with mode 0755 and each signing directory with mode 0700.
-The repack identity remains REPO_NAME; the rebuild Origin and Label are `rebuild`.
-Remove the obsolete REPOSITORY setting from .env. No data migration or cleanup
-is automatic. Serve the two outputs at separate web endpoints.
+The Dockerfile shares a `tools` stage between the default `publisher` target and
+the architecture-specific `rebuild` target. Rebuild dependencies are installed
+before copying the framework and adapters, so adapter edits reuse dependency
+layers. The dependency declaration in
+`packages/rebuild/xfce4-terminal/install-build-dependencies` affects both build
+architectures. Dockerfile changes affect every stream's recipe checksum; later
+adapter-only patch edits remain local to that adapter.
 
-Start all three services with `docker compose up -d --build`. The root Dockerfile
-provides the default `publisher` target and the architecture-specific `rebuild`
-target. Both share a `tools` stage. Rebuild dependencies are installed before
-copying the framework and adapters, so adapter edits reuse the dependency layers.
-The dependency list lives in
-`packages/rebuild/xfce4-terminal/install-build-dependencies`; changing it reruns
-installation for both build architectures. Source builds currently require
-an amd64 server; rootless-daemon ownership mapping remains unverified.
-
-Changing the shared Dockerfile, including this cache restructuring, gives current
-package targets a one-time recipe revision. Later xfce4-terminal patch edits
-remain local to its adapter. Existing stored artifacts are never deleted.
-
-See [xfce4-terminal deployment and patches](docs/xfce4-terminal.md).
-
-Signing configuration uses separate `REPACK_GNUPG_DIR` and `REBUILD_GNUPG_DIR`
-and separate `REPACK_GPG_KEY` and `REBUILD_GPG_KEY` fingerprints in the one .env.
-Setup generates or selects keys independently, exports `repack-pubkey.asc` and
-`rebuild-pubkey.asc`, and never copies or synchronizes keyrings. Both rebuild
-containers mount only the rebuild keyring; repack mounts only its own.
-Existing deployments can keep their current paths when the web root excludes
-both keyrings. To adopt the shared `/srv/apt` web root, follow the
-[storage migration instructions](README.md#moving-existing-storage) before serving it.
-Keep existing signing fingerprints when moving keyrings.
-Remove obsolete REPO_DATA_DIR and GPG_KEY settings after configuring these fields.
-Never serve either signing directory over HTTP.
+See [repository groups and deployment](README.md#repository-groups-and-deployment)
+for services, settings, host requirements, signing identities, and deployment
+commands, and [storage migration](README.md#moving-existing-storage) for existing
+data. [xfce4-terminal notes](docs/xfce4-terminal.md) describe its patches and
+source-build requirements.

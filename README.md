@@ -1,8 +1,8 @@
 # Private APT publisher
 
-This container checks upstream releases, builds Debian packages, and publishes
-one signed APT repository. It includes an unofficial repackaging of the official
-OpenAI Codex executables as `codex-cli`, community Ghostty Debian packages as
+The publisher checks upstream releases, builds Debian packages, and publishes
+signed APT repositories for repacks and source rebuilds. It includes an unofficial
+repackaging of the official OpenAI Codex executables as `codex-cli`, community Ghostty Debian packages as
 `ghostty`, native GIMP 3.2 packages from the official AppImages, and the official
 Zed editor binaries repackaged with Debian shared libraries as `zed`, and
 [Laya's Python library, CLI, and HTTP server](docs/laya.md) as `python3-laya`,
@@ -14,53 +14,27 @@ to serve the repack and rebuild repositories from separate URL subdirectories.
 
 For development, read [AGENTS.md](AGENTS.md) for coding conventions and
 [ARCHITECTURE.md](ARCHITECTURE.md) for the design rationale, adapter development
-workflow, and guidance for resuming work in another session.
+workflow, and framework internals. This README owns setup, deployment, testing
+commands, and the exact adapter hook contract.
 
 ## How an update works
 
-1. Take the repository lock so another updater cannot write at the same time.
-2. Read adapter directories under the service’s selected package group, in alphabetical order.
-3. Finish one stream before starting the next: query, choose package revisions,
-   build missing architectures, and store the results.
-4. Generate and sign repository indexes containing all stored package versions.
-5. Wait six hours after the entire cycle finishes, then start again.
+The first cycle starts immediately. Each service processes its streams in order,
+builds missing packages, and publishes signed indexes. A failed stream does not
+stop the others; successful artifacts remain stored and publication is still
+attempted. `CHECK_INTERVAL` is the wait after the complete cycle, so a twenty-minute
+cycle followed by the default six-hour wait starts again six hours and twenty
+minutes later.
 
-The first cycle starts immediately. A twenty-minute cycle starting at 08:00 is
-followed by a six-hour wait, so the next starts at 14:20. There is no parallel
-package processing. A stream failure does not prevent other streams from running.
-Successful artifacts remain stored and index publication is still attempted.
-
-The lock uses `flock`, rather than testing whether a lock file exists. The
-operating system releases it when the processes holding it exit. The empty file
-may remain; it is not a stale lock. The lock protects against a second container
-or a manual invocation using the same storage. A second updater waits until the
-lock is released, then runs its cycle even if the previous updater failed.
+Updaters sharing storage wait for the repository lock. An empty lock file may
+remain after exit; its presence does not mean an update is running. See the
+[update-cycle design](ARCHITECTURE.md#the-update-cycle) for locking and failure
+semantics.
 
 ## Framework scripts
 
-Scripts receive their directories and stream settings through the exported
-environment. They require that context rather than searching for paths or
-reading the adapter configuration again.
-
-| File | Responsibility |
-| --- | --- |
-| `entrypoint.sh` | Run an update, wait for the configured interval, repeat |
-| `update.sh` | Lock the repository, discover streams, process them, publish |
-| `lib/config.sh` | Read and validate one adapter's configuration as data |
-| `lib/repository.sh` | Check the shared repository settings |
-| `lib/update-package.sh` | Query and build one stream |
-| `lib/resolve-builds.py` | Validate query targets and choose revisions and missing builds |
-| `lib/store-packages.sh` | Validate the whole output set and store packages without replacing existing files |
-| `lib/publish.sh` | Generate indexes, sign them, then publish them |
-| `lib/checksum.py` | Fingerprint the packaging inputs |
-| `lib/check-activity.py` | Compare the upstream release date with the inactivity threshold |
-| `codex-repo-setup.sh` | Prepare host storage and signing identity, then update `.env` |
-
-Shell handles process coordination, file installation, and the setup config
-update. Python handles revision bookkeeping, file fingerprints, and dates with
-timezones. Target validation lives with revision selection because both use the
-same query results. Package storage has its own script because it handles the
-finished artifacts rather than deciding which builds to run.
+See the [framework script map](ARCHITECTURE.md#framework-scripts) for internal
+responsibilities and the reasons for their separation.
 
 ## Existing deployments
 
@@ -211,21 +185,14 @@ Stream IDs use lowercase letters, digits, dots, underscores, and hyphens, beginn
 with a letter or digit. They must be unique among adapters in a cycle; duplicate
 IDs report an error and the later adapter is skipped.
 
-One directory follows one configured release stream. The query hook owns how that
-stream selects upstream releases; the stream ID is an identity, not a channel
-name that the runner interprets. Codex follows GitHub's latest stable release and
-supports amd64 and arm64. Its `query` hook declares its tag and asset rules and uses shared
-GitHub helpers implemented with Bash and `jq`. Its build hook renders `@VARNAME@` placeholders in
-`control.in` using `sed`. Extraction and validation live in short functions
-inside the build hook. Codex expects `bin/` and `codex-package.json` directly at
-the archive root. A wrapper directory or changed layout fails with a missing-file
-error; update the adapter deliberately when upstream changes its layout.
-GNU tar handles extraction paths. Packaging checks reject special files and
-external links before copying or changing permissions, and validate the expected
-files, version, and entrypoint. There is no Python code in the Codex adapter.
-Multiple adapters may declare the same Debian package name to
-publish different release streams. APT applies its normal version and priority
-rules; client-side pinning is needed to stay on an older stream.
+One directory follows one configured release stream. The query hook owns release
+selection; the runner does not interpret the stream ID as a channel name.
+Multiple adapters may declare the same Debian package name. APT applies its normal
+version and priority rules; client-side pinning is needed to stay on an older
+stream. See the [adapter boundary and packaging examples](ARCHITECTURE.md#the-adapter-boundary)
+for implementation choices and the
+[adapter development workflow](ARCHITECTURE.md#adding-or-changing-an-adapter)
+before adding or changing a stream.
 
 To add or remove an adapter, change its directory and rebuild the container image.
 Previously published packages remain available. Incomplete adapters report an
@@ -350,6 +317,45 @@ Each stream has a temporary workspace shared by query and build. Store download
 URLs, archive checksums, or other query results there in any convenient format.
 The hook owns download integrity checks, dependencies, file layout, and maintainer
 scripts. See `packages/repack/codex/` for the included adapter.
+
+### Shared adapter operations
+
+Adapters may source `lib/adapter/package.sh` through the required `FRAMEWORK_DIR`.
+It provides installed-size measurement, Debian package creation, and verified
+artifact downloads. Upstream validation and staging remain adapter-owned.
+`lib/adapter/rewrite-control.py` replaces publisher fields and explicitly supplied
+field/value pairs while preserving unrelated multiline control metadata.
+
+An optional adapter-local `helper-inputs` file lists shared implementation paths
+relative to `lib/`, one per line. Blank lines and comments are allowed. Declare
+indirect dependencies too. These files participate in recipe checksums; unrelated
+framework files remain excluded. Missing, duplicate, escaping, and symlinked
+helper paths fail checksum calculation.
+
+Shared helper calls are explicit steps, for example:
+
+```bash
+source "$FRAMEWORK_DIR/lib/adapter/package.sh"
+verify_download "$DOWNLOAD_URL" "$ARCHIVE" "$SHA256" reuse
+# Adapter validates and stages its fixed upstream layout here.
+render_control "$ADAPTER_DIR/control.in" "$PACKAGE_DIR" ARCHITECTURE "$ARCHITECTURE"
+build_deb "$PACKAGE_DIR" "$OUTPUT_PATH"
+```
+
+`verify_download URL DESTINATION SHA256 POLICY [CURL_ARGUMENTS...]` accepts
+`refresh` (always fetch), `reuse` (fail if cached bytes mismatch), or `repair`
+(refetch mismatched bytes). New bytes are verified before replacing the destination.
+`render_control TEMPLATE PACKAGE_DIR [NAME VALUE...]` supplies publisher metadata
+and final installed size; additional pairs describe adapter-owned placeholders.
+Adapters retain decisions about optional control fields. `check_deb_field` takes
+an archive, field name, and expected value. `build_deb` takes a staged tree and
+output filename and preserves the publisher's gzip and root ownership options.
+
+`github.sh` provides `fetch_github_release REPOSITORY FILE`,
+`record_github_release_date FILE DESTINATION`, and `select_github_asset FILE NAME`.
+Selection prints one validated asset, prints nothing for a missing asset, and
+fails for duplicates or invalid digests/URLs. Adapters decide how missing assets
+map to targets and retain their own version and architecture rules.
 
 ## Ghostty
 
@@ -494,51 +500,23 @@ versions, dependencies, licensing, inspection measurements and limitations.
 
 ## Checksums and Debian revisions
 
-Our input checksum answers whether the packaging recipe changed. It covers:
+Packaging changes rebuild current upstream targets at a new Debian revision.
+Unchanged recipes reuse their revision and fill missing outputs or architectures.
+A failed attempt can be retried; existing package files are preserved. Older
+upstream versions remain available and are not rebuilt just because a recipe
+changed.
 
-- Adapter file paths, contents, and executable permissions.
-- Shared implementation files listed in the adapter’s `helper-inputs`.
-- The Dockerfile.
-- The global `MAINTAINER` value.
-
-Other framework files remain excluded, along with inactivity settings, caches,
-generated `build/` directories, timestamps, and architecture selection. Changes to included comments
-also count as recipe changes.
-
-This checksum is embedded in the `.deb`; there are no separate checksum files.
-Inspect it without unpacking the main payload:
+Inspect the embedded recipe checksum and stream identity without unpacking the
+main payload:
 
 ```sh
 dpkg-deb --field PACKAGE.deb X-Build-Inputs-SHA256
 dpkg-deb --field PACKAGE.deb X-Publisher-Stream
 ```
 
-The runner reads filenames and control metadata to decide what to build:
-
-| Situation | Result |
-| --- | --- |
-| No package for this upstream version | Start at revision 1 |
-| Latest artifact for this stream has the same recipe checksum | Reuse its revision; build incomplete architectures |
-| Recipe changed, or existing artifacts have no matching metadata | Use the highest existing revision plus 1 |
-| New upstream version | Start its revision at 1 |
-
-No binary package is the source of truth for the revision. Revision allocation
-inspects all declared binary package names across all streams for the upstream
-version and uses their highest existing revision to avoid collisions. All outputs
-of a build share the resulting version. A stream reuses its own latest matching
-artifact even when another stream has a higher revision. Reverting a recipe also
-requires a new revision. Historical upstream versions are not rebuilt merely
-because the packaging script changed.
-
-A completely failed attempt leaves no artifact and retries the same next revision.
-A partial success carries the metadata needed to resume at that revision. Complete
-files appear atomically in `pool/main/STREAM/`; different contents cannot replace
-an existing package/version/architecture identity.
-
-The recipe checksum differs from a download checksum. Codex verifies each archive
-against GitHub's SHA256 digest during download. Those digests are not currently
-part of recipe change detection. Unchanged Dockerfile text may also resolve a
-changed base image or dependency version; pin those inputs when needed.
+See [checksums and revision history](ARCHITECTURE.md#checksums-and-revision-history)
+for the checksum inputs, cross-stream revision allocation, resume behavior, and
+limits of recipe change detection.
 
 ## Inactivity warnings
 
@@ -560,16 +538,12 @@ does not. Streams are never automatically paused, retired, deleted, or migrated.
 
 ## Repository storage and serving
 
-All stored `.deb` versions remain available, including old stream releases and
-packaging revisions. There is no automatic cleanup policy. Indexes are generated
-with `dpkg-scanpackages --multiversion`; `apt-ftparchive` creates release metadata,
-and GPG signs it. Generation and signing finish before live indexes are replaced.
-Signing failures leave the previous live indexes intact. Stored artifacts are
-available for the next publication attempt without rebuilding.
-
-Hash-addressed indexes are retained so APT clients can finish fetching an earlier
-signed release while new indexes are being published. Back up both complete
-repository outputs and the signing keys separately.
+All stored package versions and previous by-hash indexes are retained; there is
+no automatic cleanup. Back up complete repository outputs and signing keys
+separately. A signing failure leaves the previous live indexes available, and
+stored artifacts can be published again without rebuilding. See the
+[publication design](ARCHITECTURE.md#publication-storage-and-failures) for index
+generation, replacement, and consistency guarantees.
 
 The default host layout separates public repositories from private signing keys:
 
@@ -810,18 +784,10 @@ The repack identity remains REPO_NAME; the rebuild Origin and Label are `rebuild
 Remove the obsolete REPOSITORY setting from .env. No data migration or cleanup
 is automatic. Serve the two outputs at separate web endpoints.
 
-Start all three services with `docker compose up -d --build`. The root Dockerfile
-provides the default `publisher` target and the architecture-specific `rebuild`
-target. Both share a `tools` stage. Rebuild dependencies are installed before
-copying the framework and adapters, so adapter edits reuse the dependency layers.
-The dependency list lives in
-`packages/rebuild/xfce4-terminal/install-build-dependencies`; changing it reruns
-installation for both build architectures. Source builds currently require
-an amd64 server; rootless-daemon ownership mapping remains unverified.
-
-Changing the shared Dockerfile, including this cache restructuring, gives current
-package targets a one-time recipe revision. Later xfce4-terminal patch edits
-remain local to its adapter. Existing stored artifacts are never deleted.
+Start all three services with `docker compose up -d --build`. Source builds
+currently require an amd64 server; rootless-daemon ownership mapping remains
+unverified. See the [image and repository design](ARCHITECTURE.md#repository-groups-and-deployment)
+for build targets, dependency caching, and checksum effects.
 
 See [xfce4-terminal deployment and patches](docs/xfce4-terminal.md).
 
