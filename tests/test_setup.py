@@ -25,8 +25,10 @@ esac
         gpg = self.base / "bin/gpg"
         gpg.write_text(f'''#!/bin/bash
 set -Eeuo pipefail
+FINGERPRINT={KEY}
+if [[ " $* " == *"/rebuild-gnupg "* ]]; then FINGERPRINT={'B'*40}; fi
 if [[ " $* " == *" --list-secret-keys "* ]]; then
-    printf 'sec:-:\\nfpr:::::::::{KEY}:\\n'
+    printf 'sec:-:\\nfpr:::::::::%s:\\n' "$FINGERPRINT"
 else
     printf 'Test public key\\n'
 fi
@@ -38,6 +40,8 @@ fi
             "# Settings\nCODEX_UID=42\nPACKAGES=codex\n"
             f"REPACK_REPO_DIR='{self.base / 'storage/repo'}'\n"
             f"REBUILD_REPO_DIR='{self.base / 'storage/rebuild'}'\n"
+            f"REPACK_GNUPG_DIR='{self.base / 'repack-gnupg'}'\n"
+            f"REBUILD_GNUPG_DIR='{self.base / 'rebuild-gnupg'}'\n"
             f"REPO_USER={user}\nREPO_DATA_DIR='{self.base / 'storage'}'\n"
             "MAINTAINER='Test <test@example.com>'\nREPO_NAME='Test Repository'\n"
             "GPG_KEY_NAME='Test Key'\nGPG_KEY_TYPE=ed25519\nGPG_KEY_VALIDITY=1d\n"
@@ -50,16 +54,16 @@ fi
         subprocess.run(command, env=environment, check=True, capture_output=True)
 
         expected = settings + (
-            f"REPO_UID={os.getuid()}\nREPO_GID={os.getgid()}\nGPG_KEY={KEY}\n"
+            f"REPO_UID={os.getuid()}\nREPO_GID={os.getgid()}\nREPACK_GPG_KEY={KEY}\nREBUILD_GPG_KEY={'B'*40}\n"
         )
         self.assertEqual(path.read_text(), expected)
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
-        self.assertEqual((self.base / "repo-pubkey.asc").read_text(), "Test public key\n")
+        self.assertEqual((self.base / "repack-pubkey.asc").read_text(), "Test public key\n")
         self.assertEqual(list(self.base.glob(".env-*")), [])
 
     def test_same_output_directories_fail_before_setup(self):
         settings = (
-            "REPO_USER=test\nREPO_DATA_DIR=/unused\n"
+            "REPO_USER=test\nREPACK_GNUPG_DIR=/unused/repack-key\nREBUILD_GNUPG_DIR=/unused/rebuild-key\n"
             "REPACK_REPO_DIR=/unused/repo\nREBUILD_REPO_DIR=/unused/repo/../repo\n"
             "MAINTAINER='Test <test@localhost>'\nREPO_NAME=Test\n"
             "GPG_KEY_NAME=Test\nGPG_KEY_TYPE=ed25519\nGPG_KEY_VALIDITY=1d\n"

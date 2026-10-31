@@ -390,8 +390,7 @@ serializes their cycles. Each builds one architecture and indexes both.
 
 Set `REPACK_REPO_DIR` and `REBUILD_REPO_DIR` to distinct absolute output
 directories. For an existing deployment, use its current `REPO_DATA_DIR/repo`
-as REPACK_REPO_DIR to preserve all packages and indexes. REPO_DATA_DIR continues
-to hold the shared gnupg directory. Setup prepares both output directories.
+as REPACK_REPO_DIR to preserve all packages and indexes. REPACK_GNUPG_DIR and REBUILD_GNUPG_DIR hold independent signing keys. Setup prepares both output directories.
 The repack identity remains REPO_NAME; the rebuild Origin and Label are `rebuild`.
 Remove the obsolete REPOSITORY setting from .env. No data migration or cleanup
 is automatic. Serve the two outputs at separate web endpoints.
@@ -406,3 +405,13 @@ one-time recipe revision. Later xfce4-terminal patch edits remain local to its
 adapter. Existing stored artifacts are never deleted.
 
 See [xfce4-terminal deployment and patches](docs/xfce4-terminal.md).
+
+Signing configuration uses separate `REPACK_GNUPG_DIR` and `REBUILD_GNUPG_DIR`
+and separate `REPACK_GPG_KEY` and `REBUILD_GPG_KEY` fingerprints in the one .env.
+Setup generates or selects keys independently, exports `repack-pubkey.asc` and
+`rebuild-pubkey.asc`, and never copies or synchronizes keyrings. Both rebuild
+containers mount only the rebuild keyring; repack mounts only its own.
+For existing deployments, point REPACK_GNUPG_DIR at its current gnupg directory
+and set REPACK_GPG_KEY to its existing fingerprint. Set a new REBUILD_GNUPG_DIR.
+Remove obsolete REPO_DATA_DIR and GPG_KEY settings after configuring these fields.
+Never serve either signing directory over HTTP.

@@ -105,12 +105,12 @@ docker compose logs -f
 
 Setup reads exactly `$FRAMEWORK_DIR/.env`, validates its required inputs, creates
 the configured system user and storage directories, and generates a dedicated
-signing key if none exists. It writes `REPO_UID`, `REPO_GID`, and `GPG_KEY` back to
-that file with mode 0600, preserving other settings. It exports `repo-pubkey.asc`
+signing key if none exists. It writes `REPO_UID`, `REPO_GID`, `REPACK_GPG_KEY`, and `REBUILD_GPG_KEY` back to
+that file with mode 0600, preserving other settings. It exports `repack-pubkey.asc`
 and prints the fingerprint. Setup does not start the container.
 
 You may import an existing dedicated key into the configured `gnupg/` directory
-first. If it contains multiple primary secret keys, set `GPG_KEY` in `.env` to the
+first. If it contains multiple primary secret keys, set the repository-specific fingerprint in `.env` to the
 full fingerprint of the key you intend to use.
 
 Signing must work without interactive passphrase entry. Protect the signing key
@@ -133,10 +133,10 @@ scripts do not invent missing settings or search for alternate config paths.
 | `ARCHES` | Architectures to check and build this cycle |
 | `REPO_ARCHITECTURES` | Architectures whose repository indexes are published |
 | `CHECK_INTERVAL` | Seconds to wait after a cycle; minimum 3600 |
-| `REPO_DATA_DIR` | Host parent of `repo/` and `gnupg/` |
+| `REPACK_GNUPG_DIR`, `REBUILD_GNUPG_DIR` | Independent signing directories |
 | `REPO_USER` | System user created or reused by setup |
 | `GPG_KEY_NAME`, `GPG_KEY_TYPE`, `GPG_KEY_VALIDITY` | Explicit signing-key creation settings |
-| `REPO_UID`, `REPO_GID`, `GPG_KEY` | Setup outputs; supply existing values when upgrading |
+| `REPO_UID`, `REPO_GID`, `REPACK_GPG_KEY`, `REBUILD_GPG_KEY` | Setup outputs; supply existing values when upgrading |
 
 Changing `MAINTAINER` rebuilds every package at the next packaging revision. Changing
 `REPO_NAME` updates signed repository metadata without rebuilding package files.
@@ -580,11 +580,11 @@ publisher uses umask 022. Never grant Caddy access to `gnupg/`.
 
 ## Debian client
 
-Transfer `repo-pubkey.asc` securely and verify its fingerprint out of band:
+Transfer `repack-pubkey.asc` securely and verify its fingerprint out of band:
 
 ```sh
 sudo install -d -m 0755 /etc/apt/keyrings
-sudo install -m 0644 repo-pubkey.asc /etc/apt/keyrings/private-repo.asc
+sudo install -m 0644 repack-pubkey.asc /etc/apt/keyrings/private-repo.asc
 printf '%s\n' \
     'deb [signed-by=/etc/apt/keyrings/private-repo.asc] http://100.101.102.103:8080/ trixie main' \
     | sudo tee /etc/apt/sources.list.d/private-repo.list
@@ -605,7 +605,7 @@ Generated files belong under ignored `build/`. Manual local repository data uses
 
 ```sh
 export FRAMEWORK_DIR="$PWD"
-# In .env, set REPO_DATA_DIR to the absolute path of build/local.
+# In .env, point both output and GnuPG directory pairs under build/local.
 ./codex-repo-setup.sh
 docker compose up -d --build
 ```
@@ -718,8 +718,7 @@ serializes their cycles. Each builds one architecture and indexes both.
 
 Set `REPACK_REPO_DIR` and `REBUILD_REPO_DIR` to distinct absolute output
 directories. For an existing deployment, use its current `REPO_DATA_DIR/repo`
-as REPACK_REPO_DIR to preserve all packages and indexes. REPO_DATA_DIR continues
-to hold the shared gnupg directory. Setup prepares both output directories.
+as REPACK_REPO_DIR to preserve all packages and indexes. REPACK_GNUPG_DIR and REBUILD_GNUPG_DIR hold independent signing keys. Setup prepares both output directories.
 The repack identity remains REPO_NAME; the rebuild Origin and Label are `rebuild`.
 Remove the obsolete REPOSITORY setting from .env. No data migration or cleanup
 is automatic. Serve the two outputs at separate web endpoints.
@@ -734,3 +733,13 @@ one-time recipe revision. Later xfce4-terminal patch edits remain local to its
 adapter. Existing stored artifacts are never deleted.
 
 See [xfce4-terminal deployment and patches](docs/xfce4-terminal.md).
+
+Signing configuration uses separate `REPACK_GNUPG_DIR` and `REBUILD_GNUPG_DIR`
+and separate `REPACK_GPG_KEY` and `REBUILD_GPG_KEY` fingerprints in the one .env.
+Setup generates or selects keys independently, exports `repack-pubkey.asc` and
+`rebuild-pubkey.asc`, and never copies or synchronizes keyrings. Both rebuild
+containers mount only the rebuild keyring; repack mounts only its own.
+For existing deployments, point REPACK_GNUPG_DIR at its current gnupg directory
+and set REPACK_GPG_KEY to its existing fingerprint. Set a new REBUILD_GNUPG_DIR.
+Remove obsolete REPO_DATA_DIR and GPG_KEY settings after configuring these fields.
+Never serve either signing directory over HTTP.

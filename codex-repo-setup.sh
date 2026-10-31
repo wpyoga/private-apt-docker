@@ -12,7 +12,8 @@ source "$FRAMEWORK_DIR/.env"
 set +a
 
 : "${REPO_USER:?REPO_USER must be set and non-empty}"
-: "${REPO_DATA_DIR:?REPO_DATA_DIR must be set and non-empty}"
+: "${REPACK_GNUPG_DIR:?REPACK_GNUPG_DIR must be set and non-empty}"
+: "${REBUILD_GNUPG_DIR:?REBUILD_GNUPG_DIR must be set and non-empty}"
 : "${REPACK_REPO_DIR:?REPACK_REPO_DIR must be set and non-empty}"
 : "${REBUILD_REPO_DIR:?REBUILD_REPO_DIR must be set and non-empty}"
 : "${MAINTAINER:?MAINTAINER must be set and non-empty}"
@@ -21,7 +22,10 @@ set +a
 : "${GPG_KEY_TYPE:?GPG_KEY_TYPE must be set and non-empty}"
 : "${GPG_KEY_VALIDITY:?GPG_KEY_VALIDITY must be set and non-empty}"
 
-BASE_DIR=$(realpath -m -- "$REPO_DATA_DIR")
+if [[ "$(realpath -m -- "$REPACK_GNUPG_DIR")" == "$(realpath -m -- "$REBUILD_GNUPG_DIR")" ]]; then
+    echo 'REPACK_GNUPG_DIR and REBUILD_GNUPG_DIR must be different directories' >&2
+    exit 1
+fi
 if [[ "$(realpath -m -- "$REPACK_REPO_DIR")" == "$(realpath -m -- "$REBUILD_REPO_DIR")" ]]; then
     echo 'REPACK_REPO_DIR and REBUILD_REPO_DIR must be different directories' >&2
     exit 1
@@ -33,52 +37,59 @@ fi
 
 REPO_UID=$(id -u "$REPO_USER")
 REPO_GID=$(id -g "$REPO_USER")
-sudo install -d -o "$REPO_UID" -g "$REPO_GID" -m 755 "$BASE_DIR" "$REPACK_REPO_DIR" "$REBUILD_REPO_DIR"
-sudo install -d -o "$REPO_UID" -g "$REPO_GID" -m 700 "$BASE_DIR/gnupg"
+sudo install -d -o "$REPO_UID" -g "$REPO_GID" -m 755 "$REPACK_REPO_DIR" "$REBUILD_REPO_DIR"
+prepare_signing_key() {
+    local REPOSITORY="$1" SIGNING_DIR="$2" SELECTED_KEY="$3"
+    local KEYS
+    local -a FINGERPRINTS
 
-list_keys() {
-    sudo -u "$REPO_USER" gpg --batch --homedir "$BASE_DIR/gnupg" \
-        --list-secret-keys --with-colons "$@"
+    sudo install -d -o "$REPO_UID" -g "$REPO_GID" -m 700 "$SIGNING_DIR"
+    KEYS=$(sudo -u "$REPO_USER" gpg --batch --homedir "$SIGNING_DIR" --list-secret-keys --with-colons)
+    if ! awk -F: '$1 == "sec" { FOUND = 1 } END { exit !FOUND }' <<< "$KEYS"; then
+        sudo -u "$REPO_USER" gpg --batch --homedir "$SIGNING_DIR" \
+            --pinentry-mode loopback --passphrase "" \
+            --quick-generate-key "$GPG_KEY_NAME ($REPOSITORY)" "$GPG_KEY_TYPE" sign "$GPG_KEY_VALIDITY"
+    fi
+    local -a SELECTION=()
+    if [[ -n "$SELECTED_KEY" ]]; then
+        SELECTION=("$SELECTED_KEY")
+    fi
+    KEYS=$(sudo -u "$REPO_USER" gpg --batch --homedir "$SIGNING_DIR" \
+        --list-secret-keys --with-colons "${SELECTION[@]}")
+    mapfile -t FINGERPRINTS < <(awk -F: '
+        $1 == "sec" { IS_PRIMARY = 1; next }
+        IS_PRIMARY && $1 == "fpr" { print $10; IS_PRIMARY = 0 }
+    ' <<< "$KEYS")
+    if (( ${#FINGERPRINTS[@]} != 1 )); then
+        echo "$REPOSITORY: expected one primary secret key in $SIGNING_DIR; set its GPG_KEY explicitly" >&2
+        return 1
+    fi
+    FINGERPRINT=${FINGERPRINTS[0]}
+    sudo -u "$REPO_USER" gpg --batch --homedir "$SIGNING_DIR" \
+        --armor --export "$FINGERPRINT" > "$REPOSITORY-pubkey.asc"
+    chmod 644 "$REPOSITORY-pubkey.asc"
+    printf '%s signing-key fingerprint: %s\n' "$REPOSITORY" "$FINGERPRINT"
 }
 
-KEYS=$(list_keys)
-if ! awk -F: '$1 == "sec" { FOUND = 1 } END { exit !FOUND }' <<< "$KEYS"; then
-    sudo -u "$REPO_USER" gpg --batch --homedir "$BASE_DIR/gnupg" \
-        --pinentry-mode loopback --passphrase "" \
-        --quick-generate-key "$GPG_KEY_NAME" "$GPG_KEY_TYPE" sign "$GPG_KEY_VALIDITY"
-    KEYS=$(list_keys)
-fi
-if [[ -n "${GPG_KEY:-}" ]]; then
-    KEYS=$(list_keys "$GPG_KEY")
-fi
-
-# Select primary fingerprints only; signing subkeys have their own fpr records.
-mapfile -t FINGERPRINTS < <(awk -F: '
-    $1 == "sec" { IS_PRIMARY = 1; next }
-    IS_PRIMARY && $1 == "fpr" { print $10; IS_PRIMARY = 0 }
-' <<< "$KEYS")
-if (( ${#FINGERPRINTS[@]} != 1 )); then
-    echo 'Expected one primary secret key; set GPG_KEY explicitly to select an existing key' >&2
+prepare_signing_key repack "$REPACK_GNUPG_DIR" "${REPACK_GPG_KEY:-}"
+REPACK_GPG_KEY="$FINGERPRINT"
+prepare_signing_key rebuild "$REBUILD_GNUPG_DIR" "${REBUILD_GPG_KEY:-}"
+REBUILD_GPG_KEY="$FINGERPRINT"
+if [[ "$REPACK_GPG_KEY" == "$REBUILD_GPG_KEY" ]]; then
+    echo 'Repack and rebuild must use independently generated signing keys' >&2
     exit 1
 fi
-FINGERPRINT=${FINGERPRINTS[0]}
 
 # Preserve the operator's settings and replace only the three setup outputs.
 # mktemp creates a private file; rename it after the complete update succeeds.
 ENV_FILE=$(mktemp "$FRAMEWORK_DIR/.env-XXXXXX")
 trap 'rm -f -- "$ENV_FILE"' EXIT
 awk '
-    /^[[:space:]]*(export[[:space:]]+)?(REPO_UID|REPO_GID|GPG_KEY)[[:space:]]*=/ { next }
+    /^[[:space:]]*(export[[:space:]]+)?(REPO_UID|REPO_GID|GPG_KEY|REPACK_GPG_KEY|REBUILD_GPG_KEY)[[:space:]]*=/ { next }
     { print }
 ' "$FRAMEWORK_DIR/.env" > "$ENV_FILE"
-printf 'REPO_UID=%s\nREPO_GID=%s\nGPG_KEY=%s\n' \
-    "$REPO_UID" "$REPO_GID" "$FINGERPRINT" >> "$ENV_FILE"
+printf 'REPO_UID=%s\nREPO_GID=%s\nREPACK_GPG_KEY=%s\nREBUILD_GPG_KEY=%s\n' \
+    "$REPO_UID" "$REPO_GID" "$REPACK_GPG_KEY" "$REBUILD_GPG_KEY" >> "$ENV_FILE"
 mv -- "$ENV_FILE" "$FRAMEWORK_DIR/.env"
-
-sudo -u "$REPO_USER" gpg --batch --homedir "$BASE_DIR/gnupg" \
-    --armor --export "$FINGERPRINT" > repo-pubkey.asc
-chmod 644 repo-pubkey.asc
-
-printf 'Setup complete. Public key: %s/repo-pubkey.asc\n' "$FRAMEWORK_DIR"
-printf 'Signing-key fingerprint: %s\n' "$FINGERPRINT"
+printf 'Setup complete. Public keys: repack-pubkey.asc and rebuild-pubkey.asc\n'
 printf 'Start the publisher with: docker compose up -d --build\n'

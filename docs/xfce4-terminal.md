@@ -32,8 +32,7 @@ first. No Docker socket is mounted inside the publisher.
 
 Use the same checkout, `.env`, and Compose project as the repack publisher.
 Set `REPACK_REPO_DIR` and `REBUILD_REPO_DIR` to different absolute output paths;
-keep both architectures in `REPO_ARCHITECTURES`. `REPO_DATA_DIR/gnupg` holds the
-shared signing key. Run setup once to prepare both outputs and the signing key.
+keep both architectures in `REPO_ARCHITECTURES`. `REPACK_GNUPG_DIR` and `REBUILD_GNUPG_DIR` hold independent keys. Run setup once to prepare both outputs and the signing key.
 
 ```sh
 docker compose up -d --build
@@ -63,7 +62,7 @@ and rootless-daemon deployment remain unverified.
 ## Laptop
 
 Serve this deployment's repository using the existing web-server instructions.
-Add its APT entry with the shared repository Signed-By key, then prefer its package:
+Add its APT entry with the rebuild repository Signed-By key, then prefer its package:
 
 ```text
 Package: xfce4-terminal
@@ -90,3 +89,13 @@ checks that declaration before changing it and fails if Debian changes its
 layout. This packaging adjustment is separate from the initially empty local
 patch series. Upstream tests are disabled for these cross-builds; desktop runtime
 verification remains a laptop check.
+
+Signing configuration uses separate `REPACK_GNUPG_DIR` and `REBUILD_GNUPG_DIR`
+and separate `REPACK_GPG_KEY` and `REBUILD_GPG_KEY` fingerprints in the one .env.
+Setup generates or selects keys independently, exports `repack-pubkey.asc` and
+`rebuild-pubkey.asc`, and never copies or synchronizes keyrings. Both rebuild
+containers mount only the rebuild keyring; repack mounts only its own.
+For existing deployments, point REPACK_GNUPG_DIR at its current gnupg directory
+and set REPACK_GPG_KEY to its existing fingerprint. Set a new REBUILD_GNUPG_DIR.
+Remove obsolete REPO_DATA_DIR and GPG_KEY settings after configuring these fields.
+Never serve either signing directory over HTTP.

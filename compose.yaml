@@ -7,7 +7,7 @@ services:
     user: "${REPO_UID:?Set REPO_UID in .env}:${REPO_GID:?Set REPO_GID in .env}"
     environment: &shared-environment
       PACKAGES_DIR: /opt/apt-publisher/packages/repack
-      GPG_KEY: ${GPG_KEY:?Set GPG_KEY in .env}
+      GPG_KEY: ${REPACK_GPG_KEY:?Set REPACK_GPG_KEY in .env}
       MAINTAINER: ${MAINTAINER:?Set MAINTAINER in .env}
       REPO_NAME: ${REPO_NAME:?Set REPO_NAME in .env}
       REPO_DESCRIPTION: ${REPO_DESCRIPTION:?Set REPO_DESCRIPTION in .env}
@@ -17,7 +17,7 @@ services:
       CODENAME: ${CODENAME:?Set CODENAME in .env}
     volumes:
       - ${REPACK_REPO_DIR:?Set REPACK_REPO_DIR in .env}:/repo
-      - ${REPO_DATA_DIR:?Set REPO_DATA_DIR in .env}/gnupg:/gnupg
+      - ${REPACK_GNUPG_DIR:?Set REPACK_GNUPG_DIR in .env}:/gnupg
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -43,11 +43,12 @@ services:
     environment:
       <<: *shared-environment
       PACKAGES_DIR: /opt/apt-publisher/packages/rebuild
+      GPG_KEY: ${REBUILD_GPG_KEY:?Set REBUILD_GPG_KEY in .env}
       REPO_NAME: rebuild
       ARCHES: amd64
     volumes:
       - ${REBUILD_REPO_DIR:?Set REBUILD_REPO_DIR in .env}:/repo
-      - ${REPO_DATA_DIR:?Set REPO_DATA_DIR in .env}/gnupg:/gnupg
+      - ${REBUILD_GNUPG_DIR:?Set REBUILD_GNUPG_DIR in .env}:/gnupg
     mem_limit: 2g
     pids_limit: 512
 
@@ -64,5 +65,6 @@ services:
     environment:
       <<: *shared-environment
       PACKAGES_DIR: /opt/apt-publisher/packages/rebuild
+      GPG_KEY: ${REBUILD_GPG_KEY:?Set REBUILD_GPG_KEY in .env}
       REPO_NAME: rebuild
       ARCHES: arm64
