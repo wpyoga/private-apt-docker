@@ -809,14 +809,18 @@ The repack identity remains REPO_NAME; the rebuild Origin and Label are `rebuild
 Remove the obsolete REPOSITORY setting from .env. No data migration or cleanup
 is automatic. Serve the two outputs at separate web endpoints.
 
-Start all three services with `docker compose up -d --build`. Compose must
-support `build.additional_contexts` with service contexts. The rebuild Dockerfile
-uses the publisher service image as its base. Source builds currently require
+Start all three services with `docker compose up -d --build`. The root Dockerfile
+provides the default `publisher` target and the architecture-specific `rebuild`
+target. Both share a `tools` stage. Rebuild dependencies are installed before
+copying the framework and adapters, so adapter edits reuse the dependency layers.
+The dependency list lives in
+`packages/rebuild/xfce4-terminal/install-build-dependencies`; changing it reruns
+installation for both build architectures. Source builds currently require
 an amd64 server; rootless-daemon ownership mapping remains unverified.
 
-Grouping changes the shared Dockerfile, so current package targets receive a
-one-time recipe revision. Later xfce4-terminal patch edits remain local to its
-adapter. Existing stored artifacts are never deleted.
+Changing the shared Dockerfile, including this cache restructuring, gives current
+package targets a one-time recipe revision. Later xfce4-terminal patch edits
+remain local to its adapter. Existing stored artifacts are never deleted.
 
 See [xfce4-terminal deployment and patches](docs/xfce4-terminal.md).
 

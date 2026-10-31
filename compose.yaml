@@ -38,9 +38,7 @@ services:
     image: private-apt-rebuild-amd64:local
     build:
       context: .
-      dockerfile: packages/rebuild/xfce4-terminal/Dockerfile
-      additional_contexts:
-        publisher: service:codex-repo-updater
+      target: rebuild
       args:
         TARGET_ARCH: amd64
     environment:
@@ -60,9 +58,7 @@ services:
     image: private-apt-rebuild-arm64:local
     build:
       context: .
-      dockerfile: packages/rebuild/xfce4-terminal/Dockerfile
-      additional_contexts:
-        publisher: service:codex-repo-updater
+      target: rebuild
       args:
         TARGET_ARCH: arm64
     environment:

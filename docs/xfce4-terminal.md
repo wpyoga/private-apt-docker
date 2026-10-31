@@ -38,8 +38,12 @@ keep both architectures in `REPO_ARCHITECTURES`. `REPACK_GNUPG_DIR` and `REBUILD
 docker compose up -d --build
 ```
 
-Compose builds the base publisher first, then the two toolchain images through
-its service build contexts. Services are `codex-repo-updater`, `rebuild-amd64`,
+Compose builds the repack publisher and both toolchain images from the root
+Dockerfile. Its `tools` stage installs shared tools. The `rebuild-tools` stage
+installs architecture-specific dependencies before copying framework and adapter
+files into the final `rebuild` target. Patch and script edits therefore reuse the
+dependency layers; changing `install-build-dependencies` reruns installation.
+Services are `codex-repo-updater`, `rebuild-amd64`,
 and `rebuild-arm64`. The latter two use the same rebuild output and lock, with
 one architecture per instance. A busy lock skips a cycle and retries after the
 configured interval. Repacks use their separate output and lock.
@@ -47,11 +51,16 @@ configured interval. Repacks use their separate output and lock.
 Adapters are copied into images; rebuild and recreate services after changes.
 Compilation runs with the configured host UID/GID. Package dependency installation
 occurs only in image layers. No per-package repository setting is needed: parent
-directories select adapter membership. The Dockerfile consumes the named build
-context supplied by Compose; standalone docker builds must supply that context.
+directories select adapter membership. For a standalone toolchain build, use
+`docker build --target rebuild --build-arg TARGET_ARCH=amd64 .` (or `arm64`).
+The default target remains the repack publisher used by setup.
 
-If Debian adds build dependencies, update the adapter Dockerfile and rebuild the
-image; failed dependency checks must not be bypassed.
+If Debian adds build dependencies, update the adapter's
+`install-build-dependencies` script and rebuild the image; failed dependency
+checks must not be bypassed. Docker cannot detect new upstream dependencies from
+unchanged local inputs. To refresh Debian packages even when the declarations
+have not changed, use `docker compose build --pull --no-cache`, then recreate the
+services with `docker compose up -d`.
 
 The environment follows Trixie but is not bit-for-bit reproducible: image tags
 and dependency versions are not pinned. Native amd64 and cross-compiled arm64 builds of Debian source 1.1.4-1
