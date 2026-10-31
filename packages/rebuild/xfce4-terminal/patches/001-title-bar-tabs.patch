@@ -1,20 +1,23 @@
 diff --git a/configure.ac b/configure.ac
-index 91c22cd6..235053e7 100644
 --- a/configure.ac
 +++ b/configure.ac
-@@ -89,6 +89,7 @@ dnl ***********************************
- XDT_CHECK_OPTIONAL_FEATURE([X11],
-                            [x11],
-                            [
-+                             XDT_FEATURE_DEPENDENCY([LIBXEXT], [xext], [])
-                              XDT_FEATURE_DEPENDENCY([LIBX11], [x11], [libx11_min_version])
+@@ -93,6 +93,12 @@
                               XDT_FEATURE_DEPENDENCY([GDK_X11], [gdk-x11-3.0], [gtk_min_version])
                             ],
+                            [the X11 windowing system])
++dnl Title-bar tabs need X Shape whenever the X11 backend is enabled.
++dnl Keep this required check outside optional backend detection so a missing
++dnl dependency cannot silently turn an X11 build into a Wayland-only build.
++if test x"$ENABLE_X11" = x"yes"; then
++  XDT_CHECK_PACKAGE([LIBXEXT], [xext], [1.0.0])
++fi
+ XDT_CHECK_OPTIONAL_FEATURE([WAYLAND],
+                            [wayland],
+                            [
 diff --git a/terminal/Makefile.am b/terminal/Makefile.am
-index e1b1ba7c..17a665d0 100644
 --- a/terminal/Makefile.am
 +++ b/terminal/Makefile.am
-@@ -30,6 +30,8 @@ xfce4_terminal_headers = \
+@@ -30,6 +30,8 @@
  	terminal-util.h \
  	terminal-widget.h \
  	terminal-window.h \
@@ -23,7 +26,7 @@ index e1b1ba7c..17a665d0 100644
  	terminal-window-dropdown.h
  
  xfce4_terminal_SOURCES = \
-@@ -48,6 +50,7 @@ xfce4_terminal_SOURCES = \
+@@ -48,12 +50,14 @@
  	terminal-util.c \
  	terminal-widget.c \
  	terminal-window.c \
@@ -31,11 +34,32 @@ index e1b1ba7c..17a665d0 100644
  	terminal-window-dropdown.c
  
  xfce4_terminal_CFLAGS = \
+ 	$(GTK_CFLAGS) \
+ 	$(GIO_CFLAGS) \
+ 	$(LIBX11_CFLAGS) \
++	$(LIBXEXT_CFLAGS) \
+ 	$(GTK_LAYER_SHELL_CFLAGS) \
+ 	$(VTE_CFLAGS) \
+ 	$(LIBXFCE4UI_CFLAGS) \
+@@ -65,12 +69,14 @@
+ xfce4_terminal_LDFLAGS = \
+ 	-no-undefined \
+ 	$(LIBX11_LDFLAGS) \
++	$(LIBXEXT_LDFLAGS) \
+ 	$(PLATFORM_LDFLAGS)
+ 
+ xfce4_terminal_LDADD = \
+ 	$(GTK_LIBS) \
+ 	$(GIO_LIBS) \
+ 	$(LIBX11_LIBS) \
++	$(LIBXEXT_LIBS) \
+ 	$(GTK_LAYER_SHELL_LIBS) \
+ 	$(VTE_LIBS) \
+ 	$(LIBXFCE4UI_LIBS) \
 diff --git a/terminal/terminal-preferences-dialog.c b/terminal/terminal-preferences-dialog.c
-index ecd13aac..6d0bdc71 100644
 --- a/terminal/terminal-preferences-dialog.c
 +++ b/terminal/terminal-preferences-dialog.c
-@@ -1120,6 +1120,19 @@ terminal_preferences_dialog_init (TerminalPreferencesDialog *dialog)
+@@ -1120,6 +1120,19 @@
    /* next row */
    row++;
  
@@ -56,10 +80,9 @@ index ecd13aac..6d0bdc71 100644
    g_object_bind_property (G_OBJECT (dialog->preferences), "misc-slim-tabs",
                            G_OBJECT (button), "active",
 diff --git a/terminal/terminal-preferences.c b/terminal/terminal-preferences.c
-index f26c1956..d7fa0767 100644
 --- a/terminal/terminal-preferences.c
 +++ b/terminal/terminal-preferences.c
-@@ -115,6 +115,7 @@ enum
+@@ -114,6 +114,7 @@
    PROP_DEFAULT_WORKING_DIR,
    PROP_MISC_REWRAP_ON_RESIZE,
    PROP_MISC_SLIM_TABS,
@@ -67,7 +90,7 @@ index f26c1956..d7fa0767 100644
    PROP_MISC_NEW_TAB_ADJACENT,
    PROP_MISC_SEARCH_DIALOG_OPACITY,
    PROP_MISC_SHOW_UNSAFE_PASTE_DIALOG,
-@@ -1045,6 +1046,13 @@ terminal_preferences_class_init (TerminalPreferencesClass *klass)
+@@ -1032,6 +1033,13 @@
                              TRUE,
                              G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
  
@@ -82,10 +105,9 @@ index f26c1956..d7fa0767 100644
     * TerminalPreferences:misc-slim-tabs:
     **/
 diff --git a/terminal/terminal-screen.c b/terminal/terminal-screen.c
-index 6cc24644..1678e766 100644
 --- a/terminal/terminal-screen.c
 +++ b/terminal/terminal-screen.c
-@@ -3183,3 +3183,11 @@ void terminal_screen_update_sixel (TerminalScreen *screen)
+@@ -3183,3 +3183,11 @@
    vte_terminal_set_enable_sixel (VTE_TERMINAL (screen->terminal), enable_sixel);
  #endif
  }
@@ -98,10 +120,9 @@ index 6cc24644..1678e766 100644
 +  return screen->tab_label;
 +}
 diff --git a/terminal/terminal-screen.h b/terminal/terminal-screen.h
-index 028d242d..1e2dc945 100644
 --- a/terminal/terminal-screen.h
 +++ b/terminal/terminal-screen.h
-@@ -93,6 +93,9 @@ void            terminal_screen_reset_activity            (TerminalScreen *scree
+@@ -93,6 +93,9 @@
  
  GtkWidget      *terminal_screen_get_tab_label             (TerminalScreen *screen);
  
@@ -113,14 +134,17 @@ index 028d242d..1e2dc945 100644
  const gchar    *terminal_screen_get_encoding              (TerminalScreen *screen);
 diff --git a/terminal/terminal-titlebar-tabs.c b/terminal/terminal-titlebar-tabs.c
 new file mode 100644
-index 00000000..086bea83
 --- /dev/null
 +++ b/terminal/terminal-titlebar-tabs.c
-@@ -0,0 +1,1164 @@
+@@ -0,0 +1,1168 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later
 + * Disposable X11 title tabs; GTK notebooks/pages always stay in the client.
 + * Adapted from experiments/titlebar-tab-strip; terminal pages never leave GTK.
 + */
++#ifdef HAVE_CONFIG_H
++#include <config.h>
++#endif
++
 +#include "terminal-titlebar-tabs.h"
 +#include "terminal-window-private.h"
 +#include "terminal-private.h"
@@ -1283,7 +1307,6 @@ index 00000000..086bea83
 +#endif
 diff --git a/terminal/terminal-titlebar-tabs.h b/terminal/terminal-titlebar-tabs.h
 new file mode 100644
-index 00000000..49fdb237
 --- /dev/null
 +++ b/terminal/terminal-titlebar-tabs.h
 @@ -0,0 +1,9 @@
@@ -1298,7 +1321,6 @@ index 00000000..49fdb237
 +#endif
 diff --git a/terminal/terminal-window-private.h b/terminal/terminal-window-private.h
 new file mode 100644
-index 00000000..869c4e55
 --- /dev/null
 +++ b/terminal/terminal-window-private.h
 @@ -0,0 +1,17 @@
@@ -1320,7 +1342,6 @@ index 00000000..869c4e55
 +void terminal_window_titlebar_anchor (TerminalWindow *window, GtkWidget *anchor, gboolean visible, gint height);
 +#endif
 diff --git a/terminal/terminal-window.c b/terminal/terminal-window.c
-index 4e722a8a..8e19c3db 100644
 --- a/terminal/terminal-window.c
 +++ b/terminal/terminal-window.c
 @@ -51,6 +51,8 @@
@@ -1332,7 +1353,7 @@ index 4e722a8a..8e19c3db 100644
  
  
  
-@@ -136,6 +138,9 @@ static void         terminal_window_set_size_force_grid           (TerminalWindo
+@@ -136,6 +138,9 @@
                                                                     glong                force_grid_width,
                                                                     glong                force_grid_height);
  static void         terminal_window_update_slim_tabs              (TerminalWindow      *window);
@@ -1342,7 +1363,7 @@ index 4e722a8a..8e19c3db 100644
  static void         terminal_window_update_mnemonic_modifier      (TerminalWindow      *window);
  static void         terminal_window_notebook_page_switched        (GtkNotebook         *notebook,
                                                                     GtkWidget           *page,
-@@ -563,6 +568,9 @@ terminal_window_init (TerminalWindow *window)
+@@ -563,6 +568,9 @@
    g_signal_connect_swapped (G_OBJECT (window->priv->preferences), "notify::shortcuts-no-mnemonics",
                              G_CALLBACK (terminal_window_update_mnemonic_modifier), window);
  
@@ -1352,16 +1373,16 @@ index 4e722a8a..8e19c3db 100644
    window->fullscreen_supported = TRUE;
  #ifdef ENABLE_X11
    if (GDK_IS_X11_SCREEN (screen))
-@@ -748,6 +756,8 @@ terminal_window_map_event (GtkWidget   *widget,
+@@ -747,6 +755,8 @@
+ 
    if (window->is_fullscreen)
      gtk_window_fullscreen (GTK_WINDOW (widget));
- 
-+  terminal_window_update_titlebar_tabs (window);
 +
++  terminal_window_update_titlebar_tabs (window);
+ 
    return FALSE;
  }
- 
-@@ -977,7 +987,9 @@ terminal_window_set_size_force_grid (TerminalWindow *window,
+@@ -977,7 +987,9 @@
    if (gtk_widget_get_realized (GTK_WIDGET (screen))
        && gdk_window != NULL
        && (gdk_window_get_state (gdk_window) & (GDK_WINDOW_STATE_FULLSCREEN | WINDOW_STATE_TILED)) == 0
@@ -1372,7 +1393,7 @@ index 4e722a8a..8e19c3db 100644
      {
        terminal_screen_force_resize_window (screen, GTK_WINDOW (window),
                                             force_grid_width, force_grid_height);
-@@ -1059,7 +1071,7 @@ terminal_window_notebook_page_switched (GtkNotebook     *notebook,
+@@ -1059,7 +1071,7 @@
  
  
  
@@ -1381,7 +1402,7 @@ index 4e722a8a..8e19c3db 100644
  terminal_window_close_tab_request (TerminalScreen *screen,
                                     TerminalWindow *window)
  {
-@@ -1199,73 +1211,70 @@ terminal_window_notebook_event_in_allocation (gint       event_x,
+@@ -1199,73 +1211,70 @@
  
  
  
@@ -1447,8 +1468,7 @@ index 4e722a8a..8e19c3db 100644
    y += event->y;
  
 -  if (event->button == 1)
-+  for (gint i = 0; (page = gtk_notebook_get_nth_page (notebook, i)) != NULL; i++)
-     {
+-    {
 -      if (event->type == GDK_2BUTTON_PRESS)
 -        {
 -          /* check if the user double-clicked on the label */
@@ -1495,15 +1515,18 @@ index 4e722a8a..8e19c3db 100644
 -        }
 -
 -      return TRUE;
+-    }
+-
++  for (gint i = 0; (page = gtk_notebook_get_nth_page (notebook, i)) != NULL; i++)
++    {
 +      label = gtk_notebook_get_tab_label (notebook, page);
 +      if (terminal_window_notebook_event_in_allocation (x, y, label))
 +        return terminal_window_tab_button_press (window, TERMINAL_SCREEN (page), event);
-     }
--
++    }
    return FALSE;
  }
  
-@@ -1371,7 +1380,7 @@ terminal_window_notebook_drag_data_received (GtkWidget        *widget,
+@@ -1371,7 +1380,7 @@
  
        /* figure out where to insert the tab in the notebook */
        n_pages = gtk_notebook_get_n_pages (GTK_NOTEBOOK (window->priv->notebook));
@@ -1512,7 +1535,7 @@ index 4e722a8a..8e19c3db 100644
          {
            /* get the child label */
            GtkAllocation allocation;
-@@ -1384,31 +1393,13 @@ terminal_window_notebook_drag_data_received (GtkWidget        *widget,
+@@ -1384,31 +1393,13 @@
              break;
          }
  
@@ -1533,9 +1556,7 @@ index 4e722a8a..8e19c3db 100644
 -
 -          /* add the screen to the new window */
 -          terminal_window_add (window, TERMINAL_SCREEN (screen));
-+      if (terminal_titlebar_tabs_active (window))
-+        i = n_pages;
- 
+-
 -          /* move the child to the correct position */
 -          gtk_notebook_reorder_child (GTK_NOTEBOOK (window->priv->notebook), screen, i);
 -
@@ -1543,6 +1564,9 @@ index 4e722a8a..8e19c3db 100644
 -          g_object_unref (G_OBJECT (screen));
 -          g_object_unref (G_OBJECT (window));
 -        }
++      if (terminal_titlebar_tabs_active (window))
++        i = n_pages;
++
 +      GtkWidget *source = gtk_widget_get_toplevel (notebook);
 +      if (!TERMINAL_IS_WINDOW (source))
 +        goto leave;
@@ -1550,7 +1574,7 @@ index 4e722a8a..8e19c3db 100644
  
        /* looks like everything worked out */
        succeed = TRUE;
-@@ -1505,7 +1496,10 @@ terminal_window_notify_title (TerminalScreen *screen,
+@@ -1505,7 +1496,10 @@
    if (screen == window->priv->active)
      {
        title = terminal_screen_get_title (window->priv->active);
@@ -1562,7 +1586,7 @@ index 4e722a8a..8e19c3db 100644
        g_free (title);
      }
  }
-@@ -2174,7 +2168,13 @@ terminal_window_action_set_title (TerminalWindow *window)
+@@ -2174,7 +2168,13 @@
          }
        else
          {
@@ -1577,7 +1601,7 @@ index 4e722a8a..8e19c3db 100644
            gtk_popover_set_position (GTK_POPOVER (window->priv->title_popover), GTK_POS_BOTTOM);
          }
  
-@@ -2769,6 +2769,21 @@ terminal_window_get_active (TerminalWindow *window)
+@@ -2769,6 +2769,21 @@
  
  
  
@@ -1599,15 +1623,16 @@ index 4e722a8a..8e19c3db 100644
  /**
   * terminal_window_notebook_show_tabs:
   * @window  : A #TerminalWindow.
-@@ -2776,20 +2791,9 @@ terminal_window_get_active (TerminalWindow *window)
+@@ -2776,20 +2791,9 @@
  void
  terminal_window_notebook_show_tabs (TerminalWindow *window)
  {
--  GtkNotebook *notebook = GTK_NOTEBOOK (window->priv->notebook);
++  g_return_if_fail (TERMINAL_IS_WINDOW (window));
+   GtkNotebook *notebook = GTK_NOTEBOOK (window->priv->notebook);
 -  gboolean     show_tabs = TRUE;
 -  gint         npages;
 -
-   g_return_if_fail (TERMINAL_IS_WINDOW (window));
+-  g_return_if_fail (TERMINAL_IS_WINDOW (window));
 -
 -  /* check preferences */
 -  npages = gtk_notebook_get_n_pages (notebook);
@@ -1617,12 +1642,11 @@ index 4e722a8a..8e19c3db 100644
 -                    window->priv->drop_down ? "dropdown-always-show-tabs" :
 -                    "misc-always-show-tabs", &show_tabs, NULL);
 -    }
-+  GtkNotebook *notebook = GTK_NOTEBOOK (window->priv->notebook);
 +  gboolean show_tabs = terminal_window_notebook_tabs_visible (window);
  
    /* set the visibility of the tabs */
    if (gtk_notebook_get_show_tabs (notebook) != show_tabs)
-@@ -3535,3 +3539,106 @@ terminal_window_get_action_entries (void)
+@@ -3535,3 +3539,106 @@
  {
    return action_entries;
  }
