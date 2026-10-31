@@ -10,6 +10,18 @@ Date:   Sun Nov 1 00:40:16 2026 +0700
     applications (like the browser) bind Ctrl-J to other actions, so repeated
     switching between the terminal and the browser leads to typing mistakes.
 
+diff --git a/configure.ac b/configure.ac
+--- a/configure.ac
++++ b/configure.ac
+@@ -40,7 +40,7 @@ dnl ***************************
+ dnl ***************************
+ AM_INIT_AUTOMAKE([1.8 dist-bzip2 tar-ustar no-dist-gzip foreign])
+ AC_CONFIG_HEADERS([config.h])
+-AM_MAINTAINER_MODE()
++AM_MAINTAINER_MODE([enable])
+ m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
+ AC_CONFIG_MACRO_DIRS([m4])
+
 diff --git a/terminal/terminal-preferences-dialog.c b/terminal/terminal-preferences-dialog.c
 index 29482116..ecd13aac 100644
 --- a/terminal/terminal-preferences-dialog.c
