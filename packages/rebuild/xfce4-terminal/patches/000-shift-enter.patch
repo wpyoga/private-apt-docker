@@ -1,6 +1,6 @@
-commit 4898f20dedac361e481bd2fb22eaab7f10c3cb1c
+commit aac4b9273f374d9cdb383c04fcf1230482e3e98d
 Author: William Poetra Yoga <william.poetra@gmail.com>
-Date:   Fri Oct 30 21:16:22 2026 +0700
+Date:   Sun Nov 1 00:40:16 2026 +0700
 
     Allow Shift-Enter to input a newline instead of the default Enter key event
     
@@ -11,10 +11,10 @@ Date:   Fri Oct 30 21:16:22 2026 +0700
     switching between the terminal and the browser leads to typing mistakes.
 
 diff --git a/terminal/terminal-preferences-dialog.c b/terminal/terminal-preferences-dialog.c
-index 5cd3d48e..ee7829d3 100644
+index 29482116..ecd13aac 100644
 --- a/terminal/terminal-preferences-dialog.c
 +++ b/terminal/terminal-preferences-dialog.c
-@@ -1451,6 +1451,29 @@ terminal_preferences_dialog_init (TerminalPreferencesDialog *dialog)
+@@ -1434,6 +1434,29 @@ terminal_preferences_dialog_init (TerminalPreferencesDialog *dialog)
    /* next row */
    row++;
  
@@ -44,9 +44,9 @@ index 5cd3d48e..ee7829d3 100644
    label = gtk_label_new_with_mnemonic (_("Ambiguous-width characters:"));
    gtk_label_set_xalign (GTK_LABEL (label), 0.0f);
    gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
-@@ -2149,7 +2172,7 @@ static void
+@@ -2118,7 +2141,7 @@ static void
  terminal_preferences_dialog_reset_compatibility_options (TerminalPreferencesDialog *dialog,
-                                                          GtkWidget *widget)
+                                                          GtkWidget                 *widget)
  {
 -  const gchar *properties[] = { "binding-backspace", "binding-delete", "binding-ambiguous-width" };
 +  const gchar *properties[] = { "binding-backspace", "binding-delete", "binding-shift-enter", "binding-ambiguous-width" };
@@ -54,10 +54,10 @@ index 5cd3d48e..ee7829d3 100644
  }
  
 diff --git a/terminal/terminal-preferences.c b/terminal/terminal-preferences.c
-index 963acd61..4d135193 100644
+index 5f1a639f..f26c1956 100644
 --- a/terminal/terminal-preferences.c
 +++ b/terminal/terminal-preferences.c
-@@ -48,6 +48,7 @@ enum
+@@ -51,6 +51,7 @@ enum
    PROP_BACKGROUND_IMAGE_SHADING,
    PROP_BINDING_BACKSPACE,
    PROP_BINDING_DELETE,
@@ -65,17 +65,17 @@ index 963acd61..4d135193 100644
    PROP_BINDING_AMBIGUOUS_WIDTH,
    PROP_COLOR_FOREGROUND,
    PROP_COLOR_BACKGROUND,
-@@ -272,6 +273,7 @@ terminal_preferences_class_init (TerminalPreferencesClass *klass)
-     TERMINAL_TYPE_SCROLLBAR,
-     TERMINAL_TYPE_TITLE,
-     TERMINAL_TYPE_ERASE_BINDING,
-+    TERMINAL_TYPE_SHIFT_ENTER_BINDING,
-     TERMINAL_TYPE_AMBIGUOUS_WIDTH_BINDING,
-     TERMINAL_TYPE_CURSOR_SHAPE,
-     TERMINAL_TYPE_TEXT_BLINK_MODE,
-@@ -378,6 +380,17 @@ terminal_preferences_class_init (TerminalPreferencesClass *klass)
-                        TERMINAL_ERASE_BINDING_AUTO,
-                        G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+@@ -273,6 +274,7 @@ terminal_preferences_class_init (TerminalPreferencesClass *klass)
+         TERMINAL_TYPE_SCROLLBAR,
+         TERMINAL_TYPE_TITLE,
+         TERMINAL_TYPE_ERASE_BINDING,
++        TERMINAL_TYPE_SHIFT_ENTER_BINDING,
+         TERMINAL_TYPE_AMBIGUOUS_WIDTH_BINDING,
+         TERMINAL_TYPE_CURSOR_SHAPE,
+         TERMINAL_TYPE_TEXT_BLINK_MODE,
+@@ -379,6 +381,17 @@ terminal_preferences_class_init (TerminalPreferencesClass *klass)
+                          TERMINAL_ERASE_BINDING_AUTO,
+                          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
  
 +  /**
 +   * TerminalPreferences:binding-shift-enter:
@@ -92,11 +92,11 @@ index 963acd61..4d135193 100644
     * TerminalPreferences:binding-ambiguous-width:
     **/
 diff --git a/terminal/terminal-preferences.h b/terminal/terminal-preferences.h
-index 55c2b71a..479ce218 100644
+index e8333d75..d1e9ddc4 100644
 --- a/terminal/terminal-preferences.h
 +++ b/terminal/terminal-preferences.h
-@@ -68,6 +68,13 @@ typedef enum /*< enum,prefix=TERMINAL_ERASE_BINDING >*/
-   TERMINAL_ERASE_BINDING_ERASE_TTY /* TTY Erase */
+@@ -75,6 +75,13 @@ typedef enum /*< enum,prefix=TERMINAL_ERASE_BINDING >*/
+   TERMINAL_ERASE_BINDING_ERASE_TTY        /* TTY Erase */
  } TerminalEraseBinding;
  
 +typedef enum /*< enum,prefix=TERMINAL_SHIFT_ENTER_BINDING >*/
@@ -110,10 +110,10 @@ index 55c2b71a..479ce218 100644
  {
    TERMINAL_AMBIGUOUS_WIDTH_BINDING_NARROW,
 diff --git a/terminal/terminal-widget.c b/terminal/terminal-widget.c
-index aa0d4ebd..f28ef08c 100644
+index 967abf7f..5f3dfb0c 100644
 --- a/terminal/terminal-widget.c
 +++ b/terminal/terminal-widget.c
-@@ -862,6 +862,40 @@ terminal_widget_key_press_event (GtkWidget *widget,
+@@ -769,6 +769,40 @@ terminal_widget_key_press_event (GtkWidget    *widget,
        return TRUE;
      }
  
