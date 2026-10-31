@@ -136,7 +136,7 @@ diff --git a/terminal/terminal-titlebar-tabs.c b/terminal/terminal-titlebar-tabs
 new file mode 100644
 --- /dev/null
 +++ b/terminal/terminal-titlebar-tabs.c
-@@ -0,0 +1,1168 @@
+@@ -0,0 +1,1150 @@
 +/* SPDX-License-Identifier: GPL-2.0-or-later
 + * Disposable X11 title tabs; GTK notebooks/pages always stay in the client.
 + * Adapted from experiments/titlebar-tab-strip; terminal pages never leave GTK.
@@ -374,30 +374,15 @@ new file mode 100644
 +  pango_layout_set_text(layout, "…", -1);
 +  pango_layout_get_pixel_size(layout, &ellipsis_width, NULL);
 +  gint minimum = MAX(32*scale, close_width + 8*scale + 1 + ellipsis_width);
-+  gint *widths = g_new0(gint, MAX(1, n));
-+  gint64 total = 0;
-+  pango_layout_set_width(layout, -1);
 +  for (gint i = 0; i < n; i++) {
 +    GtkWidget *page = gtk_notebook_get_nth_page(GTK_NOTEBOOK(app->notebook), i);
-+    if (!TERMINAL_IS_SCREEN(page)) {
-+      g_free(widths);
++    if (!TERMINAL_IS_SCREEN(page))
 +      return FALSE; /* Do not paint an incomplete notebook model. */
-+    }
-+    gint text_width;
-+    GtkLabel *label = tab_label(TERMINAL_SCREEN(page));
-+    pango_layout_set_attributes(layout, label ? gtk_label_get_attributes(GTK_LABEL(label)) : NULL);
-+    pango_layout_set_text(layout, gtk_label_get_text(label), -1);
-+    pango_layout_get_pixel_size(layout, &text_width, NULL);
-+    /* Include the close area, scaled text padding and one text-inset pixel. */
-+    widths[i] = CLAMP(text_width + close_width + 8*scale + 1, minimum, MAX(minimum, 160*scale));
-+    total += widths[i];
 +  }
 +  gboolean overflow = n > 1 && (gint64)n*minimum > available;
 +  if (overflow) available = MAX(1, available - 2*button);
-+  gboolean compressed = overflow || total > available;
-+  /* Overflow has a fixed viewport, independent of the displayed subset.
-+   * Share ALL remaining pixels between its tabs, rather than leaving the
-+   * unused tail from packing individual preferred widths as native space. */
++  /* Share all available tab pixels equally, independent of title length.
++   * Overflow keeps a fixed viewport, independent of the displayed subset. */
 +  gint visible = overflow ? MIN(n, MAX(1, available/minimum)) : n;
 +  s->first = overflow ? CLAMP(s->first, 0, MAX(0, n-visible)) : 0;
 +  if (app->reveal_selected && n > 0) {
@@ -415,9 +400,7 @@ new file mode 100644
 +  }
 +  for (gint i = s->first; i < end; i++) {
 +    TerminalScreen *screen = TERMINAL_SCREEN(gtk_notebook_get_nth_page(GTK_NOTEBOOK(app->notebook), i));
-+    gint width = compressed
-+      ? available/visible + (i-s->first < available%visible ? 1 : 0)
-+      : MIN(widths[i], available);
++    gint width = available/visible + (i-s->first < available%visible ? 1 : 0);
 +    Slot slot = {SLOT_TAB, g_object_ref(screen), i, x, width};
 +    g_array_append_val(s->slots, slot); x += width;
 +  }
@@ -427,7 +410,6 @@ new file mode 100644
 +  }
 +  Slot plus = {SLOT_NEW, NULL, -1, x, MIN(button, MAX(1, s->width-margin-x))};
 +  g_array_append_val(s->slots, plus);
-+  g_free(widths);
 +  return TRUE;
 +}
 +
