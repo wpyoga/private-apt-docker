@@ -1,8 +1,8 @@
 diff --git a/src/gs-listener-dbus.c b/src/gs-listener-dbus.c
-index 8ad5031..8477ade 100644
+index a9b7462..e1e97f8 100644
 --- a/src/gs-listener-dbus.c
 +++ b/src/gs-listener-dbus.c
-@@ -117,6 +117,7 @@ enum {
+@@ -118,6 +118,7 @@ enum {
      ACTIVE_CHANGED,
      THROTTLE_CHANGED,
      SHOW_MESSAGE,
@@ -10,7 +10,7 @@ index 8ad5031..8477ade 100644
      LAST_SIGNAL
  };
  
-@@ -1501,9 +1502,9 @@ listener_dbus_handle_system_message (DBusConnection *connection,
+@@ -1520,9 +1521,9 @@ listener_dbus_handle_system_message (DBusConnection *connection,
                  gs_debug ("Reinstating logind sleep inhibitor lock");
                  add_sleep_inhibit (listener);
  
@@ -23,7 +23,7 @@ index 8ad5031..8477ade 100644
              }
  
              if (dbus_error_is_set (&error)) {
-@@ -1901,6 +1902,17 @@ gs_listener_dbus_class_init (GSListenerDBusClass *klass) {
+@@ -1929,6 +1930,17 @@ gs_listener_class_init (GSListenerClass *klass) {
                        G_TYPE_STRING,
                        G_TYPE_STRING);
  
@@ -31,7 +31,7 @@ index 8ad5031..8477ade 100644
 +        g_signal_new ("request-password-prompt",
 +                      G_TYPE_FROM_CLASS (object_class),
 +                      G_SIGNAL_RUN_LAST,
-+                      G_STRUCT_OFFSET (GSListenerDBusClass, request_password_prompt),
++                      G_STRUCT_OFFSET (GSListenerClass, request_password_prompt),
 +                      NULL,
 +                      NULL,
 +                      g_cclosure_marshal_VOID__VOID,
@@ -42,22 +42,22 @@ index 8ad5031..8477ade 100644
                                       PROP_ACTIVE,
                                       g_param_spec_boolean ("active",
 diff --git a/src/gs-listener-dbus.h b/src/gs-listener-dbus.h
-index d4e2922..ecafe12 100644
+index 41266f7..34ff3f9 100644
 --- a/src/gs-listener-dbus.h
 +++ b/src/gs-listener-dbus.h
 @@ -58,6 +58,7 @@ typedef struct
-                           const char *summary,
-                           const char *body,
-                           const char *icon);
-+    void (*request_password_prompt) (GSListenerDBus *listener);
- } GSListenerDBusClass;
+                                                   const char *summary,
+                                                   const char *body,
+                                                   const char *icon);
++    void            (* request_password_prompt)  (GSListener *listener);
+ } GSListenerClass;
  
- typedef enum {
+ typedef enum
 diff --git a/src/gs-manager.c b/src/gs-manager.c
-index 9519f7c..4b1ab22 100644
+index f528470..d90e362 100644
 --- a/src/gs-manager.c
 +++ b/src/gs-manager.c
-@@ -573,7 +573,14 @@ gs_manager_show_message (GSManager *manager,
+@@ -572,7 +572,14 @@ gs_manager_show_message (GSManager  *manager,
      if (window == NULL)
          return;
  
@@ -74,46 +74,45 @@ index 9519f7c..4b1ab22 100644
  }
  
 diff --git a/src/gs-monitor.c b/src/gs-monitor.c
-index f19d7e7..b1fd576 100644
+index 66549f1..475640f 100644
 --- a/src/gs-monitor.c
 +++ b/src/gs-monitor.c
-@@ -126,6 +126,14 @@ listener_dbus_cycle_cb (GSListenerDBus *listener, GSMonitor *monitor) {
-     gs_manager_cycle (monitor->priv->manager);
+@@ -111,6 +111,13 @@ static void listener_cycle_cb(GSListener* listener, GSMonitor* monitor) {
+     gs_manager_cycle(monitor->priv->manager);
  }
  
-+static void
-+listener_dbus_request_password_prompt_cb (GSListenerDBus *listener, GSMonitor *monitor) {
++static void listener_request_password_prompt_cb(GSListener* listener, GSMonitor* monitor) {
 +    if (!monitor->priv->prefs->lock_enabled)
 +        return;
 +
-+    gs_manager_request_unlock (monitor->priv->manager);
++    gs_manager_request_unlock(monitor->priv->manager);
 +}
 +
- static void
- listener_dbus_show_message_cb (GSListenerDBus *listener,
-                                const char *summary,
-@@ -169,6 +177,7 @@ disconnect_listener_signals (GSMonitor *monitor) {
-     g_signal_handlers_disconnect_by_func (monitor->priv->listener_dbus, listener_dbus_throttle_changed_cb, monitor);
-     g_signal_handlers_disconnect_by_func (monitor->priv->listener_dbus, listener_dbus_simulate_user_activity_cb, monitor);
-     g_signal_handlers_disconnect_by_func (monitor->priv->listener_dbus, listener_dbus_show_message_cb, monitor);
-+    g_signal_handlers_disconnect_by_func (monitor->priv->listener_dbus, listener_dbus_request_password_prompt_cb, monitor);
+ static void listener_show_message_cb(GSListener* listener,
+                                      const char* summary,
+                                      const char* body,
+@@ -149,6 +156,7 @@ static void disconnect_listener_signals(GSMonitor* monitor) {
+     g_signal_handlers_disconnect_by_func(monitor->priv->listener, listener_throttle_changed_cb, monitor);
+     g_signal_handlers_disconnect_by_func(monitor->priv->listener, listener_simulate_user_activity_cb, monitor);
+     g_signal_handlers_disconnect_by_func(monitor->priv->listener, listener_show_message_cb, monitor);
++    g_signal_handlers_disconnect_by_func(monitor->priv->listener, listener_request_password_prompt_cb, monitor);
  
-     g_signal_handlers_disconnect_by_func (monitor->priv->listener, listener_activate_cb, monitor);
-     g_signal_handlers_disconnect_by_func (monitor->priv->listener, listener_lock_cb, monitor);
-@@ -191,6 +200,8 @@ connect_listener_signals (GSMonitor *monitor) {
-                       G_CALLBACK (listener_dbus_simulate_user_activity_cb), monitor);
-     g_signal_connect (monitor->priv->listener_dbus, "show-message",
-                       G_CALLBACK (listener_dbus_show_message_cb), monitor);
-+    g_signal_connect (monitor->priv->listener_dbus, "request-password-prompt",
-+                      G_CALLBACK (listener_dbus_request_password_prompt_cb), monitor);
+     g_signal_handlers_disconnect_by_func(monitor->priv->listener_x11, listener_x11_activate_cb, monitor);
+     g_signal_handlers_disconnect_by_func(monitor->priv->listener_x11, listener_x11_lock_cb, monitor);
+@@ -169,6 +177,8 @@ static void connect_listener_signals(GSMonitor* monitor) {
+                      G_CALLBACK(listener_simulate_user_activity_cb), monitor);
+     g_signal_connect(monitor->priv->listener, "show-message",
+                      G_CALLBACK(listener_show_message_cb), monitor);
++    g_signal_connect(monitor->priv->listener, "request-password-prompt",
++                     G_CALLBACK(listener_request_password_prompt_cb), monitor);
  
-     g_signal_connect (monitor->priv->listener, "activate",
-                       G_CALLBACK (listener_activate_cb), monitor);
-diff --git a/src/gs-window.c b/src/gs-window.c
-index 274f7a4..e0d3a90 100644
---- a/src/gs-window.c
-+++ b/src/gs-window.c
-@@ -633,23 +633,30 @@ set_info_text_and_icon (GSWindow *window,
+     g_signal_connect(monitor->priv->listener_x11, "activate",
+                      G_CALLBACK(listener_x11_activate_cb), monitor);
+diff --git a/src/gs-window-x11.c b/src/gs-window-x11.c
+index 3906401..4ece133 100644
+--- a/src/gs-window-x11.c
++++ b/src/gs-window-x11.c
+@@ -625,23 +625,30 @@ set_info_text_and_icon (GSWindow   *window,
      hbox_content = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
      gtk_widget_show (hbox_content);
  
@@ -160,4 +159,4 @@ index 274f7a4..e0d3a90 100644
 +    }
  
      if (secondary_text != NULL) {
-         gchar *secondary_markup;
+         gchar     *secondary_markup;
