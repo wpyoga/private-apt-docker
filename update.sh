@@ -12,10 +12,8 @@ validate_repository_config
 
 mkdir -p "$REPO_DIR/.state"
 exec 9>"$REPO_DIR/.state/update.lock"
-if ! flock -n 9; then
-    echo 'Update already running'
-    exit 0
-fi
+echo 'Waiting for repository update lock'
+flock 9
 
 gpg --batch --list-secret-keys "$GPG_KEY" >/dev/null
 mkdir -p "$REPO_DIR/pool"

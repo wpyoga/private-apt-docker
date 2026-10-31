@@ -33,7 +33,8 @@ Successful artifacts remain stored and index publication is still attempted.
 The lock uses `flock`, rather than testing whether a lock file exists. The
 operating system releases it when the processes holding it exit. The empty file
 may remain; it is not a stale lock. The lock protects against a second container
-or a manual invocation using the same storage.
+or a manual invocation using the same storage. A second updater waits until the
+lock is released, then runs its cycle even if the previous updater failed.
 
 ## Framework scripts
 

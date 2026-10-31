@@ -45,8 +45,10 @@ files into the final `rebuild` target. Patch and script edits therefore reuse th
 dependency layers; changing `install-build-dependencies` reruns installation.
 Services are `codex-repo-updater`, `rebuild-amd64`,
 and `rebuild-arm64`. The latter two use the same rebuild output and lock, with
-one architecture per instance. A busy lock skips a cycle and retries after the
-configured interval. Repacks use their separate output and lock.
+one architecture per instance. When the lock is busy, the other instance waits
+and runs its cycle after the lock is released, even if the previous cycle failed.
+Each instance waits the configured interval after its own cycle finishes.
+Repacks use their separate output and lock.
 
 Adapters are copied into images; rebuild and recreate services after changes.
 Compilation runs with the configured host UID/GID. Package dependency installation

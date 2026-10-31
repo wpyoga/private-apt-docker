@@ -50,10 +50,11 @@ The wait starts after the entire cycle finishes. With a six-hour interval, an
 08:00 start and twenty-minute cycle produce a 14:20 next start. This is not a
 fixed wall-clock schedule. No parallel worker pool or scheduler is needed.
 
-`update.sh` holds a nonblocking kernel `flock` on `REPO_DIR/.state/update.lock`.
+`update.sh` holds a blocking kernel `flock` on `REPO_DIR/.state/update.lock`.
 This protects against another container or a manual update using the same data.
-The kernel releases the lock when its holders exit; the empty lock file may
-remain. Its existence does not mean an update is running.
+Another updater waits for the lock, then runs its complete cycle even if the
+previous updater failed. The kernel releases the lock when its holders exit;
+the empty lock file may remain. Its existence does not mean an update is running.
 
 ## Configuration and ownership
 

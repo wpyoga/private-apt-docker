@@ -499,7 +499,7 @@ class PublisherTests(PublisherTestCase):
         self.assertIn("Version: 1.2.3-1", self.index("arm64"))
         self.assertNotIn("Version: 1.2.4-1", self.index("arm64"))
 
-    def test_lock_prevents_overlapping_update(self):
+    def test_busy_lock_waits_then_runs_complete_update(self):
         import fcntl
 
         self.adapter()
@@ -507,9 +507,29 @@ class PublisherTests(PublisherTestCase):
         state.mkdir(parents=True)
         with (state / "update.lock").open("w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            result = self.run_update()
-        self.assertIn("Update already running", result.stdout)
-        self.assertEqual(self.artifacts(), [])
+            with (self.base / "waiting-update.log").open("w+") as log:
+                process = subprocess.Popen(
+                    ["bash", str(self.publisher / "update.sh")],
+                    env=self.env, stdout=log, stderr=subprocess.STDOUT,
+                )
+                try:
+                    with self.assertRaises(subprocess.TimeoutExpired):
+                        process.wait(timeout=1)
+                    self.assertEqual(self.artifacts(), [])
+                    self.assertFalse((self.base / "events").exists())
+
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+                    process.wait(timeout=20)
+                    log.seek(0)
+                    self.assertEqual(process.returncode, 0, log.read())
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                        process.wait(timeout=5)
+
+        self.assertEqual(len(self.artifacts()), 2)
+        self.assertIn("Package: first-cli", self.index("amd64"))
+        self.assertIn("Package: first-cli", self.index("arm64"))
 
     def test_inactivity_warns_every_cycle_but_continues_processing(self):
         directory = self.adapter()
