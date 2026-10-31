@@ -1,0 +1,10 @@
+#!/usr/bin/make -f
+
+export DEB_LDFLAGS_MAINT_APPEND = -Wl,-z,defs -Wl,-O1
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@
+
+override_dh_installchangelogs:
+	DEB_BUILD_OPTIONS=notrimdch dh_installchangelogs NEWS

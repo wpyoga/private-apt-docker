@@ -45,6 +45,9 @@ ARG TARGET_ARCH=amd64
 COPY packages/rebuild/xfce4-terminal/install-build-dependencies /tmp/install-build-dependencies
 RUN bash /tmp/install-build-dependencies "$TARGET_ARCH" \
     && rm /tmp/install-build-dependencies
+COPY packages/rebuild/xfce4-screensaver/install-build-dependencies /tmp/install-screensaver-dependencies
+RUN bash /tmp/install-screensaver-dependencies "$TARGET_ARCH" \
+    && rm /tmp/install-screensaver-dependencies
 ENV XFCE_BUILD_ARCH=$TARGET_ARCH
 
 FROM rebuild-tools AS rebuild

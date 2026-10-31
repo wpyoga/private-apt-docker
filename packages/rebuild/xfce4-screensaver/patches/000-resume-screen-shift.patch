@@ -1,0 +1,163 @@
+diff --git a/src/gs-listener-dbus.c b/src/gs-listener-dbus.c
+index 8ad5031..8477ade 100644
+--- a/src/gs-listener-dbus.c
++++ b/src/gs-listener-dbus.c
+@@ -117,6 +117,7 @@ enum {
+     ACTIVE_CHANGED,
+     THROTTLE_CHANGED,
+     SHOW_MESSAGE,
++    REQUEST_PASSWORD_PROMPT,
+     LAST_SIGNAL
+ };
+ 
+@@ -1501,9 +1502,9 @@ listener_dbus_handle_system_message (DBusConnection *connection,
+                 gs_debug ("Reinstating logind sleep inhibitor lock");
+                 add_sleep_inhibit (listener);
+ 
+-                gs_debug ("Logind requested session unlock");
+-                // FIXME: there is no signal to request password prompt
+-                g_signal_emit (listener, signals[SHOW_MESSAGE], 0, NULL, NULL, NULL);
++                gs_debug ("Logind requested password prompt");
++                /* Present authentication without displaying a notification. */
++                g_signal_emit (listener, signals[REQUEST_PASSWORD_PROMPT], 0);
+             }
+ 
+             if (dbus_error_is_set (&error)) {
+@@ -1901,6 +1902,17 @@ gs_listener_dbus_class_init (GSListenerDBusClass *klass) {
+                       G_TYPE_STRING,
+                       G_TYPE_STRING);
+ 
++    signals[REQUEST_PASSWORD_PROMPT] =
++        g_signal_new ("request-password-prompt",
++                      G_TYPE_FROM_CLASS (object_class),
++                      G_SIGNAL_RUN_LAST,
++                      G_STRUCT_OFFSET (GSListenerDBusClass, request_password_prompt),
++                      NULL,
++                      NULL,
++                      g_cclosure_marshal_VOID__VOID,
++                      G_TYPE_NONE,
++                      0);
++
+     g_object_class_install_property (object_class,
+                                      PROP_ACTIVE,
+                                      g_param_spec_boolean ("active",
+diff --git a/src/gs-listener-dbus.h b/src/gs-listener-dbus.h
+index d4e2922..ecafe12 100644
+--- a/src/gs-listener-dbus.h
++++ b/src/gs-listener-dbus.h
+@@ -58,6 +58,7 @@ typedef struct
+                           const char *summary,
+                           const char *body,
+                           const char *icon);
++    void (*request_password_prompt) (GSListenerDBus *listener);
+ } GSListenerDBusClass;
+ 
+ typedef enum {
+diff --git a/src/gs-manager.c b/src/gs-manager.c
+index 9519f7c..4b1ab22 100644
+--- a/src/gs-manager.c
++++ b/src/gs-manager.c
+@@ -573,7 +573,14 @@ gs_manager_show_message (GSManager *manager,
+     if (window == NULL)
+         return;
+ 
+-    gs_window_show_message (window, summary, body, icon);
++    summary = summary != NULL && *summary != '\0' ? summary : NULL;
++    body = body != NULL && *body != '\0' ? body : NULL;
++    icon = icon != NULL && *icon != '\0' ? icon : NULL;
++
++    /* Show an information bar only when at least one field contains content.
++     * Empty notification requests must still request the password prompt. */
++    if (summary != NULL || body != NULL || icon != NULL)
++        gs_window_show_message (window, summary, body, icon);
+     gs_manager_request_unlock (manager);
+ }
+ 
+diff --git a/src/gs-monitor.c b/src/gs-monitor.c
+index f19d7e7..b1fd576 100644
+--- a/src/gs-monitor.c
++++ b/src/gs-monitor.c
+@@ -126,6 +126,14 @@ listener_dbus_cycle_cb (GSListenerDBus *listener, GSMonitor *monitor) {
+     gs_manager_cycle (monitor->priv->manager);
+ }
+ 
++static void
++listener_dbus_request_password_prompt_cb (GSListenerDBus *listener, GSMonitor *monitor) {
++    if (!monitor->priv->prefs->lock_enabled)
++        return;
++
++    gs_manager_request_unlock (monitor->priv->manager);
++}
++
+ static void
+ listener_dbus_show_message_cb (GSListenerDBus *listener,
+                                const char *summary,
+@@ -169,6 +177,7 @@ disconnect_listener_signals (GSMonitor *monitor) {
+     g_signal_handlers_disconnect_by_func (monitor->priv->listener_dbus, listener_dbus_throttle_changed_cb, monitor);
+     g_signal_handlers_disconnect_by_func (monitor->priv->listener_dbus, listener_dbus_simulate_user_activity_cb, monitor);
+     g_signal_handlers_disconnect_by_func (monitor->priv->listener_dbus, listener_dbus_show_message_cb, monitor);
++    g_signal_handlers_disconnect_by_func (monitor->priv->listener_dbus, listener_dbus_request_password_prompt_cb, monitor);
+ 
+     g_signal_handlers_disconnect_by_func (monitor->priv->listener, listener_activate_cb, monitor);
+     g_signal_handlers_disconnect_by_func (monitor->priv->listener, listener_lock_cb, monitor);
+@@ -191,6 +200,8 @@ connect_listener_signals (GSMonitor *monitor) {
+                       G_CALLBACK (listener_dbus_simulate_user_activity_cb), monitor);
+     g_signal_connect (monitor->priv->listener_dbus, "show-message",
+                       G_CALLBACK (listener_dbus_show_message_cb), monitor);
++    g_signal_connect (monitor->priv->listener_dbus, "request-password-prompt",
++                      G_CALLBACK (listener_dbus_request_password_prompt_cb), monitor);
+ 
+     g_signal_connect (monitor->priv->listener, "activate",
+                       G_CALLBACK (listener_activate_cb), monitor);
+diff --git a/src/gs-window.c b/src/gs-window.c
+index 274f7a4..e0d3a90 100644
+--- a/src/gs-window.c
++++ b/src/gs-window.c
+@@ -633,23 +633,30 @@ set_info_text_and_icon (GSWindow *window,
+     hbox_content = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+     gtk_widget_show (hbox_content);
+ 
+-    image = gtk_image_new_from_icon_name (icon_name, GTK_ICON_SIZE_DIALOG);
+-    gtk_widget_show (image);
+-    gtk_box_pack_start (GTK_BOX (hbox_content), image, FALSE, FALSE, 0);
+-    gtk_widget_set_valign (image, GTK_ALIGN_START);
+-
+-    vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
+-    gtk_widget_show (vbox);
+-    gtk_box_pack_start (GTK_BOX (hbox_content), vbox, FALSE, FALSE, 0);
+-
+-    primary_markup = g_strdup_printf ("<b>%s</b>", primary_text);
+-    primary_label = gtk_label_new (primary_markup);
+-    g_free (primary_markup);
+-    gtk_widget_show (primary_label);
+-    gtk_box_pack_start (GTK_BOX (vbox), primary_label, TRUE, TRUE, 0);
+-    gtk_label_set_use_markup (GTK_LABEL (primary_label), TRUE);
+-    gtk_label_set_line_wrap (GTK_LABEL (primary_label), TRUE);
+-    gtk_widget_set_halign (primary_label, GTK_ALIGN_START);
++    if (icon_name != NULL) {
++        image = gtk_image_new_from_icon_name (icon_name, GTK_ICON_SIZE_DIALOG);
++        gtk_widget_show (image);
++        gtk_box_pack_start (GTK_BOX (hbox_content), image, FALSE, FALSE, 0);
++        gtk_widget_set_valign (image, GTK_ALIGN_START);
++    }
++
++    vbox = NULL;
++    if (primary_text != NULL || secondary_text != NULL) {
++        vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
++        gtk_widget_show (vbox);
++        gtk_box_pack_start (GTK_BOX (hbox_content), vbox, FALSE, FALSE, 0);
++    }
++
++    if (primary_text != NULL) {
++        primary_markup = g_strdup_printf ("<b>%s</b>", primary_text);
++        primary_label = gtk_label_new (primary_markup);
++        g_free (primary_markup);
++        gtk_widget_show (primary_label);
++        gtk_box_pack_start (GTK_BOX (vbox), primary_label, TRUE, TRUE, 0);
++        gtk_label_set_use_markup (GTK_LABEL (primary_label), TRUE);
++        gtk_label_set_line_wrap (GTK_LABEL (primary_label), TRUE);
++        gtk_widget_set_halign (primary_label, GTK_ALIGN_START);
++    }
+ 
+     if (secondary_text != NULL) {
+         gchar *secondary_markup;

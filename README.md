@@ -809,7 +809,8 @@ currently require an amd64 server; rootless-daemon ownership mapping remains
 unverified. See the [image and repository design](ARCHITECTURE.md#repository-groups-and-deployment)
 for build targets, dependency caching, and checksum effects.
 
-See [xfce4-terminal deployment and patches](docs/xfce4-terminal.md).
+See [xfce4-terminal deployment and patches](docs/xfce4-terminal.md) and
+[xfce4-screensaver deployment and patches](docs/xfce4-screensaver.md).
 
 Signing configuration uses separate `REPACK_GNUPG_DIR` and `REBUILD_GNUPG_DIR`
 and separate `REPACK_GPG_KEY` and `REBUILD_GPG_KEY` fingerprints in the one .env.

@@ -1,0 +1,24 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+TARGET_ARCH="${1:?Supply the build target architecture}"
+case "$TARGET_ARCH" in
+    amd64|arm64) ;;
+    *)
+        echo "xfce4-screensaver: unsupported build target architecture: $TARGET_ARCH" >&2
+        exit 1
+        ;;
+esac
+
+# The terminal adapter installs the shared compiler, debhelper and Xfce tools.
+apt-get update
+apt-get install -y --no-install-recommends \
+    gettext \
+    "libdbus-glib-1-dev:$TARGET_ARCH" "libgarcon-gtk3-1-dev:$TARGET_ARCH" \
+    "libglib2.0-dev:$TARGET_ARCH" "libgtk-3-dev:$TARGET_ARCH" \
+    "libpam0g-dev:$TARGET_ARCH" "libsystemd-dev:$TARGET_ARCH" \
+    "libwnck-3-dev:$TARGET_ARCH" "libx11-dev:$TARGET_ARCH" \
+    "libxfce4ui-2-dev:$TARGET_ARCH" "libxfce4util-dev:$TARGET_ARCH" \
+    "libxfconf-0-dev:$TARGET_ARCH" "libxklavier-dev:$TARGET_ARCH" \
+    "libxss-dev:$TARGET_ARCH"
+rm -rf /var/lib/apt/lists/*

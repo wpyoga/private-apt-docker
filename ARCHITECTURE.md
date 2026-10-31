@@ -372,8 +372,9 @@ cycles and private container agents to isolate GPG sockets.
 The Dockerfile shares a `tools` stage between the default `publisher` target and
 the architecture-specific `rebuild` target. Rebuild dependencies are installed
 before copying the framework and adapters, so adapter edits reuse dependency
-layers. The dependency declaration in
-`packages/rebuild/xfce4-terminal/install-build-dependencies` affects both build
+layers. The dependency declarations in
+`packages/rebuild/xfce4-terminal/install-build-dependencies` and
+`packages/rebuild/xfce4-screensaver/install-build-dependencies` affect both build
 architectures. Dockerfile changes affect every stream's recipe checksum; later
 adapter-only patch edits remain local to that adapter.
 
