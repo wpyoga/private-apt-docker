@@ -570,7 +570,7 @@ For Caddy, replace the Tailnet IP with your server's address:
 ```caddyfile
 http://100.101.102.103:8080 {
     bind 100.101.102.103
-    root * /srv/apt/codex/repo
+    root * /srv/apt/repack/repo
     file_server
 }
 ```
