@@ -812,6 +812,11 @@ for build targets, dependency caching, and checksum effects.
 See [xfce4-terminal deployment and patches](docs/xfce4-terminal.md) and
 [xfce4-screensaver deployment and patches](docs/xfce4-screensaver.md).
 
+The rebuild repository also provides the latest Debian-packaged libgit2 1.9
+for Trixie, including `libgit2-1.9` and `libgit2-dev` on amd64 and arm64.
+See [libgit2 packaging and verification](docs/libgit2-1.9.md) for source selection,
+experimental packages, build requirements and checks.
+
 Signing configuration uses separate `REPACK_GNUPG_DIR` and `REBUILD_GNUPG_DIR`
 and separate `REPACK_GPG_KEY` and `REBUILD_GPG_KEY` fingerprints in the one .env.
 Setup generates or selects keys independently, exports `repack-pubkey.asc` and

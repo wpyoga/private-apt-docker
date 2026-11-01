@@ -1,0 +1,68 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set and non-empty}"
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${MAINTAINER:?MAINTAINER must be set and non-empty}"
+: "${LIBGIT2_BUILD_ARCH:?Use the libgit2 rebuild toolchain image}"
+source "$FRAMEWORK_DIR/lib/adapter/package.sh"
+
+VERSION="${1:?Supply the package version}"
+ARCHITECTURE="${2:?Supply the architecture}"
+OUTPUT_DIR="${3:?Supply the output directory}"
+case "$ARCHITECTURE" in
+    amd64) MULTIARCH=x86_64-linux-gnu ;;
+    arm64) MULTIARCH=aarch64-linux-gnu ;;
+    *) echo "libgit2: unsupported architecture: $ARCHITECTURE" >&2; exit 1 ;;
+esac
+if [[ "$ARCHITECTURE" != "$LIBGIT2_BUILD_ARCH" ]]; then
+    echo "libgit2: requested $ARCHITECTURE but toolchain targets $LIBGIT2_BUILD_ARCH" >&2
+    exit 1
+fi
+
+SOURCE_VERSION=$(cat "$WORKSPACE/source-version")
+DESCRIPTOR=$(cat "$WORKSPACE/source-descriptor")
+if [[ "${VERSION%-*}" != "$SOURCE_VERSION+local" ]]; then
+    echo "libgit2: version $VERSION does not match source $SOURCE_VERSION" >&2
+    exit 1
+fi
+SOURCE_DIR="$WORKSPACE/build-$ARCHITECTURE"
+dpkg-source -x "$DESCRIPTOR" "$SOURCE_DIR"
+python3 "$ADAPTER_DIR/prepare-source.py" "$SOURCE_DIR"
+cd "$SOURCE_DIR"
+export DEBEMAIL="$MAINTAINER"
+dch --newversion "$VERSION" --distribution trixie "Rebuild libgit2 1.9 for Debian Trixie."
+export DEB_BUILD_OPTIONS="nocheck parallel=2 noautodbgsym"
+export DEB_BUILD_PROFILES="cross nocheck"
+dpkg-buildpackage --build=binary --host-arch "$ARCHITECTURE" -us -uc
+
+PACKAGES=(libgit2-1.9 libgit2-dev libgit2-experimental1.9 libgit2-experimental-dev libgit2-fixtures)
+for PACKAGE in "${PACKAGES[@]}"; do
+    PACKAGE_ARCH=$ARCHITECTURE
+    if [[ "$PACKAGE" == libgit2-fixtures ]]; then
+        PACKAGE_ARCH=all
+    fi
+    BUILT_PACKAGE="$WORKSPACE/${PACKAGE}_${VERSION#*:}_${PACKAGE_ARCH}.deb"
+    check_deb_field "$BUILT_PACKAGE" Package "$PACKAGE"
+    check_deb_field "$BUILT_PACKAGE" Version "$VERSION"
+    check_deb_field "$BUILT_PACKAGE" Architecture "$PACKAGE_ARCH"
+    PACKAGE_DIR="$WORKSPACE/staged-$ARCHITECTURE/$PACKAGE"
+    mkdir -p "$WORKSPACE/staged-$ARCHITECTURE"
+    dpkg-deb --raw-extract "$BUILT_PACKAGE" "$PACKAGE_DIR"
+    case "$PACKAGE" in
+        libgit2-1.9) REQUIRED_PATH="usr/lib/$MULTIARCH/libgit2.so.1.9" ;;
+        libgit2-dev) REQUIRED_PATH=usr/include/git2.h ;;
+        libgit2-experimental1.9) REQUIRED_PATH="usr/lib/$MULTIARCH/libgit2-experimental.so.1.9" ;;
+        libgit2-experimental-dev) REQUIRED_PATH=usr/include/git2-experimental.h ;;
+        libgit2-fixtures) REQUIRED_PATH=usr/share/doc/libgit2-fixtures/examples ;;
+    esac
+    if [[ ! -e "$PACKAGE_DIR/$REQUIRED_PATH" ]]; then
+        echo "$PACKAGE $VERSION ($PACKAGE_ARCH): missing $REQUIRED_PATH" >&2
+        exit 1
+    fi
+    INSTALLED_SIZE=$(installed_size "$PACKAGE_DIR")
+    python3 "$FRAMEWORK_DIR/lib/adapter/rewrite-control.py" \
+        "$PACKAGE_DIR/DEBIAN/control" "$VERSION" "$INSTALLED_SIZE"
+    build_deb "$PACKAGE_DIR" "$OUTPUT_DIR/${PACKAGE}_${VERSION}_${PACKAGE_ARCH}.deb"
+done

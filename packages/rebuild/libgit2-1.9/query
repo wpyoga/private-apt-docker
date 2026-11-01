@@ -1,0 +1,26 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${ARCHES:?ARCHES must be set and non-empty}"
+
+mkdir -p "$WORKSPACE/apt/lists/partial" "$WORKSPACE/source"
+APT_OPTIONS=(
+    -o "Dir::State::lists=$WORKSPACE/apt/lists"
+    -o "Dir::Etc::sourcelist=$ADAPTER_DIR/sources.list"
+    -o "Dir::Etc::sourceparts=-"
+    -o "APT::Get::List-Cleanup=0"
+)
+apt-get "${APT_OPTIONS[@]}" update >&2
+apt-cache "${APT_OPTIONS[@]}" showsrc --only-source libgit2 > "$WORKSPACE/sources"
+python3 "$ADAPTER_DIR/source-metadata.py" select
+
+# An absent 1.9 source leaves stored packages available, even after sid moves on.
+if [[ ! -s "$WORKSPACE/source-version" ]]; then
+    exit 0
+fi
+SOURCE_VERSION=$(cat "$WORKSPACE/source-version")
+cd "$WORKSPACE/source"
+apt-get "${APT_OPTIONS[@]}" source --download-only "libgit2=$SOURCE_VERSION" >&2
+python3 "$ADAPTER_DIR/source-metadata.py" targets

@@ -1,0 +1,2 @@
+RELEASE_STREAM=libgit2-1.9
+BINARY_PACKAGES="libgit2-1.9 libgit2-dev libgit2-experimental1.9 libgit2-experimental-dev libgit2-fixtures"

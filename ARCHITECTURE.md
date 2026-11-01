@@ -378,6 +378,12 @@ layers. The dependency declarations in
 architectures. Dockerfile changes affect every stream's recipe checksum; later
 adapter-only patch edits remain local to that adapter.
 
+`packages/rebuild/libgit2-1.9/install-build-dependencies` adds the target CMake
+library dependencies for libgit2. That adapter selects Debian sid's latest
+stable 1.9 source and rebuilds against Trixie, preserving Debian's normal and
+experimental library packages. Its explicit debhelper 14-to-13 adaptation
+restores automatic dependency substitutions. See [libgit2 notes](docs/libgit2-1.9.md).
+
 See [repository groups and deployment](README.md#repository-groups-and-deployment)
 for services, settings, host requirements, signing identities, and deployment
 commands, and [storage migration](README.md#moving-existing-storage) for existing

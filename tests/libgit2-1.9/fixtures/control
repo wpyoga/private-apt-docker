@@ -1,0 +1,88 @@
+Source: libgit2
+Section: libs
+Maintainer: Utkarsh Gupta <utkarsh@debian.org>
+Uploaders:
+ Pirate Praveen <praveen@debian.org>,
+ Mohammed Bilal <mdbilal@disroot.org>,
+ Timo Röhling <roehling@debian.org>,
+Build-Depends:
+ debhelper-compat (= 14),
+ ca-certificates,
+ cmake,
+ libkrb5-dev,
+ libllhttp-dev,
+ libpcre2-dev,
+ libssh2-1-dev,
+ libssl-dev,
+ pkgconf,
+ python3-minimal:any,
+ zlib1g-dev,
+Standards-Version: 4.7.4
+Homepage: https://libgit2.github.com/
+Vcs-Git: https://salsa.debian.org/debian/libgit2.git
+Vcs-Browser: https://salsa.debian.org/debian/libgit2
+Rules-Requires-Root: no
+Description: low-level Git library
+ libgit2 is a portable, pure C implementation of the Git
+ distributed version control system core methods provided as a
+ re-entrant link-able library with a solid API.
+
+Package: libgit2-dev
+Architecture: any
+Section: libdevel
+Multi-Arch: same
+Depends:
+ libgit2-1.9 (= ${binary:Version}),
+ libllhttp-dev,
+ libpcre2-dev,
+ libssh2-1-dev,
+ libssl-dev,
+ zlib1g-dev,
+Description: ${source:Synopsis} (development files)
+ ${source:Extended-Description}
+ .
+ This package contains the development files for libgit2.
+
+Package: libgit2-1.9
+Architecture: any
+Multi-Arch: same
+Description: ${source:Synopsis}
+ ${source:Extended-Description}
+
+Package: libgit2-experimental-dev
+Architecture: any
+Section: libdevel
+Multi-Arch: same
+Conflicts:
+ libgit2-dev,
+Depends:
+ libgit2-experimental1.9 (= ${binary:Version}),
+ libllhttp-dev,
+ libpcre2-dev,
+ libssh2-1-dev,
+ libssl-dev,
+ zlib1g-dev,
+Description: ${source:Synopsis} with SHA-256 support (development files)
+ ${source:Extended-Description}
+ .
+ This package contains the development files for libgit2 with
+ experimental SHA-256 support enabled.
+
+Package: libgit2-experimental1.9
+Architecture: any
+Multi-Arch: same
+Description: ${source:Synopsis} with SHA-256 support
+ ${source:Extended-Description}
+ .
+ This package contains the shared library version with
+ experimental SHA-256 support enabled.
+
+Package: libgit2-fixtures
+Architecture: all
+Multi-Arch: foreign
+Description: ${source:Synopsis} (test suite examples)
+ ${source:Extended-Description}
+ .
+ This package provides the test examples of the library, which
+ can be useful for other pieces of software relying on libgit2,
+ for testing purposes.

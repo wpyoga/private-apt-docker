@@ -48,7 +48,10 @@ RUN bash /tmp/install-build-dependencies "$TARGET_ARCH" \
 COPY packages/rebuild/xfce4-screensaver/install-build-dependencies /tmp/install-screensaver-dependencies
 RUN bash /tmp/install-screensaver-dependencies "$TARGET_ARCH" \
     && rm /tmp/install-screensaver-dependencies
-ENV XFCE_BUILD_ARCH=$TARGET_ARCH
+COPY packages/rebuild/libgit2-1.9/install-build-dependencies /tmp/install-libgit2-dependencies
+RUN bash /tmp/install-libgit2-dependencies "$TARGET_ARCH" \
+    && rm /tmp/install-libgit2-dependencies
+ENV XFCE_BUILD_ARCH=$TARGET_ARCH LIBGIT2_BUILD_ARCH=$TARGET_ARCH
 
 FROM rebuild-tools AS rebuild
 COPY --from=publisher-files /opt/apt-publisher/ /opt/apt-publisher/

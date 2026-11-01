@@ -1,0 +1,17 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+TARGET_ARCH="${1:?Supply the build target architecture}"
+case "$TARGET_ARCH" in
+    amd64|arm64) ;;
+    *) echo "libgit2: unsupported build target architecture: $TARGET_ARCH" >&2; exit 1 ;;
+esac
+
+dpkg --add-architecture "$TARGET_ARCH"
+apt-get update
+apt-get install -y --no-install-recommends \
+    build-essential crossbuild-essential-arm64 debhelper devscripts cmake pkgconf \
+    "libkrb5-dev:$TARGET_ARCH" "libllhttp-dev:$TARGET_ARCH" \
+    "libpcre2-dev:$TARGET_ARCH" "libssh2-1-dev:$TARGET_ARCH" \
+    "libssl-dev:$TARGET_ARCH" "zlib1g-dev:$TARGET_ARCH"
+rm -rf /var/lib/apt/lists/*
