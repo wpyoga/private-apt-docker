@@ -54,17 +54,26 @@ index 41266f7..34ff3f9 100644
  
  typedef enum
 diff --git a/src/gs-manager.c b/src/gs-manager.c
-index f528470..d90e362 100644
+index f528470..04f74aa 100644
 --- a/src/gs-manager.c
 +++ b/src/gs-manager.c
-@@ -572,7 +572,14 @@ gs_manager_show_message (GSManager  *manager,
+@@ -27,6 +27,8 @@
+ #include <gdk/gdkx.h>
+ #include <gio/gio.h>
+ 
++#include <libxfce4util/libxfce4util.h>
++
+ #include <X11/extensions/dpms.h>
+ 
+ #include "gs-debug.h"
+@@ -572,7 +574,14 @@ gs_manager_show_message (GSManager  *manager,
      if (window == NULL)
          return;
  
 -    gs_window_show_message (window, summary, body, icon);
-+    summary = summary != NULL && *summary != '\0' ? summary : NULL;
-+    body = body != NULL && *body != '\0' ? body : NULL;
-+    icon = icon != NULL && *icon != '\0' ? icon : NULL;
++    summary = xfce_str_is_empty (summary) ? NULL : summary;
++    body = xfce_str_is_empty (body) ? NULL : body;
++    icon = xfce_str_is_empty (icon) ? NULL : icon;
 +
 +    /* Show an information bar only when at least one field contains content.
 +     * Empty notification requests must still request the password prompt. */
@@ -109,10 +118,25 @@ index 66549f1..475640f 100644
      g_signal_connect(monitor->priv->listener_x11, "activate",
                       G_CALLBACK(listener_x11_activate_cb), monitor);
 diff --git a/src/gs-window-x11.c b/src/gs-window-x11.c
-index 3906401..4ece133 100644
+index 3906401..534607f 100644
 --- a/src/gs-window-x11.c
 +++ b/src/gs-window-x11.c
-@@ -625,23 +625,30 @@ set_info_text_and_icon (GSWindow   *window,
+@@ -611,50 +611,50 @@ gs_window_real_show (GtkWidget *widget) {
+ }
+ 
+ static void
+-set_info_text_and_icon (GSWindow   *window,
++set_info_text_and_icon (GSWindow *window,
+                         const char *icon_name,
+                         const char *primary_text,
+                         const char *secondary_text) {
+     GtkWidget *content_area;
+     GtkWidget *hbox_content;
+-    GtkWidget *image;
+-    GtkWidget *vbox;
+-    gchar     *primary_markup;
+-    GtkWidget *primary_label;
+ 
      hbox_content = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
      gtk_widget_show (hbox_content);
  
@@ -133,30 +157,53 @@ index 3906401..4ece133 100644
 -    gtk_label_set_use_markup (GTK_LABEL (primary_label), TRUE);
 -    gtk_label_set_line_wrap (GTK_LABEL (primary_label), TRUE);
 -    gtk_widget_set_halign (primary_label, GTK_ALIGN_START);
+-
+-    if (secondary_text != NULL) {
+-        gchar     *secondary_markup;
+-        GtkWidget *secondary_label;
+-        secondary_markup = g_strdup_printf ("<small>%s</small>",
+-                                            secondary_text);
+-        secondary_label = gtk_label_new (secondary_markup);
+-        g_free (secondary_markup);
+-        gtk_widget_show (secondary_label);
+-        gtk_box_pack_start (GTK_BOX (vbox), secondary_label, TRUE, TRUE, 0);
+-        gtk_label_set_use_markup (GTK_LABEL (secondary_label), TRUE);
+-        gtk_label_set_line_wrap (GTK_LABEL (secondary_label), TRUE);
+-        gtk_widget_set_halign (secondary_label, GTK_ALIGN_START);
 +    if (icon_name != NULL) {
-+        image = gtk_image_new_from_icon_name (icon_name, GTK_ICON_SIZE_DIALOG);
++        GtkWidget *image = gtk_image_new_from_icon_name (icon_name, GTK_ICON_SIZE_DIALOG);
 +        gtk_widget_show (image);
 +        gtk_box_pack_start (GTK_BOX (hbox_content), image, FALSE, FALSE, 0);
 +        gtk_widget_set_valign (image, GTK_ALIGN_START);
 +    }
 +
-+    vbox = NULL;
 +    if (primary_text != NULL || secondary_text != NULL) {
-+        vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
++        GtkWidget *vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
 +        gtk_widget_show (vbox);
 +        gtk_box_pack_start (GTK_BOX (hbox_content), vbox, FALSE, FALSE, 0);
-+    }
 +
-+    if (primary_text != NULL) {
-+        primary_markup = g_strdup_printf ("<b>%s</b>", primary_text);
-+        primary_label = gtk_label_new (primary_markup);
-+        g_free (primary_markup);
-+        gtk_widget_show (primary_label);
-+        gtk_box_pack_start (GTK_BOX (vbox), primary_label, TRUE, TRUE, 0);
-+        gtk_label_set_use_markup (GTK_LABEL (primary_label), TRUE);
-+        gtk_label_set_line_wrap (GTK_LABEL (primary_label), TRUE);
-+        gtk_widget_set_halign (primary_label, GTK_ALIGN_START);
-+    }
++        if (primary_text != NULL) {
++            gchar *primary_markup = g_strdup_printf ("<b>%s</b>", primary_text);
++            GtkWidget *primary_label = gtk_label_new (primary_markup);
++            g_free (primary_markup);
++            gtk_widget_show (primary_label);
++            gtk_box_pack_start (GTK_BOX (vbox), primary_label, TRUE, TRUE, 0);
++            gtk_label_set_use_markup (GTK_LABEL (primary_label), TRUE);
++            gtk_label_set_line_wrap (GTK_LABEL (primary_label), TRUE);
++            gtk_widget_set_halign (primary_label, GTK_ALIGN_START);
++        }
++
++        if (secondary_text != NULL) {
++            gchar *secondary_markup = g_strdup_printf ("<small>%s</small>",
++                                                       secondary_text);
++            GtkWidget *secondary_label = gtk_label_new (secondary_markup);
++            g_free (secondary_markup);
++            gtk_widget_show (secondary_label);
++            gtk_box_pack_start (GTK_BOX (vbox), secondary_label, TRUE, TRUE, 0);
++            gtk_label_set_use_markup (GTK_LABEL (secondary_label), TRUE);
++            gtk_label_set_line_wrap (GTK_LABEL (secondary_label), TRUE);
++            gtk_widget_set_halign (secondary_label, GTK_ALIGN_START);
++        }
+     }
  
-     if (secondary_text != NULL) {
-         gchar     *secondary_markup;
+     /* remove old content */
