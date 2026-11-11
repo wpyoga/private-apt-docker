@@ -48,9 +48,11 @@ tree for changes from the user or another session.
   the kernel `flock` and wait `CHECK_INTERVAL` after the complete cycle.
 - Queries select current releases for their stream. Packaging changes rebuild
   the current targets, not historical upstream versions.
-- Derive revisions from stored packages and their embedded checksum/stream
+- For repack and rebuild streams, derive revisions from stored packages and their embedded checksum/stream
   metadata. Do not add revision counters, checksum sidecars, or `revision-env`.
   Preserve existing artifacts and resume incomplete builds at their revision.
+  Redistribute streams preserve upstream bytes and versions; their import provenance
+  lives under repository .state/imports and is exposed through signed indexes.
 - Adapters own their upstream query and packaging method. Expect a fixed layout
   and validate it. Fail with a useful error when it changes; do not search for
   alternative roots or silently adapt to a different artifact structure.
@@ -64,14 +66,18 @@ For a new adapter, follow the workflow in
 [ARCHITECTURE.md](ARCHITECTURE.md#adding-or-changing-an-adapter). Read the existing
 adapter closest to its packaging method, but do not assume every package should
 copy that method. Verify the upstream release source, checksums, architecture
-mapping, dependency requirements, and expected layout.
+mapping, dependency requirements, and expected layout. Investigate the actual
+feature or bug-fix requirement, including Debian patches, before raising a
+dependency floor merely because upstream names a newer version.
 
-Every binary package must include `Installed-Size` in its control metadata so
+Every repacked or rebuilt binary package must include `Installed-Size` in its control metadata so
 APT can estimate disk usage. Calculate it in KiB from the final staged package
 tree, excluding `DEBIAN/`, before building the `.deb`. Recalculate it for imported
 packages too; do not trust an upstream value after repackaging. `dpkg-deb --build`
 does not generate this field. Cover the field and its published index value in
 adapter tests, including missing or stale upstream metadata for importers.
+For byte-preserving redistribution, leave the control archive unchanged and publish
+a calculated Installed-Size estimate in the repository index instead.
 
 Put reusable framework behavior in `lib/` only when it belongs to the publisher.
 Keep upstream-specific assumptions inside the adapter. Update documentation when
