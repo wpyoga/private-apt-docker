@@ -1,0 +1,56 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${ARCHES:?ARCHES must be set and non-empty}"
+source "$FRAMEWORK_DIR/lib/adapter/github.sh"
+
+fetch_github_release NVIDIA/OpenShell "$WORKSPACE/release.json"
+TAG=$(jq --raw-output --exit-status '.tag_name | strings' "$WORKSPACE/release.json")
+if [[ ! "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+    echo "[openshell] Unexpected stable release tag: $TAG" >&2
+    exit 1
+fi
+UPSTREAM_VERSION="${BASH_REMATCH[1]}"
+record_github_release_date "$WORKSPACE/release.json" "$WORKSPACE/release-date"
+printf '[]\n' > "$WORKSPACE/imports.json"
+: > "$WORKSPACE/targets.tsv"
+
+for ARCHITECTURE in $ARCHES; do
+    case "$ARCHITECTURE" in
+        amd64|arm64) ;;
+        *) echo "[openshell] Unsupported architecture: $ARCHITECTURE" >&2; exit 1 ;;
+    esac
+
+    # Accept the upstream Debian revision, without assuming it is always -1.
+    MATCHES=$(jq --compact-output --arg VERSION "$UPSTREAM_VERSION" --arg ARCH "$ARCHITECTURE" '
+        [.assets[] | select(.name | startswith("openshell_" + $VERSION + "-"))
+         | select(.name | endswith("_" + $ARCH + ".deb"))]
+    ' "$WORKSPACE/release.json")
+    COUNT=$(jq length <<< "$MATCHES")
+    if (( COUNT == 0 )); then
+        echo "WARNING: [openshell] No upstream Debian package for $TAG ($ARCHITECTURE)" >&2
+        continue
+    fi
+    if (( COUNT != 1 )); then
+        echo "[openshell] Expected one Debian package for $TAG ($ARCHITECTURE)" >&2
+        exit 1
+    fi
+    NAME=$(jq --raw-output '.[0].name' <<< "$MATCHES")
+    VERSION="${NAME#openshell_}"
+    VERSION="${VERSION%_${ARCHITECTURE}.deb}"
+    REVISION="${VERSION#"$UPSTREAM_VERSION"-}"
+    if [[ ! "$REVISION" =~ ^[1-9][0-9]*$ ]]; then
+        echo "[openshell] Unexpected Debian asset name: $NAME" >&2
+        exit 1
+    fi
+    ASSET=$(select_github_asset "$WORKSPACE/release.json" "$NAME")
+    jq --arg ARCH "$ARCHITECTURE" --arg VERSION "$VERSION" --argjson ASSET "$ASSET" '
+        . + [{package: "openshell", version: $VERSION, architecture: $ARCH,
+              url: $ASSET.browser_download_url,
+              sha256: ($ASSET.digest | ltrimstr("sha256:") | ascii_downcase)}]
+    ' "$WORKSPACE/imports.json" > "$WORKSPACE/imports.tmp"
+    mv -- "$WORKSPACE/imports.tmp" "$WORKSPACE/imports.json"
+    printf '%s\t%s\n' "$VERSION" "$ARCHITECTURE" >> "$WORKSPACE/targets.tsv"
+done

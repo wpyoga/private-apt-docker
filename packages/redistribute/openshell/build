@@ -1,0 +1,24 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set and non-empty}"
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+source "$FRAMEWORK_DIR/lib/adapter/package.sh"
+
+VERSION="$1"
+ARCHITECTURE="$2"
+OUTPUT_DIR="$3"
+ASSET=$(jq --compact-output --exit-status --arg VERSION "$VERSION" --arg ARCH "$ARCHITECTURE" '
+    [.[] | select(.version == $VERSION and .architecture == $ARCH)]
+    | if length == 1 then .[0] else error("Expected one OpenShell import") end
+' "$WORKSPACE/imports.json")
+URL=$(jq --raw-output '.url' <<< "$ASSET")
+SHA256=$(jq --raw-output '.sha256' <<< "$ASSET")
+DOWNLOAD="$WORKSPACE/openshell_${VERSION}_${ARCHITECTURE}.deb"
+verify_download "$URL" "$DOWNLOAD" "$SHA256" reuse
+check_deb_field "$DOWNLOAD" Package openshell
+check_deb_field "$DOWNLOAD" Version "$VERSION"
+check_deb_field "$DOWNLOAD" Architecture "$ARCHITECTURE"
+python3 "$ADAPTER_DIR/validate.py" "$DOWNLOAD" "$ARCHITECTURE"
+install -m 644 -- "$DOWNLOAD" "$OUTPUT_DIR/openshell_${VERSION}_${ARCHITECTURE}.deb"
