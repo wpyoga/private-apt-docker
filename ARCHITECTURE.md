@@ -48,7 +48,7 @@ status if any stream or publication failed, while retaining successful artifacts
 
 The wait starts after the entire cycle finishes. With a six-hour interval, an
 08:00 start and twenty-minute cycle produce a 14:20 next start. This is not a
-fixed wall-clock schedule. No parallel worker pool or scheduler is needed.
+fixed wall-clock schedule. Dependency ordering does not introduce parallel builds.
 
 `update.sh` holds a blocking kernel `flock` on `REPO_DIR/.state/update.lock`.
 This protects against another container or a manual update using the same data.
@@ -239,7 +239,7 @@ an official binary.
 
 ## Checksums and revision history
 
-Stored packages supply the history. There is no revision database, reservation
+For repack and rebuild streams, stored packages supply the history. There is no revision database, reservation
 file, or checksum sidecar. Reading `.deb` control metadata does not require
 decompressing its main payload.
 
@@ -363,7 +363,8 @@ limitations belong in their linked packaging notes, outside recipe inputs.
 
 ## Repository groups and deployment
 
-The parent directory, `packages/repack/` or `packages/rebuild/`, selects repository
+The parent directory, `packages/repack/`, `packages/rebuild/` or
+`packages/redistribute/`, selects repository
 membership. Keeping this out of adapter config avoids a second source of truth.
 Repack and rebuild have separate outputs and signing identities. The two rebuild
 services share their repository and keyring, using the repository lock to serialize
@@ -389,3 +390,48 @@ for services, settings, host requirements, signing identities, and deployment
 commands, and [storage migration](README.md#moving-existing-storage) for existing
 data. [xfce4-terminal notes](docs/xfce4-terminal.md) describe its patches and
 source-build requirements.
+
+## Private build dependency ordering and isolation
+
+Adapters may declare provider stream IDs, binary package names and version
+constraints in `build-dependencies`. The publisher validates the graph before
+queries and orders streams without changing sequential processing or the lock.
+Complete stored provider builds satisfy consumers even after provider failures.
+Selected dependency versions and bytes enter consumer recipe checksums.
+
+A local APT snapshot exposes stored artifacts before public publication. A host
+worker creates a disposable image to install dependencies, then runs the build
+hook as the publisher user. The coordinator retains its keys and repository
+access; worker containers receive only a stream workspace and explicit build
+context. Existing adapters retain their direct build path.
+See [build dependencies](docs/build-dependencies.md) for selection, failure
+behavior, checksum limitations, host deployment and verification.
+
+## Redistribution provenance
+
+The redistribute coordinator sets `REPOSITORY_MODE=redistribute`. Its query
+versions are exact upstream Debian versions; its build outputs are the original
+Debian archives. The resolver checks the current manifest and stored artifact
+digests rather than allocating revisions. Normal repack/rebuild streams retain
+their embedded provenance and revision behavior.
+
+An import record under `.state/imports/STREAM/` binds each artifact SHA256 to its
+upstream URL, stream, recipe checksum and size estimate. This external bookkeeping
+is an explicit exception for byte-preserving redistribution. Recipe changes cause
+current-target revalidation. The same package/version/architecture may never be
+replaced with different bytes.
+
+The repository lock serializes imports. The complete output set is validated before
+storage; each provenance record is atomically replaced before its package becomes
+visible. An interruption can leave an orphan record, which is safe to retry.
+Storage remains atomic per artifact, not a transaction across an output set.
+
+Publication verifies import records against stored bytes and adds provenance and
+Installed-Size to each corresponding Packages stanza before compression and
+signing. Enrichment is per Filename, so retained versions and architecture-specific
+artifacts keep their own metadata. A package-name-only override file cannot express
+those distinctions. Original archive metadata remains unchanged.
+
+See [the import contract and deployment](README.md#unchanged-package-redistribution).
+Redistribute has its own output and signing key, with the same private agent socket
+isolation as the other services.

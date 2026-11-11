@@ -1,0 +1,32 @@
+#!/bin/bash
+set -Eeuo pipefail
+VERSION=$1
+ARCHITECTURE=$2
+OUTPUT_DIR=$3
+[[ "$ARCHITECTURE" == amd64 ]]
+TREE="$WORKSPACE/provider"
+mkdir -p "$TREE/runtime/DEBIAN" "$TREE/development/DEBIAN"
+mkdir -p "$TREE/runtime/usr/lib/x86_64-linux-gnu" "$TREE/development/usr/lib/x86_64-linux-gnu"
+mkdir -p "$TREE/development/usr/include"
+printf '%s\n' 'int publisher_test_value(void) { return 42; }' > "$WORKSPACE/library.c"
+gcc -fPIC -shared -Wl,-soname,libpublisher-test.so.1 "$WORKSPACE/library.c" \
+    -o "$TREE/runtime/usr/lib/x86_64-linux-gnu/libpublisher-test.so.1"
+printf '%s\n' 'int publisher_test_value(void);' > "$TREE/development/usr/include/publisher-test.h"
+ln -s libpublisher-test.so.1 "$TREE/development/usr/lib/x86_64-linux-gnu/libpublisher-test.so"
+for PACKAGE in libpublisher-test1 libpublisher-test-dev; do
+    PART=runtime
+    EXTRA_FIELD=
+    if [[ "$PACKAGE" == libpublisher-test-dev ]]; then
+        PART=development
+        EXTRA_FIELD="Depends: libpublisher-test1 (= $VERSION)"
+    fi
+    SIZE=$(du -s --block-size=1024 --exclude=DEBIAN "$TREE/$PART" | cut -f1)
+    printf '%s\n' "Package: $PACKAGE" "Version: $VERSION" "Architecture: $ARCHITECTURE" \
+        "Maintainer: $MAINTAINER" 'Description: Private dependency integration fixture' \
+        "Installed-Size: $SIZE" "X-Publisher-Stream: $PUBLISHER_STREAM" \
+        "X-Build-Inputs-SHA256: $BUILD_INPUTS_SHA256" > "$TREE/$PART/DEBIAN/control"
+    if [[ -n "$EXTRA_FIELD" ]]; then
+        printf '%s\n' "$EXTRA_FIELD" >> "$TREE/$PART/DEBIAN/control"
+    fi
+    dpkg-deb --build --root-owner-group "$TREE/$PART" "$OUTPUT_DIR/${PACKAGE}_${VERSION}_${ARCHITECTURE}.deb"
+done

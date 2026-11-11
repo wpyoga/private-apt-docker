@@ -1,0 +1,18 @@
+#!/bin/bash
+set -Eeuo pipefail
+VERSION=$1
+ARCHITECTURE=$2
+OUTPUT_DIR=$3
+TREE="$WORKSPACE/consumer"
+mkdir -p "$TREE/DEBIAN" "$TREE/usr/bin"
+printf '%s\n' '#include <publisher-test.h>' \
+    'int main(void) { return publisher_test_value() == 42 ? 0 : 1; }' > "$WORKSPACE/consumer.c"
+gcc "$WORKSPACE/consumer.c" -lpublisher-test -o "$TREE/usr/bin/private-consumer"
+"$TREE/usr/bin/private-consumer"
+SIZE=$(du -s --block-size=1024 --exclude=DEBIAN "$TREE" | cut -f1)
+printf '%s\n' 'Package: private-consumer' "Version: $VERSION" "Architecture: $ARCHITECTURE" \
+    "Maintainer: $MAINTAINER" 'Description: Private dependency integration consumer' \
+    'Depends: libpublisher-test1 (>= 1)' "Installed-Size: $SIZE" \
+    "X-Publisher-Stream: $PUBLISHER_STREAM" "X-Build-Inputs-SHA256: $BUILD_INPUTS_SHA256" \
+    > "$TREE/DEBIAN/control"
+dpkg-deb --build --root-owner-group "$TREE" "$OUTPUT_DIR/private-consumer_${VERSION}_${ARCHITECTURE}.deb"

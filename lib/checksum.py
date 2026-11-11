@@ -50,6 +50,18 @@ def checksum(adapter):
         records.append((name, executable_permissions, contents_checksum))
 
     records.append(("environment", "MAINTAINER", os.environ["MAINTAINER"]))
+    if (adapter / "build-dependencies").exists():
+        manifest_path = Path(os.environ["WORKSPACE"]) / "build-dependencies.json"
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text())
+            for selection in manifest.values():
+                for package in selection.get("packages", []):
+                    package.pop("path", None)
+            records.append(("private-build-dependencies", manifest))
+            for name in ("build-dependencies.py", "isolated-build.sh", "build-worker.sh",
+                         "build-context.py", "build-worker.Dockerfile", "adapter/rewrite-control.py"):
+                path = ROOT / "lib" / name
+                records.append((f"lib/{name}", hashlib.sha256(path.read_bytes()).hexdigest()))
     return hashlib.sha256(json.dumps(records).encode()).hexdigest()
 
 

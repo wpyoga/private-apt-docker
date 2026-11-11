@@ -50,10 +50,11 @@ cleanup_workspace() {
 trap cleanup_workspace EXIT
 STATUS=0
 
-declare -A SEEN_STREAMS=()
-shopt -s nullglob
-for ADAPTER_DIR in "$PACKAGES_DIR"/*/; do
-    ADAPTER_DIR=${ADAPTER_DIR%/}
+if ! python3 "$FRAMEWORK_DIR/lib/build-dependencies.py" order > "$WORK_DIR/adapter-order"; then
+    STATUS=1
+fi
+mapfile -d '' -t ADAPTER_DIRECTORIES < "$WORK_DIR/adapter-order"
+for ADAPTER_DIR in "${ADAPTER_DIRECTORIES[@]}"; do
     export ADAPTER_DIR
 
     if ! CONFIGURATION=$(bash "$FRAMEWORK_DIR/lib/config.sh"); then
@@ -62,13 +63,6 @@ for ADAPTER_DIR in "$PACKAGES_DIR"/*/; do
     fi
 
     STREAM=${CONFIGURATION%%$'\n'*}
-
-    if [[ -v SEEN_STREAMS[$STREAM] ]]; then
-        echo "Duplicate RELEASE_STREAM: $STREAM" >&2
-        STATUS=1
-        continue
-    fi
-    SEEN_STREAMS[$STREAM]=1
 
     export PUBLISHER_STREAM="$STREAM"
     mapfile -t CONFIGURATION_LINES <<< "$CONFIGURATION"

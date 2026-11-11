@@ -1,7 +1,7 @@
 # Private APT publisher
 
 The publisher checks upstream releases, builds Debian packages, and publishes
-signed APT repositories for repacks and source rebuilds. It includes an unofficial
+signed APT repositories for repacks, source rebuilds and unchanged upstream Debian packages. It includes an unofficial
 repackaging of the official OpenAI Codex executables as `codex-cli`, community Ghostty Debian packages as
 `ghostty`, native GIMP 3.2 packages from the official AppImages, and the official
 Zed editor binaries repackaged with Debian shared libraries as `zed`, and
@@ -134,11 +134,12 @@ rejects missing settings before starting the container.
 
 ## One directory per configured release stream
 
-Each immediate, non-hidden directory under `packages/repack/` or
-`packages/rebuild/` contains one adapter. Its
+Each immediate, non-hidden directory under `packages/repack/`,
+`packages/rebuild/` or `packages/redistribute/` contains one adapter. Its
 name is descriptive only: renaming it does not change stream identity, package
 names, storage paths, recipe checksums, or revision history. Directory names affect
-only processing order and diagnostic paths.
+only the ordering of independent streams and diagnostic paths. Private build
+dependencies place providers before their consumers.
 
 Each adapter contains:
 
@@ -205,6 +206,14 @@ environment-based context and output-directory build interface below. Set
 `RELEASE_STREAM` to the previous stream directory name to retain existing package metadata identity. Configuration
 and build recipe changes allocate a new revision; existing artifacts stay intact.
 
+## Private build dependencies
+
+Adapters may declare same-repository build dependencies in an optional
+`build-dependencies` file. The framework orders streams, selects complete stored
+provider builds, and makes them available to isolated consumer builds in the same
+cycle. See [dependency declarations and host worker deployment](docs/build-dependencies.md).
+Existing adapters without a declaration keep their current build path.
+
 ## Query and build hooks
 
 The hook interface is:
@@ -268,7 +277,7 @@ X-Build-Inputs-SHA256: <value of BUILD_INPUTS_SHA256>
 X-Publisher-Stream: <value of PUBLISHER_STREAM>
 ```
 
-Every output package must also contain `Installed-Size`, the estimated unpacked
+Every repack or rebuild output package must also contain `Installed-Size`, the estimated unpacked
 disk usage in KiB used by APT. Calculate it from the final staged package tree,
 excluding the `DEBIAN/` metadata directory, before building the `.deb`:
 
@@ -281,6 +290,10 @@ the field for imported packages as well, replacing any upstream value.
 `dpkg-deb --build` does not calculate it automatically. Test both the final
 package field and the published index; importers must handle missing or stale
 upstream size metadata.
+
+Redistribute repositories preserve original control metadata and versions. Their
+query additionally writes `WORKSPACE/imports.json`; see
+[unchanged redistribution](#unchanged-package-redistribution) for its contract.
 
 Every adapter must expect a fixed layout inside its selected upstream artifact.
 Check the required paths and metadata before producing packages. If upstream moves
@@ -828,3 +841,95 @@ both keyrings. To adopt the shared `/srv/apt` web root, follow the
 Keep existing signing fingerprints when moving keyrings.
 Remove obsolete REPO_DATA_DIR and GPG_KEY settings after configuring these fields.
 Never serve either signing directory over HTTP.
+
+## Unchanged package redistribution
+
+There are three adapter groups:
+
+| Directory | Behavior |
+| --- | --- |
+| `packages/repack/` | Modify upstream binaries, payload or package metadata |
+| `packages/rebuild/` | Build Debian packages from source |
+| `packages/redistribute/` | Publish upstream Debian packages byte-for-byte |
+
+Redistribution preserves the upstream Version, Maintainer, dependencies and
+maintainer scripts. It does not allocate publisher revisions. Import recipe
+changes revalidate the current upstream packages and update provenance, without
+replacing their bytes or increasing their versions. Changed bytes claiming the
+same Package/Version/Architecture are rejected, including collisions with another
+stream. Existing packages are retained.
+
+### Import hook contract
+
+Use the normal config, query and build hooks in a repository coordinator with
+`REPOSITORY_MODE=redistribute` (Compose sets this for the redistribute service).
+The default mode retains the repack/rebuild contract.
+
+Query targets contain the full upstream Debian version, including its revision.
+Query also writes `WORKSPACE/imports.json`, an array with one record per selected
+binary package:
+
+```json
+[
+  {
+    "package": "openshell",
+    "version": "0.1.8-1",
+    "architecture": "amd64",
+    "url": "https://github.com/NVIDIA/OpenShell/releases/download/v0.1.8/openshell_0.1.8-1_amd64.deb",
+    "sha256": "<64 lowercase hexadecimal characters>"
+  }
+]
+```
+
+Build receives that exact version and copies the verified original artifact into
+OUTPUT_DIR with the normal PACKAGE_VERSION_ARCH.deb filename. It validates the
+upstream-specific fixed layout without executing upstream code. The framework
+checks the output set, package identity and digest against the query declaration.
+
+Provenance is stored as JSON at
+`REPO_DIR/.state/imports/STREAM/PACKAGE_VERSION_ARCH.deb.json`. Records include the
+artifact SHA256, upstream URL, stream, import recipe SHA256 and calculated size.
+They are not revision counters. Preserve this directory in repository backups.
+A missing record for a current target is recovered by downloading and validating
+the original package again; missing records for historical packages require
+operator recovery before redistribution publication can succeed.
+
+The signed Packages index exposes `X-Publisher-Stream`,
+`X-Import-Recipe-SHA256` and `X-Upstream-URL`. It also supplies Installed-Size,
+estimated from the sum of regular-file payload lengths rounded up to KiB,
+including when the original field is absent or stale. This logical-size estimate
+does not include filesystem allocation overhead. These index-only fields do not
+change `dpkg-deb --field` output or installed-package control metadata.
+
+### Deployment and clients
+
+The additional `redistribute` service uses the ordinary publisher image and an
+independent repository and signing identity. Add these settings to an existing
+operator-owned .env before running setup:
+
+```dotenv
+REDISTRIBUTE_REPO_DIR=/srv/apt/redistribute
+REDISTRIBUTE_GNUPG_DIR=/var/lib/apt-publisher/gnupg/redistribute
+REDISTRIBUTE_GPG_KEY=
+```
+
+Setup generates or selects the independent key, writes its fingerprint and exports
+`redistribute-pubkey.asc`, preserving the two existing signing identities.
+Run `bash codex-repo-setup.sh` and `docker compose up -d --build` to run all four
+services. Serve the third output at `/redistribute/`; keep its keyring outside the
+web root. No production deployment, migration or cleanup is automatic.
+
+For clients, transfer and verify `redistribute-pubkey.asc` securely, then add a
+separate source:
+
+```bash
+sudo install -m 0644 redistribute-pubkey.asc /etc/apt/keyrings/private-redistribute.asc
+printf '%s\n' \
+    'deb [signed-by=/etc/apt/keyrings/private-redistribute.asc] http://100.101.102.103:8080/redistribute/ trixie main' \
+    | sudo tee /etc/apt/sources.list.d/private-redistribute.list
+sudo apt update
+sudo apt install openshell
+```
+
+[OpenShell notes](docs/openshell.md) explain the contents, runtime requirements
+and gateway activation. Run `bash tests/run.sh openshell` for its offline tests.

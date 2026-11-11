@@ -21,6 +21,14 @@ mkdir -p "$WORKSPACE"
 echo "[$STREAM] Querying upstream"
 "$ADAPTER_DIR/query"
 
+STATUS=0
+if ! python3 "$FRAMEWORK_DIR/lib/build-dependencies.py" prepare; then
+    STATUS=1
+    if [[ ! -f "$WORKSPACE/build-dependencies.json" ]]; then
+        exit 1
+    fi
+fi
+
 BUILD_INPUTS_SHA256=$(python3 "$FRAMEWORK_DIR/lib/checksum.py")
 export BUILD_INPUTS_SHA256
 python3 "$FRAMEWORK_DIR/lib/resolve-builds.py"
@@ -46,8 +54,12 @@ while IFS=$'\t' read -r VERSION ARCHITECTURE EXISTING; do
     OUTPUT_DIR="$WORKSPACE/output-$ARCHITECTURE"
     mkdir -p "$OUTPUT_DIR"
     echo "[$STREAM] Building $SELECTED_PACKAGES $VERSION ($ARCHITECTURE)"
+    BUILD_COMMAND=("$ADAPTER_DIR/build")
+    if [[ -f "$WORKSPACE/build-dependencies.json" ]]; then
+        BUILD_COMMAND=(bash "$FRAMEWORK_DIR/lib/isolated-build.sh")
+    fi
     if ! BINARY_PACKAGES="$SELECTED_PACKAGES" \
-        "$ADAPTER_DIR/build" "$VERSION" "$ARCHITECTURE" "$OUTPUT_DIR"; then
+        "${BUILD_COMMAND[@]}" "$VERSION" "$ARCHITECTURE" "$OUTPUT_DIR"; then
         echo "ERROR: [$STREAM] Build failed for $VERSION ($ARCHITECTURE)" >&2
         exit 1
     fi
@@ -55,3 +67,5 @@ while IFS=$'\t' read -r VERSION ARCHITECTURE EXISTING; do
         bash "$FRAMEWORK_DIR/lib/store-packages.sh" "$VERSION" "$ARCHITECTURE" "$OUTPUT_DIR"
     echo "[$STREAM] Stored: $SELECTED_PACKAGES $VERSION ($ARCHITECTURE)"
 done < "$WORKSPACE/builds.tsv"
+
+exit "$STATUS"
