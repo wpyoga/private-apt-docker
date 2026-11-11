@@ -8,7 +8,7 @@ import unittest
 
 def select_directories(root, packages, *, offline=False, framework=False):
     adapter_root = root / "packages"
-    groups = [adapter_root / name for name in ("repack", "rebuild")]
+    groups = [adapter_root / name for name in ("repack", "rebuild", "redistribute")]
     roots = groups if any(path.is_dir() for path in groups) else [adapter_root]
     available = sorted(path.name for group in roots if group.is_dir()
                        for path in group.iterdir()

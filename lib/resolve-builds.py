@@ -34,6 +34,13 @@ def read_package(path):
         name, value = line.split(":", 1)
         fields[name.lower()] = value.strip()
 
+    if not fields.get("x-publisher-stream"):
+        from redistribute import read_record
+        record = read_record(path)
+        if record:
+            fields["x-publisher-stream"] = record["stream"]
+            fields["x-build-inputs-sha256"] = record["recipe_sha256"]
+
     return PackageFile(
         path=path,
         name=fields.get("package", ""),
@@ -150,6 +157,11 @@ def prepare_builds():
     workspace = Path(os.environ["WORKSPACE"])
     architectures = set(os.environ["ARCHES"].split())
     targets = read_targets(workspace / "targets.tsv", architectures)
+
+    if os.environ.get("REPOSITORY_MODE") == "redistribute":
+        from redistribute import resolve
+        resolve(targets)
+        return
 
     packages = []
     for name in names:

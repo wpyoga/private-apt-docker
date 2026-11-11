@@ -33,6 +33,18 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  redistribute:
+    <<: *publisher
+    environment:
+      <<: *shared-environment
+      PACKAGES_DIR: /opt/apt-publisher/packages/redistribute
+      REPOSITORY_MODE: redistribute
+      GPG_KEY: ${REDISTRIBUTE_GPG_KEY:?Set REDISTRIBUTE_GPG_KEY in .env}
+      REPO_NAME: redistribute
+    volumes:
+      - ${REDISTRIBUTE_REPO_DIR:?Set REDISTRIBUTE_REPO_DIR in .env}:/repo
+      - ${REDISTRIBUTE_GNUPG_DIR:?Set REDISTRIBUTE_GNUPG_DIR in .env}:/gnupg
+
   rebuild-amd64: &rebuild
     <<: *publisher
     image: private-apt-rebuild-amd64:local

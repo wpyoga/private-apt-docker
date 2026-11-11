@@ -17,6 +17,11 @@ validate_repository_config() {
         return 1
     fi
 
+    case "${REPOSITORY_MODE:-repack}" in
+        repack|rebuild|redistribute) ;;
+        *) echo "Invalid REPOSITORY_MODE: $REPOSITORY_MODE" >&2; return 1 ;;
+    esac
+
     local VALUE ARCHITECTURE
     for VALUE in "$MAINTAINER" "$REPO_NAME" "$REPO_DESCRIPTION"; do
         if [[ "$VALUE" == *$'\n'* || "$VALUE" == *$'\r'* ]]; then

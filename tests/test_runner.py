@@ -43,6 +43,11 @@ class RunnerTests(PublisherTestCase):
         (root / "packages/gimp-3.2").rename(root / "packages/rebuild/gimp-3.2")
         self.assertEqual(select_directories(root, [], offline=True),
                          [root / "tests", root / "tests/codex", root / "tests/gimp-3.2"])
+        (root / "packages/redistribute/openshell").mkdir(parents=True)
+        (root / "tests/openshell").mkdir()
+        (root / "tests/openshell/test_openshell.py").touch()
+        self.assertIn(root / "tests/openshell", select_directories(root, [], offline=True))
+        self.assertEqual(select_directories(root, ["openshell"]), [root / "tests/openshell"])
         self.assertEqual(select_directories(root, ["gimp-3.2"]),
                          [root / "tests/gimp-3.2"])
 

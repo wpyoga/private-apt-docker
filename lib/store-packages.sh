@@ -7,6 +7,11 @@ set -Eeuo pipefail
 : "${BINARY_PACKAGES:?BINARY_PACKAGES must be set and non-empty}"
 : "${BUILD_INPUTS_SHA256:?BUILD_INPUTS_SHA256 must be set and non-empty}"
 
+if [[ "${REPOSITORY_MODE:-repack}" == redistribute ]]; then
+    : "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set and non-empty}"
+    exec python3 "$FRAMEWORK_DIR/lib/redistribute.py" store "$@"
+fi
+
 VERSION="$1"
 ARCHITECTURE="$2"
 OUTPUT_DIR="$3"

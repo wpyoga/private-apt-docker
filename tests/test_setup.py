@@ -39,7 +39,8 @@ if args[0] == "build":
     sys.exit(0)
 assert args[0] == "run"
 mount = args[args.index("--mount") + 1]
-fingerprint = "B" * 40 if "/rebuild-gnupg," in mount else "A" * 40
+fingerprint = ("C" * 40 if "/redistribute-gnupg," in mount else
+               "B" * 40 if "/rebuild-gnupg," in mount else "A" * 40)
 if "--list-secret-keys" in args:
     marker = Path(os.environ["TEST_DOCKER_LOG"] + fingerprint)
     if not os.environ.get("TEST_GENERATE_KEYS") or marker.exists():
@@ -61,6 +62,8 @@ else:
             f"REBUILD_REPO_DIR='{self.base / 'storage/rebuild'}'\n"
             f"REPACK_GNUPG_DIR='{self.base / 'repack-gnupg'}'\n"
             f"REBUILD_GNUPG_DIR='{self.base / 'rebuild-gnupg'}'\n"
+            f"REDISTRIBUTE_GNUPG_DIR='{self.base / 'redistribute-gnupg'}'\n"
+            f"REDISTRIBUTE_REPO_DIR='{self.base / 'storage/redistribute'}'\n"
             f"REPO_USER={user}\nREPO_DATA_DIR='{self.base / 'storage'}'\n"
             "MAINTAINER='Test <test@example.com>'\nREPO_NAME='Test Repository'\n"
             "GPG_KEY_NAME='Test Key'\nGPG_KEY_TYPE=ed25519\nGPG_KEY_VALIDITY=1d\n"
@@ -80,7 +83,7 @@ else:
         subprocess.run(command, env=environment, check=True, capture_output=True)
 
         expected = settings + (
-            f"REPO_UID={os.getuid()}\nREPO_GID={os.getgid()}\nREPACK_GPG_KEY={KEY}\nREBUILD_GPG_KEY={'B'*40}\n"
+            f"REPO_UID={os.getuid()}\nREPO_GID={os.getgid()}\nREPACK_GPG_KEY={KEY}\nREBUILD_GPG_KEY={'B'*40}\nREDISTRIBUTE_GPG_KEY={'C'*40}\n"
         )
         self.assertEqual(path.read_text(), expected)
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
@@ -90,7 +93,7 @@ else:
         calls = [json.loads(line) for line in
                  (self.base / "docker.jsonl").read_text().splitlines()]
         runs = [args for args in calls if args[0] == "run"]
-        self.assertEqual(len(runs), 12)
+        self.assertEqual(len(runs), 18)
         for args in runs:
             self.assertIn("--rm", args)
             self.assertIn("--init", args)
@@ -112,7 +115,8 @@ else:
         calls = [json.loads(line) for line in
                  (self.base / "docker.jsonl").read_text().splitlines()]
         generations = [args for args in calls if "--quick-generate-key" in args]
-        self.assertEqual(len(generations), 2)
+        self.assertEqual(len(generations), 3)
+        self.assertTrue((self.base / "redistribute-pubkey.asc").is_file())
         self.assertTrue((self.base / "repack-pubkey.asc").is_file())
         self.assertTrue((self.base / "rebuild-pubkey.asc").is_file())
 
@@ -132,6 +136,7 @@ else:
     def test_same_output_directories_fail_before_setup(self):
         settings = (
             "REPO_USER=test\nREPACK_GNUPG_DIR=/unused/repack-key\nREBUILD_GNUPG_DIR=/unused/rebuild-key\n"
+            "REDISTRIBUTE_REPO_DIR=/unused/redistribute\nREDISTRIBUTE_GNUPG_DIR=/unused/redistribute-key\n"
             "REPACK_REPO_DIR=/unused/repo\nREBUILD_REPO_DIR=/unused/repo/../repo\n"
             "MAINTAINER='Test <test@localhost>'\nREPO_NAME=Test\n"
             "GPG_KEY_NAME=Test\nGPG_KEY_TYPE=ed25519\nGPG_KEY_VALIDITY=1d\n"

@@ -16,6 +16,8 @@ set +a
 : "${REBUILD_GNUPG_DIR:?REBUILD_GNUPG_DIR must be set and non-empty}"
 : "${REPACK_REPO_DIR:?REPACK_REPO_DIR must be set and non-empty}"
 : "${REBUILD_REPO_DIR:?REBUILD_REPO_DIR must be set and non-empty}"
+: "${REDISTRIBUTE_REPO_DIR:?REDISTRIBUTE_REPO_DIR must be set and non-empty}"
+: "${REDISTRIBUTE_GNUPG_DIR:?REDISTRIBUTE_GNUPG_DIR must be set and non-empty}"
 : "${MAINTAINER:?MAINTAINER must be set and non-empty}"
 : "${REPO_NAME:?REPO_NAME must be set and non-empty}"
 : "${GPG_KEY_NAME:?GPG_KEY_NAME must be set and non-empty}"
@@ -31,6 +33,19 @@ if [[ "$(realpath -m -- "$REPACK_REPO_DIR")" == "$(realpath -m -- "$REBUILD_REPO
     exit 1
 fi
 
+for DIRECTORY in "$REPACK_REPO_DIR" "$REBUILD_REPO_DIR" "$REPACK_GNUPG_DIR" "$REBUILD_GNUPG_DIR"; do
+    for NEW_DIRECTORY in "$REDISTRIBUTE_REPO_DIR" "$REDISTRIBUTE_GNUPG_DIR"; do
+        if [[ "$(realpath -m -- "$DIRECTORY")" == "$(realpath -m -- "$NEW_DIRECTORY")" ]]; then
+            echo 'Repository and signing directories must be different directories' >&2
+            exit 1
+        fi
+    done
+done
+if [[ "$(realpath -m -- "$REDISTRIBUTE_REPO_DIR")" == "$(realpath -m -- "$REDISTRIBUTE_GNUPG_DIR")" ]]; then
+    echo 'Redistribute output and signing directories must be different directories' >&2
+    exit 1
+fi
+
 # Build without Compose: setup has not written the UID/GID or key fingerprints yet.
 docker build --tag private-apt-publisher:local "$FRAMEWORK_DIR"
 
@@ -40,7 +55,7 @@ fi
 
 REPO_UID=$(id -u "$REPO_USER")
 REPO_GID=$(id -g "$REPO_USER")
-sudo install -d -o "$REPO_UID" -g "$REPO_GID" -m 755 "$REPACK_REPO_DIR" "$REBUILD_REPO_DIR"
+sudo install -d -o "$REPO_UID" -g "$REPO_GID" -m 755 "$REPACK_REPO_DIR" "$REBUILD_REPO_DIR" "$REDISTRIBUTE_REPO_DIR"
 
 run_signing_gpg() {
     local SIGNING_DIR="$1"
@@ -103,16 +118,24 @@ if [[ "$REPACK_GPG_KEY" == "$REBUILD_GPG_KEY" ]]; then
     exit 1
 fi
 
-# Preserve the operator's settings and replace only the three setup outputs.
+prepare_signing_key redistribute "$REDISTRIBUTE_GNUPG_DIR" "${REDISTRIBUTE_GPG_KEY:-}"
+REDISTRIBUTE_GPG_KEY="$FINGERPRINT"
+if [[ "$REDISTRIBUTE_GPG_KEY" == "$REPACK_GPG_KEY" || "$REDISTRIBUTE_GPG_KEY" == "$REBUILD_GPG_KEY" ]]; then
+    echo 'Redistribute must use an independently generated signing key' >&2
+    exit 1
+fi
+
+# Preserve the operator's settings and replace only the setup outputs.
 # mktemp creates a private file; rename it after the complete update succeeds.
 ENV_FILE=$(mktemp "$FRAMEWORK_DIR/.env-XXXXXX")
 trap 'rm -f -- "$ENV_FILE"' EXIT
 awk '
-    /^[[:space:]]*(export[[:space:]]+)?(REPO_UID|REPO_GID|GPG_KEY|REPACK_GPG_KEY|REBUILD_GPG_KEY)[[:space:]]*=/ { next }
+    /^[[:space:]]*(export[[:space:]]+)?(REPO_UID|REPO_GID|GPG_KEY|REPACK_GPG_KEY|REBUILD_GPG_KEY|REDISTRIBUTE_GPG_KEY)[[:space:]]*=/ { next }
     { print }
 ' "$FRAMEWORK_DIR/.env" > "$ENV_FILE"
 printf 'REPO_UID=%s\nREPO_GID=%s\nREPACK_GPG_KEY=%s\nREBUILD_GPG_KEY=%s\n' \
     "$REPO_UID" "$REPO_GID" "$REPACK_GPG_KEY" "$REBUILD_GPG_KEY" >> "$ENV_FILE"
+printf 'REDISTRIBUTE_GPG_KEY=%s\n' "$REDISTRIBUTE_GPG_KEY" >> "$ENV_FILE"
 mv -- "$ENV_FILE" "$FRAMEWORK_DIR/.env"
-printf 'Setup complete. Public keys: repack-pubkey.asc and rebuild-pubkey.asc\n'
+printf 'Setup complete. Public keys: repack-pubkey.asc, rebuild-pubkey.asc and redistribute-pubkey.asc\n'
 printf 'Start the publisher with: docker compose up -d --build\n'

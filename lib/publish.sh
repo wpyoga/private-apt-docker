@@ -16,6 +16,7 @@ generate_indexes() {
         INDEX_DIR="$STAGING_DIR/main/binary-$ARCHITECTURE"
         mkdir -p "$INDEX_DIR"
         dpkg-scanpackages --multiversion --arch "$ARCHITECTURE" pool > "$INDEX_DIR/Packages"
+        python3 "$FRAMEWORK_DIR/lib/redistribute.py" index "$INDEX_DIR/Packages"
         gzip -n -9 -c "$INDEX_DIR/Packages" > "$INDEX_DIR/Packages.gz"
     done
 }
