@@ -46,6 +46,18 @@ class RunnerTests(PublisherTestCase):
         self.assertEqual(select_directories(root, ["gimp-3.2"]),
                          [root / "tests/gimp-3.2"])
 
+    def test_adapter_roots_can_reuse_test_module_names(self):
+        directories = [self.base / "first", self.base / "second"]
+        for number, directory in enumerate(directories):
+            directory.mkdir()
+            (directory / "test_duplicate_fixture.py").write_text(
+                f"VALUE = {number}\nimport unittest\nclass Example(unittest.TestCase):\n"
+                f"    def test_value(self):\n        self.assertEqual(VALUE, {number})\n")
+        with mock.patch.dict(sys.modules), mock.patch.object(sys, "path", sys.path.copy()):
+            suite = discover_tests(directories)
+            self.assertEqual(suite.countTestCases(), 2)
+            suite.debug()
+
     def test_unknown_missing_and_conflicting_selectors_fail_before_discovery(self):
         root = self.discovery_fixture()
         with self.assertRaisesRegex(ValueError, "Unknown package"):

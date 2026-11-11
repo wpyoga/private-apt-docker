@@ -36,6 +36,12 @@ def discover_tests(directories):
     for directory in directories:
         # Each stream is a discovery root. A name such as gimp-3.2 is not a
         # Python package, and unittest's ordinary recursive search skips it.
+        # Discovery roots are independent, so adapters may reuse filenames such
+        # as test_source.py without importing the previous adapter's module.
+        for path in directory.glob("test_*.py"):
+            previous = sys.modules.get(path.stem)
+            if previous is not None and Path(previous.__file__).parent != directory:
+                del sys.modules[path.stem]
         loader = unittest.TestLoader()
         suite.addTests(loader.discover(str(directory), top_level_dir=str(directory)))
     return suite
