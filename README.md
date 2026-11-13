@@ -17,6 +17,23 @@ For development, read [AGENTS.md](AGENTS.md) for coding conventions and
 workflow, and framework internals. This README owns setup, deployment, testing
 commands, and the exact adapter hook contract.
 
+The [repository and rebuild handoff](docs/repository-and-rebuild-handoff.md)
+preserves the original requirements, repository grouping and signing decisions,
+source rebuild workflow, deployment evolution, and verification limits so the
+original development conversation is no longer needed.
+
+The [builder image investigation](docs/builder-image-investigation.md) records
+the prebuilt Debian and GUI development images considered, their compatibility
+limits, and the decision against publishing our own builder image.
+
+The [Docker dependency-cache handoff](docs/docker-build-cache.md) records the
+implemented stage layout, automatic dependency-change detection, refresh and
+cache-inspection commands, package-revision effects, and original test limits.
+
+The [VirtualBox investigation history](docs/virtualbox-investigation-history.md)
+records why private VirtualBox and Guest Additions packaging was canceled. Use
+Oracle's official packages; this repository does not supply a VirtualBox adapter.
+
 ## How an update works
 
 The first cycle starts immediately. Each service processes its streams in order,
@@ -29,7 +46,9 @@ minutes later.
 Updaters sharing storage wait for the repository lock. An empty lock file may
 remain after exit; its presence does not mean an update is running. See the
 [update-cycle design](ARCHITECTURE.md#the-update-cycle) for locking and failure
-semantics.
+semantics. The [rebuild lock incident handoff](docs/rebuild-lock-incident.md)
+records the original skipped-amd64 diagnosis, fix, verification, and deployment
+steps, separately from the accompanying xfce4-terminal patch failure.
 
 ## Framework scripts
 
@@ -81,11 +100,12 @@ docker compose logs -f
 
 Setup reads exactly `$FRAMEWORK_DIR/.env`, validates its required inputs, creates
 the configured system user and storage directories, and generates a dedicated
-signing key if none exists. It writes `REPO_UID`, `REPO_GID`, `REPACK_GPG_KEY`, and `REBUILD_GPG_KEY` back to
-that file with mode 0600, preserving other settings. It exports `repack-pubkey.asc`
-and `rebuild-pubkey.asc` and prints their fingerprints. All key operations run in
-temporary containers using the publisher UID/GID. Their agents stop when those
-containers exit; setup leaves no host GPG agent running. Setup does not start the
+signing key for each repository if none exists. It writes `REPO_UID`, `REPO_GID`,
+`REPACK_GPG_KEY`, `REBUILD_GPG_KEY`, and `REDISTRIBUTE_GPG_KEY` back to that file
+with mode 0600, preserving other settings. It exports `repack-pubkey.asc`,
+`rebuild-pubkey.asc`, and `redistribute-pubkey.asc` and prints their fingerprints.
+All key operations run in temporary containers using the publisher UID/GID. Their
+agents stop when those containers exit; setup leaves no host GPG agent running. Setup does not start the
 publisher services.
 
 You may import an existing dedicated key into the configured `gnupg/` directory
@@ -112,11 +132,11 @@ scripts do not invent missing settings or search for alternate config paths.
 | `ARCHES` | Architectures to check and build this cycle |
 | `REPO_ARCHITECTURES` | Architectures whose repository indexes are published |
 | `CHECK_INTERVAL` | Seconds to wait after a cycle; minimum 3600 |
-| `REPACK_REPO_DIR`, `REBUILD_REPO_DIR` | Public repository outputs under `/srv/apt` |
-| `REPACK_GNUPG_DIR`, `REBUILD_GNUPG_DIR` | Private signing directories under `/var/lib/apt-publisher/gnupg` |
+| `REPACK_REPO_DIR`, `REBUILD_REPO_DIR`, `REDISTRIBUTE_REPO_DIR` | Public repository outputs under `/srv/apt` |
+| `REPACK_GNUPG_DIR`, `REBUILD_GNUPG_DIR`, `REDISTRIBUTE_GNUPG_DIR` | Private signing directories under `/var/lib/apt-publisher/gnupg` |
 | `REPO_USER` | System user created or reused by setup |
 | `GPG_KEY_NAME`, `GPG_KEY_TYPE`, `GPG_KEY_VALIDITY` | Explicit signing-key creation settings |
-| `REPO_UID`, `REPO_GID`, `REPACK_GPG_KEY`, `REBUILD_GPG_KEY` | Setup outputs; supply existing values when upgrading |
+| `REPO_UID`, `REPO_GID`, `REPACK_GPG_KEY`, `REBUILD_GPG_KEY`, `REDISTRIBUTE_GPG_KEY` | Setup outputs; supply existing values when upgrading |
 
 Changing `MAINTAINER` rebuilds every package at the next packaging revision. Changing
 `REPO_NAME` updates signed repository metadata without rebuilding package files.
@@ -353,6 +373,10 @@ scripts. See `packages/repack/codex/` for the included adapter.
 
 ### Shared adapter operations
 
+The [adapter refactor handoff](docs/adapter-refactor-handoff.md) records the
+design choices, detailed helper contracts, original adapter migrations,
+documentation moves, checksum behavior, and historical verification.
+
 Adapters may source `lib/adapter/package.sh` through the required `FRAMEWORK_DIR`.
 It provides installed-size measurement, Debian package creation, and verified
 artifact downloads. Upstream validation and staging remain adapter-owned.
@@ -406,6 +430,10 @@ Community rebuilds remain part of the tracked version: release `1.3.1-0-ppa2`
 becomes `1.3.1+0.ppa2-1`. Missing architectures retain previously published packages.
 After rebuilding the publisher image and publishing an update cycle, clients can
 install it with `sudo apt install ghostty`.
+
+See [Ghostty packaging and operations](docs/ghostty.md) for the exact version
+mapping, metadata-rewrite rationale, original Bash substitution bug, installed-size
+calculation, current deployment commands, test coverage, and verification limits.
 
 ## USBImager
 
@@ -466,6 +494,10 @@ An unresolved TIFF-thumbnail round-trip discrepancy is deferred; see
 fails on unexpected layouts, architectures, Debian baselines, or external SONAMEs.
 Adding a newer release series requires a separate adapter.
 
+The [GIMP startup and dependency handoff](docs/gimp-startup-and-dependencies-handoff.md)
+records the update policy, Debian comparison, personal welcome-dialog commands,
+and the historical verification results and remaining limits.
+
 ## GIMP help 3.2
 
 `packages/repack/gimp-help-3.2/` independently imports the GIMP 3.2 user manuals from
@@ -482,6 +514,12 @@ supplied by Debian stable.
 
 See [GIMP help packaging and validation notes](docs/gimp-help-3.2.md) for release
 selection, package validation, and verification limits.
+
+The [GIMP publisher incident handoff](docs/gimp-publisher-incident.md) preserves
+the download and help-query failures, their fixes, Debian version rules, mirror
+service findings, historical tests under 256 MiB, retained evidence, and the
+unimplemented proposal to simplify mirror fallback. It distinguishes those
+results from today's 512 MiB Compose setting and later signing changes.
 
 ## Thorium
 
@@ -509,12 +547,16 @@ sandbox helper is preserved. Verification is currently static; installation,
 browser launch, and desktop behavior have not been verified.
 See [Thorium packaging and investigation notes](docs/thorium.md) for all names,
 upstream inventories, integrity checks, integration behavior, and limitations.
+The [Thorium continuation handoff](docs/thorium-handoff.md) preserves the design
+decisions, deployment failures, failed decoder fix, final streaming-reader
+implementation, evidence locations, and remaining verification work.
 Compose allows 512 MiB of memory for upstream XZ imports; Alex's packages alone
 require a 256 MiB decoder dictionary. Both Thorium adapters stream the
 payload through `ar` and XZ’s single-threaded decoder with a 384 MiB decoder
 limit during validation and extraction; dpkg’s one-worker setting alone still
 uses its threaded decoder API. After updating this checkout, rebuild
-and recreate the publisher with `docker compose up -d --build --force-recreate`
+and recreate the repack publisher with
+`docker compose up -d --build --force-recreate codex-repo-updater`
 to apply both the adapter and memory-limit changes.
 
 ## Cromite
@@ -530,6 +572,11 @@ launchers and relies on the unprivileged user-namespace sandbox. Validation is
 currently static and offline; browser launch and desktop behavior are unverified.
 See [Cromite packaging and verification notes](docs/cromite.md) for release
 versions, dependencies, licensing, inspection measurements and limitations.
+The notes also preserve the detailed implementation handoff and corrected
+profile findings: the user-observed Cromite build uses Chromium's
+`~/.config/chromium` and `~/.cache/chromium` defaults. The package currently
+preserves those defaults; a proposed launcher change to `cromite` directories
+has not been implemented.
 
 ## Checksums and Debian revisions
 
@@ -571,6 +618,10 @@ does not. Streams are never automatically paused, retired, deleted, or migrated.
 
 ## Repository storage and serving
 
+The [storage and signing operations guide](docs/storage-and-signing.md) records
+why public outputs and private keyrings are separated, the migration incident,
+container and agent lifetimes, diagnostics, and the original verification evidence.
+
 All stored package versions and previous by-hash indexes are retained; there is
 no automatic cleanup. Back up complete repository outputs and signing keys
 separately. A signing failure leaves the previous live indexes available, and
@@ -583,11 +634,13 @@ The default host layout separates public repositories from private signing keys:
 ```text
 /srv/apt/                         # Caddy document root
 ├── repack/                       # pool/, dists/, and repository state
-└── rebuild/                      # pool/, dists/, and repository state
+├── rebuild/                      # pool/, dists/, and repository state
+└── redistribute/                 # pool/, dists/, and repository state
 
 /var/lib/apt-publisher/gnupg/
 ├── repack/                       # private keyring, mode 0700
-└── rebuild/                      # private keyring, mode 0700
+├── rebuild/                      # private keyring, mode 0700
+└── redistribute/                 # private keyring, mode 0700
 ```
 
 Each service mounts its output at `/repo` and its keyring at `/gnupg` inside the
@@ -603,9 +656,10 @@ http://100.101.102.103:8080 {
 }
 ```
 
-This serves both repositories on one IP and port, at `/repack/` and `/rebuild/`.
-Caddy needs read access to both outputs and traversal access through their parents.
-The publisher uses umask 022. Keep both keyrings outside the web root and owned by
+This serves all repositories on one IP and port, at `/repack/`, `/rebuild/`, and
+`/redistribute/`. Caddy needs read access to all outputs and traversal access
+through their parents. The publisher uses umask 022. Keep all keyrings outside
+the web root and owned by
 the publisher account with mode 0700. Never grant Caddy access to them.
 
 Each container stores GPG agent sockets in its own tmpfs under `/run/user/UID`,
@@ -627,14 +681,67 @@ docker compose up -d --build --force-recreate
 Replace `aptrepo` with your configured `REPO_USER` and adjust custom keyring paths.
 Keep the existing keys and fingerprints; setup does not need to be rerun.
 
+### Removing older package versions
+
+There is no cleanup command or retention setting. Remove unwanted versions
+manually, then let the publisher regenerate and sign the indexes.
+
+1. From the project directory, stop all publishers:
+
+   ```sh
+   docker compose stop
+   ```
+
+   Stop any manual update jobs too, including other containers using the same
+   repository. Wait for them to exit before changing stored packages.
+2. Back up the repository. Use the repository paths configured in `.env`:
+   `REPACK_REPO_DIR`, `REBUILD_REPO_DIR`, or `REDISTRIBUTE_REPO_DIR`.
+   Packages are stored under `pool/main/STREAM/` within each repository; `STREAM`
+   is the adapter's configured `RELEASE_STREAM`.
+3. Move the unwanted `.deb` files to a backup directory outside the served
+   repository. Select exact versions, including their Debian revision, and move
+   the complete old output set across binary package names and architectures.
+   Check package versions with `dpkg-deb --field FILE.deb Package Version Architecture`;
+   filename sorting does not implement Debian version ordering.
+
+   Keep current versions for each stream and architecture, including an older
+   arm64 release when no newer arm64 package exists. Keep incomplete builds so
+   they can resume at their existing revision. For repack and rebuild streams,
+   stored packages supply revision history; removing the latest artifacts for
+   an upstream version can cause a revision to be reused if it is queried again.
+   Also retain packages needed by private build dependency constraints.
+4. Restart the publishers:
+
+   ```sh
+   docker compose up -d
+   ```
+
+   Startup immediately begins an update cycle. Publication scans the remaining
+   packages and generates new signed indexes. Check the service logs for
+   `Published signed repository: CODENAME` for each affected repository before
+   deleting the backup. If publication fails, keep the backup and resolve the
+   failure; the previous live indexes can still reference removed files.
+
+Leave `.state/` (including redistribution import records), signing keys, and
+`by-hash/` indexes intact. Do not edit `Packages` or signed release files by hand.
+Retained by-hash indexes preserve index downloads, but do not preserve deleted
+package files: clients with cached indexes may receive a 404 until they run
+`sudo apt update`. Removing files from the repository does not uninstall them
+from clients.
+
+If an adapter still selects a removed version, the publisher will build or import
+it again. Removing an adapter alone does not remove its stored packages.
+
 ### Moving existing storage
 
 Existing paths remain supported; setup does not move data automatically. Before
 changing Caddy to serve `/srv/apt`, move any signing directories out of that tree:
 
 1. Stop all publishers with `docker compose stop`, and stop any manual update jobs.
-   Keep Caddy stopped during the move if it already serves `/srv/apt`.
-2. Back up both complete repository outputs and both keyrings. Record the current
+   Keep Caddy stopped during the move if it already serves `/srv/apt`. Shut down
+   any old host agents before moving their keyrings, as explained in the
+   [migration guide](docs/storage-and-signing.md#migration-and-deployment).
+2. Back up complete repository outputs and their keyrings. Record the current
    signing fingerprints from `.env`.
 3. Move each existing keyring to its new path under
    `/var/lib/apt-publisher/gnupg/`, preserving ownership and permissions. Keep each
@@ -645,8 +752,9 @@ changing Caddy to serve `/srv/apt`, move any signing directories out of that tre
    `/srv/apt/repack/repo` layout, move the contents of `repo/` into its parent;
    do the same for rebuild. Preserve all packages, indexes, by-hash files, and
    `.state/`. Check for destination conflicts before moving anything.
-5. Update all four directory settings in `.env` to the new paths. Keep
-   `REPACK_GPG_KEY`, `REBUILD_GPG_KEY`, `REPO_UID`, and `REPO_GID` unchanged.
+5. Update the repository and keyring directory settings in `.env` to the new
+   paths. Keep `REPACK_GPG_KEY`, `REBUILD_GPG_KEY`, `REDISTRIBUTE_GPG_KEY`,
+   `REPO_UID`, and `REPO_GID` unchanged.
    Do not run setup to generate replacement keys.
 6. Verify that `/srv/apt` contains only repository data, then update Caddy's root
    and reload it. Recreate publishers with `docker compose up -d --force-recreate`
@@ -800,10 +908,12 @@ under `build/`. It neither installs host packages nor publishes a repository.
 
 ## Repository groups and deployment
 
-Adapters live under `packages/repack/` and `packages/rebuild/`. Their parent
-selects repository membership; config files do not contain a repository key.
-One checkout, `.env`, and Compose project run three services: the existing
-`codex-repo-updater` for repacks, plus `rebuild-amd64` and `rebuild-arm64`.
+Adapters live under `packages/repack/`, `packages/rebuild/`, and
+`packages/redistribute/`. Their parent selects repository membership; config
+files do not contain a repository key.
+One checkout, `.env`, and Compose project run four services:
+`codex-repo-updater` for repacks, `rebuild-amd64` and `rebuild-arm64` for rebuilds,
+and `redistribute` for unchanged upstream packages.
 Both rebuild services share one output and signing identity; the existing lock
 serializes their cycles. Each builds one architecture and indexes both.
 
@@ -817,7 +927,7 @@ The repack identity remains REPO_NAME; the rebuild Origin and Label are `rebuild
 Remove the obsolete REPOSITORY setting from .env. No data migration or cleanup
 is automatic. Serve the two outputs at separate web endpoints.
 
-Start all three services with `docker compose up -d --build`. Source builds
+Start all four services with `docker compose up -d --build`. Source builds
 currently require an amd64 server; rootless-daemon ownership mapping remains
 unverified. See the [image and repository design](ARCHITECTURE.md#repository-groups-and-deployment)
 for build targets, dependency caching, and checksum effects.

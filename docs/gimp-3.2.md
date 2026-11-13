@@ -1,5 +1,26 @@
 # GIMP 3.2 packaging and deferred investigation
 
+The [original packaging and test refactor handoff](gimp-packaging-and-test-refactor-handoff.md)
+preserves the implementation conversation, package design questions, manual-script
+review, historical verification, disk/ownership recovery and test organization.
+It distinguishes the original combined application/manual stream from later work.
+
+The [AppImage build-base research](gimp-appimage-build-base.md) records the exact
+GIMP 3.2.6 CI base-image inheritance, build-instruction sources, Debian/backports
+library-version comparison, and corrections and evidence limits from that chat.
+
+The [startup and dependency handoff](gimp-startup-and-dependencies-handoff.md)
+preserves the update-warning diagnosis, Debian customization review, dependency
+ownership decisions, personal welcome-screen recipe, historical checks and their
+evidence limits. It distinguishes the original combined application/manual build
+from the current independent streams.
+
+For the retired investigation's cleanup decision, evidence inventory, current
+code entry points and verification commands, see the
+[conversation handoff](gimp-3.2-investigation-history.md#conversation-handoff-and-cleanup-decision-2026-11-13).
+The old local directory is no longer present as of 2026-11-13; no chat history
+or files from that directory are required to use the maintained recipe.
+
 The gimp-3.2 adapter follows the latest stable 3.2.x entry in GIMP's official
 gimp_versions.json, even after a newer series appears. It verifies each official
 AppImage's SHA256 and extracts SquashFS as data, without running AppRun or FUSE.
@@ -162,6 +183,25 @@ at the user's request and is not a prerequisite for enabling this adapter.
 - The generated copyright notice records upstream sources and broad licenses,
   but a complete per-file licensing/provenance audit remains outstanding.
 
+### Follow-up evidence needed
+
+These are follow-up directions, not fixes completed by the documentation work.
+Keep each test tied to the exact application version, package revision,
+architecture and dependency versions it exercises.
+
+| Area | Investigation and completion criteria |
+| --- | --- |
+| TIFF thumbnails | Recreate the thumbnail-enabled case in an isolated profile, retain the output TIFF and complete logs, and compare the same input/procedure with the untouched matching AppImage. Inspect main-image and thumbnail directories with an independent TIFF reader. Identify whether export, import or test selection explains the 64x64/256x256 discrepancy before assigning a cause. If fixed, add a regression that exercises thumbnails enabled; the existing disabled-thumbnail round trip must still pass. |
+| Direct upgrades | If this deferred work is resumed, use a disposable Debian 13 environment with the current output set. Retain APT simulation, installation and dpkg diagnostics; verify configuration preservation, dependency resolution, Debian babl/GEGL coexistence and runtime behavior. The old nine-package failure log is unavailable, so it cannot supply a diagnosis for today's recipe. |
+| Third-party plug-ins | Select an actual GIMP 3 plug-in and document its provenance, version, build requirements and installation paths. Test loading and a real operation against the private runtime, including SDK-built plug-ins where appropriate. A successful G'MIC CLI invocation is not GIMP plug-in coverage; a single plug-in does not establish compatibility for all plug-ins. |
+| Arm64 runtime | Run native installation, launcher, desktop and codec checks on an arm64 system with isolated profiles. Record the actual platform and results separately from successful cross-architecture package inspection. The existing amd64 coordinator needs deliberate adaptation before use as arm64 evidence. |
+| Licensing/provenance | Review shipped GIMP, private babl/GEGL, modules and resources against their corresponding source releases and notices. Record per-file or component coverage, required notices and any gaps; the broad generated copyright/source notice alone does not complete this review. |
+
+For TIFF, preserve both the thumbnail-enabled failure and disabled-thumbnail
+control, including dimensions, pixel checks, procedure return status and stderr.
+The earlier failure occurred with GIMP 3.2.6; it has not been freshly reproduced
+by this handoff, and no claim is made about its status in later 3.2 releases.
+
 The [historical investigation record](gimp-3.2-investigation-history.md) preserves
 library-version comparisons, replacement evidence, test results and their limits.
 Its host-derived dependency/native test filesystems were never shipped payloads;
@@ -201,6 +241,11 @@ Compiler options, compiled URLs and upstream source patches are unchanged.
 
 ## Download recovery and live publisher checks
 
+The [publisher incident handoff](gimp-publisher-incident.md) records the original
+errors, exact fixes, test coverage and results, evidence paths, Debian version
+rules, and later mirror-service discussion. Explicit fallback remains implemented;
+the recommendation to remove mirror-list parsing has not been applied.
+
 The AppImage and API documentation downloads retry connection errors, then try
 up to three distinct HTTPS mirrors advertised by GIMP's download service when
 the selected mirror still fails. Every copy must match the selected upstream
@@ -209,12 +254,18 @@ endpoint are retained in the build workspace and logs for diagnosis. Connect
 and low-speed timeouts prevent an unresponsive mirror from waiting indefinitely.
 
 `bash tests/gimp-3.2/test-publisher.sh` exercises live downloads and both adapters
-in the publisher image using Compose's 256 MiB memory and 128-process limits,
+in the publisher image using explicit 256 MiB memory and 128-process limits,
 dropped capabilities, and the host UID/GID. It retains isolated test storage,
 logs, container configuration, and cgroup statistics under `build/`, and checks
 real package sizes against the signed repository indexes. It uses a throwaway
 signing key and does not start or modify the deployed service. See the
 [help packaging notes](gimp-help-3.2.md) for options and reuse of completed work.
+Current repack Compose allows 512 MiB, so this coordinator uses a stricter memory
+limit. The [extraction memory incident](gimp-extraction-memory-incident.md)
+documents why the adapter caps both unsquashfs queues and what remains unverified
+from that incident.
+The coordinator's signing setup predates later socket isolation; consult the
+publisher handoff before claiming a new run matches current production exactly.
 
 The offline GIMP suite includes real-curl local connection resets, retry
 exhaustion, and checksum checks. Advertised-mirror fixtures cover failover,

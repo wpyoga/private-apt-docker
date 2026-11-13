@@ -1,5 +1,10 @@
 # Laya packages
 
+For the full investigation, accepted decisions, original verification record,
+later repository refactors, and deferred work, read the
+[Laya packaging handoff](laya-handoff.md). The current adapter is under
+`packages/repack/laya/`; tests and the coordinator are under `tests/laya/`.
+
 The `laya` stream follows the latest stable Python release on PyPI, rather than
 GitHub's default branch or the repository's separate TypeScript releases. It
 repackages the official `laya-VERSION-py3-none-any.whl` without importing its

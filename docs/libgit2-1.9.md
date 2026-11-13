@@ -1,5 +1,11 @@
 # libgit2 1.9 source rebuild
 
+For the complete original request, packaging decisions, file map, exact output
+set, dependencies, measured sizes, evidence paths, resolved failures, reproduction
+commands, logging correction, and deployment limits, read the
+[libgit2 conversation handoff](libgit2-1.9-handoff.md). Its build results are dated
+2026-11-01; its documentation audit is dated 2026-11-13.
+
 `packages/rebuild/libgit2-1.9/` follows stable 1.9.x releases packaged in
 Debian sid. The reference packaging checkout is Debian's
 [libgit2 repository](https://salsa.debian.org/debian/libgit2); the inspected
@@ -18,7 +24,7 @@ configurations against Trixie's dependencies. It retains Debian's symbols,
 OpenSSL, SSH, GSSAPI, PCRE2, llhttp, licensing and multiarch layout. It adapts
 the known debhelper 14 control file to Trixie's compat 13 and explicitly restores
 the runtime dependency substitutions. Changed package names or compat versions
-fail for review. Upstream test execution is disabled during cross builds;
+fail for review. Upstream test execution is disabled for native and cross builds;
 offline publisher tests do not establish full libgit2 runtime correctness.
 
 Outputs for amd64 and arm64 are:

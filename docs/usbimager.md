@@ -1,5 +1,11 @@
 # USBImager packaging
 
+The adapter is currently in `packages/repack/usbimager/`. The
+[USBImager implementation and verification handoff](usbimager-handoff.md)
+preserves the original requirements, architecture-specific framework design,
+artifact identities, historical test results, local tools, reproduction steps,
+and remaining validation work. It can be used without the original conversation.
+
 The `usbimager` release stream follows the newest numbered stable release in
 [upstream's binary checksum manifest](https://gitlab.com/bztsrc/usbimager/-/raw/binaries/sha256checksums.txt).
 Versions are compared numerically, so 1.0.10 follows 1.0.9. Query selects that
@@ -58,5 +64,7 @@ binutils and the standard publisher test tools; see [local tools](local-tools.md
 Arm64 compatibility is an exercise: there is no current arm64 consumer. Neither
 offline tests nor ELF inspection establish desktop usability or actual USB disk
 operations. Real desktop and disk-write verification remain separate from
-packaging checks. Rebuild the publisher image to deploy the adapter; this change
-does not deploy or publish live packages.
+packaging checks. The original implementation session did not deploy or publish
+live packages; later deployment state must be checked separately. The adapter now
+belongs to the repack repository. Rebuild the publisher image to deploy recipe
+changes, following the current README's repository and signing configuration.

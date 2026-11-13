@@ -5,6 +5,13 @@ Development tools used only by this project can live under ignored
 setup targets the Debian 13 (Trixie) amd64 development host. These are host tools;
 `readelf` can inspect arm64 binaries without executing them.
 
+This arrangement was explicitly chosen because these tools were needed by this
+project and the operator did not want a system installation for unrelated
+projects or repeated Docker requests for ordinary inspection and regression
+checks. Keep activation scoped to a subshell; do not add it to a shell profile.
+The USBImager work and original verification evidence are preserved in the
+[USBImager handoff](usbimager-handoff.md).
+
 The USBImager and framework checks need `dpkg-scanpackages` from `dpkg-dev` and
 `readelf`, `objdump`, and `ar` from `binutils`. `apt-ftparchive` from `apt-utils`
 is also required for publication tests and is already installed on this host.
@@ -72,3 +79,44 @@ separate detailed regression log. Use the same subshell for an adapter selector
 such as `bash tests/run.sh usbimager`. Other adapters can need additional tools;
 see the README's test requirements. This setup does not change the publisher
 container or the dependencies installed by its Dockerfile.
+
+## Retained local setup and evidence
+
+The original setup downloaded eleven Debian archives into
+`build/tools/downloads/` and extracted them into `build/tools/root/`. The
+activation file is `build/tools/env.sh`. None of these paths is tracked by Git;
+the commands above recreate the setup after a checkout or deletion of `build/`.
+No package was installed into the system database and no package maintainer
+script was executed during extraction.
+
+The original verification ran `dpkg-scanpackages`, `readelf`, `objdump`, `ar`,
+`make`, and a Perl `Dpkg` module import successfully. It also generated an index
+from the downloaded USBImager Debian package and inspected its real ELF metadata.
+With these tools enabled, the then-current framework suite passed all 46 tests.
+After the architecture-specific package tests were added, it passed 51 tests.
+These are historical October 28, 2026 results, not counts for the current suite.
+
+Retained logs under `build/tools/logs/` are:
+
+| File | Purpose |
+| --- | --- |
+| `download.log` | Original restricted-network download failure |
+| `download-retry.log` | Successful Debian downloads |
+| `extract.log` | Package extraction output |
+| `verify.log` | Resolved command paths and tool versions |
+| `package-tools.log` | Real package indexing and ELF inspection |
+| `Packages` | Index generated for the tool verification |
+| `framework.log` | Original framework test coordinator output |
+
+The download failure was DNS/network access in the restricted environment; the
+same download completed with permitted network access. Extraction and verification
+ran as the host user. A future download failure does not imply that Docker or
+root installation is needed. Obtain network permission for downloads when the
+execution environment requires it.
+
+This directory supplies the listed commands, not every tool for every adapter.
+For example, it does not add GTK development libraries, a compiler, patchelf,
+SquashFS tools, or desktop test facilities. Consult the current README before
+selecting broader tests. The installed local tools were found again during the
+November 13, 2026 documentation handoff; that inspection did not reinstall them
+or rerun their original regression suite.

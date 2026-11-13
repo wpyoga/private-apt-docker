@@ -1,5 +1,9 @@
 # OpenShell redistribution
 
+For the complete investigation, decisions, implementation map, verified artifact
+hashes, actual test failure and deployment handoff, read
+[OpenShell and redistribution history](openshell-redistribution-handoff.md).
+
 The `packages/redistribute/openshell` adapter follows the latest stable release from
 [NVIDIA/OpenShell](https://github.com/NVIDIA/OpenShell/releases). It selects one
 official Debian asset per requested architecture, amd64 or arm64, and verifies its

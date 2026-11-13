@@ -1,11 +1,18 @@
 # Thorium packaging and investigation notes
 
-Status: adapters implemented with static verification, 2026-10-29. No real
-Thorium package has been rebuilt, installed, or published in this work. The user
-requested static analysis only, with Docker and browser execution deferred.
-This document records the behavior, artifact evidence, and outstanding checks.
-General notes live outside `packages/` so documentation
-changes do not cause package revisions.
+Handoff reviewed against the checkout on 2026-11-13. The original investigation
+and implementation began in October 2026. The adapters are implemented; final
+verification in this conversation was static only. The operator separately
+reported deployment failures, which are not evidence of a successful final fix.
+Read [the detailed continuation handoff](thorium-handoff.md) for the decision
+history, deployment error excerpts, evidence ledger, and ordered remaining work.
+General notes live outside `packages/` so documentation changes do not cause
+package revisions.
+
+Current source locations are `packages/repack/thorium-browser/` and
+`packages/repack/thorium-browser-gz83/`. Earlier logs referring to
+`packages/thorium-browser*/` predate the adapter-group reorganization. Tests
+remain under `tests/thorium-browser/` and `tests/thorium-browser-gz83/`.
 
 ## Goal and decisions
 
@@ -26,7 +33,8 @@ detect CPU capabilities or select SSE3 automatically. SSE3 and SSE4 are the
 non-AVX options. There is no additional unoptimized "vanilla" artifact in the
 inspected stable asset list. Exclude i386 and AVX512 from the initial adapters.
 
-All concrete variants can be installed together, across both source families.
+The packaging is designed for installing concrete variants together across both
+source families; actual coinstallation has not been validated in this work.
 Different upstream versions of the same Debian package name are still ordinary
 APT upgrades, not separately installable copies.
 
@@ -36,6 +44,43 @@ behavior: launching another variant may hand the request to the running browser
 rather than start that variant. Never delete locks or force simultaneous access.
 Sharing a profile across browser versions does not establish downgrade
 compatibility; document this and allow normal `--user-data-dir` overrides.
+
+## Why some package files are tiny
+
+Metapackages are real `.deb` files with package names, versions, and dependency
+metadata. They usually install few or no files. APT reads their dependencies from
+the repository index, downloads and installs the metapackage and any required
+dependencies, and dpkg records the metapackage as installed like any other
+package. They are not merely links in the repository index.
+
+On amd64, `thorium-browser` and `thorium-browser-gz83` are default-selection
+metapackages. Each contains a small `/usr/bin/PACKAGE_NAME` launcher that forwards
+arguments to `/usr/bin/PACKAGE_NAME-avx`, plus an exact-version dependency on
+that AVX package. For example, the gz83 package at version `156.0.8078.80-2`
+declares:
+
+```text
+Depends: thorium-browser-gz83-avx (= 156.0.8078.80-2)
+```
+
+The operator's November 2026 listing showed 860-byte gz83 amd64 metapackages,
+while the SSE3, SSE4, AVX, and AVX2 packages were about 315–319 MB each. Those
+concrete CPU packages contain the actual browser. Installing the default package
+through APT also installs the matching full AVX package. The tiny default package
+is expected and does not by itself indicate an incomplete build. Exact file
+sizes can change with package metadata and compression.
+
+On arm64, `thorium-browser-gz83` contains the native browser itself, so the same
+listing showed about 287 MB for that package name on arm64. It does not depend on
+an x86 CPU variant.
+
+To inspect a local package without installing it, use:
+
+```sh
+dpkg-deb --field ./thorium-browser-gz83_156.0.8078.80-2_amd64.deb \
+    Package Version Architecture Depends
+dpkg-deb --contents ./thorium-browser-gz83_156.0.8078.80-2_amd64.deb
+```
 
 ## Implemented adapter behavior
 
@@ -139,7 +184,8 @@ needed, and no central registry was introduced.
   All seven Debian packages have now been downloaded, verified, and inspected
   locally alongside all five Debian packages from Alex's stable release.
 
-These versions are observations, not pins for the eventual adapter.
+These versions and release descriptions are October 2026 observations from the
+retained metadata, not pins or a fresh survey of November upstream releases.
 
 ### Complete release inventory
 
@@ -238,12 +284,17 @@ Important shared paths include:
 `/usr/bin/thorium-browser` and the cron entry are absolute symlinks into the
 shared `/opt` tree. Renaming only `Package` would leave file collisions.
 
-The existing publisher also requires embedded `X-Publisher-Stream` and
-`X-Build-Inputs-SHA256`, assigned versions, and operator maintainer metadata.
-These packages lack the two publisher fields. `lib/store-packages.sh` validates
-package identity and those fields before storage. Supporting byte-for-byte
-upstream imports would require a deliberate framework design change; do not
-bypass validation or manually copy packages into production storage.
+Thorium remains in the repack group, whose contract requires embedded
+`X-Publisher-Stream` and `X-Build-Inputs-SHA256`, assigned versions, and operator
+maintainer metadata. The upstream packages lack those publisher fields.
+Since the initial investigation, the framework has added a separate
+[unchanged redistribution mode](../README.md#unchanged-package-redistribution):
+it preserves bytes and versions and stores provenance under `.state/imports`,
+exposing import fields and a calculated size estimate in signed indexes. That
+removes the old framework-level obstacle to unchanged imports. It does not solve
+Thorium's duplicate binary identities and shared installed paths, so the agreed
+coinstallable CPU packages still require repacking. Do not move these adapters
+to `packages/redistribute/` without explicitly revisiting that product decision.
 
 The user prefers original `.deb` files whenever they meet the requirements.
 Preserve that preference: use upstream binaries and resources without rebuilding
@@ -431,7 +482,8 @@ not search for another compression format or payload root. The existing
 and publisher framework do not change.
 
 Apply both changes by rebuilding and recreating the publisher container, for
-example `docker compose up -d --build --force-recreate`. A restart alone does
+example `docker compose up -d --build --force-recreate codex-repo-updater`.
+A restart alone does
 not replace adapter code or apply the changed container memory limit. Deployment
 has not been performed as part of this change. Stored packages and repository
 keys are unaffected; normal complete-output and retry rules remain in force.
@@ -466,13 +518,18 @@ the earlier failed-run evidence is retained in
 `build/thorium-implementation/logs/offline-first.log`, `offline-second.log`, and
 the regression-log paths they name. Do not describe that run as passing.
 
-Final static checks cover Python parsing, shell syntax for hooks and
+Historical static checks cover Python parsing, shell syntax for hooks and
 shell templates, identical common adapter inputs, declared identities, executable
 hook modes, local documentation links, and `git diff --check`. Their named logs
 live under `build/thorium-implementation/logs/`. The current two-stream checks
 are recorded in `two-stream-static-checks.log`, including the five amd64 outputs
 per stream, the single gz83 arm64 output, and removal of CPU-tier adapter/test
-directories. Earlier ten-stream logs describe the superseded layout.
+directories. Earlier ten-stream logs describe the superseded layout. The later
+`xz-memory-static-checks.log` covers the insufficient dpkg one-worker change;
+`xz-streaming-static-checks.log` covers the final ar/XZ reader's syntax and
+integration references, without running decompression or measuring memory.
+The 2026-11-13 documentation review checked current paths, preserved evidence,
+and these verification boundaries; it did not rerun the package tests.
 
 The consolidated implementation has received static checks only. When
 package-building verification is authorized again, run

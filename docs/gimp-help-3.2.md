@@ -7,6 +7,11 @@ The `gimp-help-3.2` stream imports precompiled user manuals from Debian sid's
 It is independent of the GIMP application stream and its API documentation.
 Clients do not need a sid APT source.
 
+The [publisher incident handoff](gimp-publisher-incident.md) preserves the
+streaming-memory fix, dotted-revision selection bug, production-like test results,
+mirror and version-format decisions, and instructions for continuing without the
+original conversation.
+
 The adapter declares 32 language packages and `gimp-help-common` in
 [its configuration](../packages/repack/gimp-help-3.2/config). Each query requires the
 complete declared set at one consistent Debian version. Accepted versions have
@@ -87,11 +92,21 @@ index generation in the publisher image, run:
 bash tests/gimp-3.2/test-publisher.sh
 ```
 
-This optional coordinator uses the Compose limits (256 MiB memory and 128
-processes), dropped capabilities, and the host UID/GID. It uses isolated storage
+This optional coordinator uses explicit limits of 256 MiB memory and 128
+processes, dropped capabilities, and the host UID/GID. Current repack Compose
+allows 512 MiB; the coordinator therefore uses a stricter memory limit.
+Its signing setup also predates later socket isolation. Consult the publisher
+handoff before treating it as exact current-production parity.
+It uses isolated storage
 and a throwaway signing key under `build/`, retaining logs, downloaded sources,
 packages, and cgroup statistics. `ARCHES=amd64` selects only amd64. It does not
 start the deployed service or use operator `.env` settings. Completed stored
 packages can be reused with `GIMP_PUBLISHER_CONTEXT=/absolute/path/to/context`.
 Failed extraction or staging trees must be inspected before removing them for a
 retry; the adapter deliberately refuses to reuse them.
+
+## Split decision and historical handoff
+
+[The help-stream split handoff](gimp-help-split-handoff.md) preserves the user
+requirements, rationale, original implementation and test evidence, version
+transition, and remaining integration checks from the implementation conversation.

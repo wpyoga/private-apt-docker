@@ -104,6 +104,11 @@ other's agent or a host agent through a bind-mounted socket. Agent lifetime is
 bounded by the container lifetime. Stored keys and signing fingerprints are
 unchanged by this isolation.
 
+The [storage and signing operations guide](docs/storage-and-signing.md) preserves
+the motivating migration incident, recovery steps, process and socket diagnostics,
+and the tests that verified this lifecycle. It distinguishes confirmed observations
+from the suspected stale-agent cause and records later deployment changes.
+
 The framework explicitly supplies its directories and stream context. Scripts
 require missing or empty inputs to fail early rather than guessing paths.
 Docker sets fixed container paths. Host entry points default FRAMEWORK_DIR to
@@ -198,6 +203,8 @@ The API and `helper-inputs` format are documented with the
   helper handles multiline Debian fields. Upstream scripts are not executed
   during repackaging; preserved scripts can run when clients install the package.
   Community rebuild identifiers are included in the tracked upstream version.
+  [Ghostty notes](docs/ghostty.md) preserve source selection, metadata ownership,
+  the version-conversion bug and fix, refactor history, deployment, and test limits.
 
 - **GIMP 3.2** selects the latest stable 3.2.x AppImages from GIMP's release
   metadata, verifies SHA256, and extracts SquashFS without executing upstream
@@ -378,6 +385,10 @@ layers. The dependency declarations in
 `packages/rebuild/xfce4-screensaver/install-build-dependencies` affect both build
 architectures. Dockerfile changes affect every stream's recipe checksum; later
 adapter-only patch edits remain local to that adapter.
+
+See the [Docker dependency-cache handoff](docs/docker-build-cache.md) for the
+original invalidation problem, stage graph, change detection, refresh commands,
+checksum limits, implementation commit, and recorded verification.
 
 `packages/rebuild/libgit2-1.9/install-build-dependencies` adds the target CMake
 library dependencies for libgit2. That adapter selects Debian sid's latest

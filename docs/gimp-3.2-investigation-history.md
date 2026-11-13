@@ -1,10 +1,103 @@
 # GIMP 3.2.6 investigation history
 
+The separate [extraction memory incident](gimp-extraction-memory-incident.md)
+records the killed unsquashfs process, queue-limit fix, historical test skips,
+static-only work restriction, and current deployment differences.
+
 This preserves useful findings from the 2026-10-26 amd64 AppImage investigation,
 consolidated on 2026-10-29 before retiring the local investigation directory.
 These are historical observations, not freshly reproduced checks or requirements
 for future releases. The maintained [GIMP packaging notes](gimp-3.2.md) describe
 the current adapter and outstanding issues.
+
+## Conversation handoff and cleanup decision (2026-11-13)
+
+This section records the decisions made while reviewing and retiring the local
+investigation directory. Together with the maintained packaging notes and the
+historical evidence below, it replaces the need to retain the chat.
+
+The user first asked whether gimp-investigation/ was still needed and whether its
+documentation was worth preserving. The inspection found seven Markdown files
+and GIMP-3.2.6-x86_64.AppImage (243476984 bytes, about 232 MiB). The directory was
+untracked and excluded from the Docker build context. No build or test entry
+point depended on it; maintained documentation still mentioned missing TIFF
+artifacts inside it. The scripts, extraction trees and logs named by the notes
+had already disappeared before that inspection.
+
+The agreed action was to extract as much useful information as possible into
+docs/, document outstanding issues, and leave deletion of the old directory to
+the user. The documentation consolidation completed on 2026-10-29. It preserved
+the complete available static-library table, direct identification evidence,
+installed-version comparison, replacement rationale, test outcomes and lessons.
+Obsolete continuation instructions were replaced by explanations of their
+historical context. No package recipe, framework behavior or dependency floor
+was changed as part of that work.
+
+On 2026-11-13, a follow-up request asked for enough detail to delete the chat.
+The directory was absent on inspection. Its deletion was not performed by this
+documentation task; the exact deletion time and actor were not established.
+The saved notes cannot restore missing raw evidence, and no AppImage checksum
+was recorded during the cleanup review. Do not treat the old filename or size
+as integrity verification for a replacement download.
+
+The remaining gimp-investigation/ entry in .dockerignore is harmless if the
+directory is absent. A historical mention in the Thorium notes describes work
+that left it untouched at the time; it does not require restoring it. There is
+no pending removal or migration task for this directory.
+
+### Where to resume
+
+| Need | Maintained source |
+| --- | --- |
+| Current packaging choices and unresolved issues | [GIMP packaging notes](gimp-3.2.md) |
+| Historical library evidence and experimental results | This document |
+| Application recipe and eight output names | [Adapter configuration](../packages/repack/gimp-3.2/config) and [build hook](../packages/repack/gimp-3.2/build) |
+| Private runtime environment | [Launcher template](../packages/repack/gimp-3.2/launcher.in) |
+| Current dependency ownership and floors | [Runtime dependency map](../packages/repack/gimp-3.2/runtime-dependencies) |
+| Independent manual packaging | [Help packaging notes](gimp-help-3.2.md) |
+| Offline release/packaging coverage | [Application regression tests](../tests/gimp-3.2/test_gimp.py) and [download tests](../tests/gimp-3.2/test_download.py) |
+| Real amd64 installation and replacement | [Installation coordinator](../tests/gimp-3.2/test-install.sh) and [container recipe](../tests/gimp-3.2/Dockerfile) |
+| Pixel, dimension and TIFF option checks | [Codec smoke test](../tests/gimp-3.2/smoke.py) |
+| Isolated live downloads and signed publication checks | [Publisher coordinator](../tests/gimp-3.2/test-publisher.sh) |
+| Framework design, operator configuration and hook contract | [Architecture](../ARCHITECTURE.md) and [README](../README.md) |
+
+The adapter now lives under packages/repack/, while its tests remain directly
+under tests/gimp-3.2/. Old references to packages/gimp-3.2/ describe the previous
+repository layout. Read the current repository instructions and working-tree
+changes before resuming; other streams and documentation may be in progress.
+
+### Verification commands and boundaries
+
+Run from the project root. These are future verification entry points, not
+claims that they were run during this documentation-only task:
+
+```bash
+bash tests/run.sh gimp-3.2 gimp-help-3.2
+bash tests/gimp-3.2/test-install.sh /absolute/path/to/complete/amd64/output
+bash tests/gimp-3.2/test-publisher.sh
+```
+
+The first command selects offline adapter regression tests. The installation
+coordinator expects the complete current application output set; its optional
+second argument is clean, reinstall, or all (the default). It runs as the host
+user, with root package installation confined to container image layers. It is
+an amd64 test and must not be presented as arm64 execution coverage. The publisher
+coordinator downloads live inputs, builds the publisher image, uses a throwaway
+key and isolated storage, and verifies signed indexes. Its settings and context
+reuse are documented in the help notes. Neither coordinator deploys the service.
+
+Redirect verification output to named logs under ignored build/, wait for
+completion or a bounded timeout, then inspect the logs. Preserve useful downloads
+and failure evidence. Do not use production keys/storage, modify operator .env,
+install host packages, or overwrite a real GIMP profile to reproduce experiments.
+The historical direct-upgrade and TIFF work was deferred; preserving its context
+does not require running it as part of documentation cleanup.
+
+The 2026-10-29 documentation check confirmed that every one of the 266 static
+inventory table lines was carried over and that local Markdown links existed;
+git diff --check passed. Package builds, runtime tests, signing tests and live
+deployment were not performed for that documentation change. The original
+investigation results below remain dated reports, not new verification.
 
 ## Evidence and availability
 
