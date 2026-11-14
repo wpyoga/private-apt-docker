@@ -1,0 +1,14 @@
+Package: diffofdiffs
+Version: @PACKAGE_VERSION@
+Section: devel
+Priority: optional
+Architecture: @ARCHITECTURE@
+Maintainer: @MAINTAINER@
+Installed-Size: @INSTALLED_SIZE@
+Depends: @SHLIBS_DEPENDS@, libgit2-1.9 (>= 1.9.1)
+Homepage: https://github.com/ctrliq/diffofdiffs
+Description: compare the changes made by two patches or Git commits
+ Compare patch edits and surrounding source side by side in the terminal
+ or in standalone HTML reports with embedded styles and viewing controls.
+X-Publisher-Stream: @PUBLISHER_STREAM@
+X-Build-Inputs-SHA256: @BUILD_INPUTS_SHA256@

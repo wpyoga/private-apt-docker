@@ -122,8 +122,8 @@ and signing stubs, never production data or keys. This native runtime test cover
 amd64; arm64 dependency selection is covered offline but runtime validation on
 arm64 remains separate.
 
-No new adapter is enabled by this framework change. In particular, a diffofdiffs
-adapter still needs its release-tarball query, build hook, and adapter tests.
+The [diffofdiffs adapter](diffofdiffs.md) uses this mechanism to build against
+the private libgit2 packages from a verified upstream release tarball.
 Investigate actual feature and bug-fix requirements, including Debian patches,
 before increasing a dependency version solely because the upstream version
 number is newer.

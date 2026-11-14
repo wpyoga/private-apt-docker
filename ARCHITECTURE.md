@@ -179,6 +179,11 @@ The API and `helper-inputs` format are documented with the
 
 ### Existing packaging examples
 
+- **diffofdiffs** builds reviewed release tarballs against the private libgit2
+  stream in isolated workers. It verifies the release Git tree, preserves the
+  standalone HTML assets and notices, and cross-builds arm64 without target
+  execution. [Packaging notes](docs/diffofdiffs.md) describe dependencies and checks.
+
 - **Thorium** imports official Debian binaries through two streams:
   `thorium-browser` follows Alex313031 stable, and `thorium-browser-gz83` follows
   gz83 (including beta). Each emits SSE3, SSE4, AVX, and AVX2 packages plus an

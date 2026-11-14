@@ -240,6 +240,11 @@ and build recipe changes allocate a new revision; existing artifacts stay intact
 
 ## Private build dependencies
 
+The [diffofdiffs adapter](docs/diffofdiffs.md) builds the `diffofdiffs` CLI for
+amd64 and arm64 using the private libgit2 stream. Install it with
+`sudo apt install diffofdiffs` after publishing and configuring the rebuild APT
+repository. Dependency-enabled streams require the host launcher described below.
+
 Adapters may declare same-repository build dependencies in an optional
 `build-dependencies` file. The framework orders streams, selects complete stored
 provider builds, and makes them available to isolated consumer builds in the same

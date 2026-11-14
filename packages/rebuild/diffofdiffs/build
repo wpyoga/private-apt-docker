@@ -1,0 +1,99 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set and non-empty}"
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${MAINTAINER:?MAINTAINER must be set and non-empty}"
+: "${PUBLISHER_STREAM:?PUBLISHER_STREAM must be set and non-empty}"
+: "${BUILD_INPUTS_SHA256:?BUILD_INPUTS_SHA256 must be set and non-empty}"
+source "$FRAMEWORK_DIR/lib/adapter/package.sh"
+
+PACKAGE_VERSION="${1:?Supply the package version}"
+ARCHITECTURE="${2:?Supply the architecture}"
+OUTPUT_DIR="${3:?Supply the output directory}"
+VERSION=$(jq -er '.version' "$ADAPTER_DIR/source.json")
+if [[ "${PACKAGE_VERSION%-*}" != "$VERSION" ]]; then
+    echo "diffofdiffs: package version $PACKAGE_VERSION does not match source $VERSION" >&2
+    exit 1
+fi
+case "$ARCHITECTURE" in
+    amd64)
+        CC=gcc
+        STRIP=strip
+        MACHINE='Advanced Micro Devices X86-64'
+        MULTIARCH=x86_64-linux-gnu
+        ;;
+    arm64)
+        CC=aarch64-linux-gnu-gcc
+        STRIP=aarch64-linux-gnu-strip
+        MACHINE=AArch64
+        MULTIARCH=aarch64-linux-gnu
+        ;;
+    *) echo "diffofdiffs: unsupported architecture $ARCHITECTURE" >&2; exit 1 ;;
+esac
+COMPILER_TARGET=$("$CC" -dumpmachine)
+if [[ "$COMPILER_TARGET" != "$MULTIARCH" ]]; then
+    echo "diffofdiffs: requested $ARCHITECTURE but $CC targets $COMPILER_TARGET" >&2
+    exit 1
+fi
+
+URL="https://github.com/ctrliq/diffofdiffs/archive/refs/tags/v$VERSION.tar.gz"
+SHA256=$(cat "$WORKSPACE/source.sha256")
+verify_download "$URL" "$WORKSPACE/source.tar.gz" "$SHA256" reuse
+EXTRACTION_DIR="$WORKSPACE/source-$ARCHITECTURE"
+mkdir "$EXTRACTION_DIR"
+python3 "$ADAPTER_DIR/source.py" "$WORKSPACE/source.tar.gz" "$ADAPTER_DIR/source.json" "$EXTRACTION_DIR"
+SOURCE_DIR="$EXTRACTION_DIR/diffofdiffs-$VERSION"
+PACKAGE_DIR="$WORKSPACE/package-$ARCHITECTURE"
+
+export DEB_HOST_ARCH="$ARCHITECTURE"
+export DEB_BUILD_MAINT_OPTIONS=hardening=+all
+MAKE_ARGUMENTS=(
+    "CC=$CC" PYTHON=python3
+    "CPPFLAGS=$(dpkg-buildflags --get CPPFLAGS)"
+    "CFLAGS=$(dpkg-buildflags --get CFLAGS)"
+    "LDFLAGS=$(dpkg-buildflags --get LDFLAGS)"
+)
+make -C "$SOURCE_DIR" "${MAKE_ARGUMENTS[@]}" -j2 V=1
+make -C "$SOURCE_DIR" "${MAKE_ARGUMENTS[@]}" install "DESTDIR=$PACKAGE_DIR" prefix=/usr
+
+EXECUTABLE="$PACKAGE_DIR/usr/bin/diffofdiffs"
+if [[ ! -f "$EXECUTABLE" || ! -x "$EXECUTABLE" ]]; then
+    echo "diffofdiffs $PACKAGE_VERSION ($ARCHITECTURE): missing executable usr/bin/diffofdiffs" >&2
+    exit 1
+fi
+readelf -h "$EXECUTABLE" > "$WORKSPACE/elf-$ARCHITECTURE.txt"
+readelf -d "$EXECUTABLE" > "$WORKSPACE/dynamic-$ARCHITECTURE.txt"
+if ! grep -Fq "$MACHINE" "$WORKSPACE/elf-$ARCHITECTURE.txt" \
+    || ! grep -Fq 'Shared library: [libgit2.so.1.9]' "$WORKSPACE/dynamic-$ARCHITECTURE.txt"; then
+    echo "diffofdiffs $PACKAGE_VERSION ($ARCHITECTURE): unexpected ELF architecture or libgit2 linkage" >&2
+    exit 1
+fi
+"$STRIP" --strip-unneeded "$EXECUTABLE"
+
+DOCUMENTATION_DIR="$PACKAGE_DIR/usr/share/doc/diffofdiffs"
+for REQUIRED_FILE in LICENSE NOTICE THIRD_PARTY.md LICENSES/GPL-2.0.txt \
+    LICENSES/Primer-MIT.txt vendor/urcu/LICENSE vendor/urcu/README.md; do
+    if [[ ! -f "$DOCUMENTATION_DIR/$REQUIRED_FILE" ]]; then
+        echo "diffofdiffs $PACKAGE_VERSION ($ARCHITECTURE): missing documentation $REQUIRED_FILE" >&2
+        exit 1
+    fi
+done
+install -m 644 "$SOURCE_DIR/README.md" "$SOURCE_DIR/GUIDE.md" "$ADAPTER_DIR/copyright" "$DOCUMENTATION_DIR/"
+mkdir "$SOURCE_DIR/debian"
+install -m 644 "$ADAPTER_DIR/source-control" "$SOURCE_DIR/debian/control"
+SHLIBS_DEPENDS=$(
+    cd "$SOURCE_DIR"
+    dpkg-shlibdeps -O "-e$EXECUTABLE"
+)
+if [[ "$SHLIBS_DEPENDS" != shlibs:Depends=* || "$SHLIBS_DEPENDS" == *$'\n'* ]]; then
+    echo "diffofdiffs $PACKAGE_VERSION ($ARCHITECTURE): unexpected dpkg-shlibdeps output" >&2
+    exit 1
+fi
+SHLIBS_DEPENDS=${SHLIBS_DEPENDS#shlibs:Depends=}
+# Symbol dependencies do not express the nested-alternates bug fix. The control
+# template additionally retains upstream's libgit2 1.9.1 correctness requirement.
+render_control "$ADAPTER_DIR/control.in" "$PACKAGE_DIR" \
+    ARCHITECTURE "$ARCHITECTURE" SHLIBS_DEPENDS "$SHLIBS_DEPENDS"
+build_deb "$PACKAGE_DIR" "$OUTPUT_DIR/diffofdiffs_${PACKAGE_VERSION}_${ARCHITECTURE}.deb"

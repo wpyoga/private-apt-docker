@@ -48,6 +48,7 @@ available; they are evidence, not required project configuration.
 | xfce4-terminal | [Patches, Debian baseline, build and laptop checks](xfce4-terminal.md) |
 | xfce4-screensaver | [Patch, arm64 build correction and remaining checks](xfce4-screensaver.md) |
 | libgit2 1.9 | [Current guide](libgit2-1.9.md), [source recipe and build evidence](libgit2-1.9-handoff.md) |
+| diffofdiffs | [Release integrity, private libgit2 dependency, packaging and verification](diffofdiffs.md) |
 | OpenShell | [Current guide](openshell.md), [byte-preserving redistribution handoff](openshell-redistribution-handoff.md) |
 | VirtualBox | [Canceled packaging investigation](virtualbox-investigation-history.md); no adapter is supplied |
 | Vim final newlines | [Editor behavior discussed during development](vim-final-newlines.md) |

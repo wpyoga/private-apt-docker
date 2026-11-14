@@ -1,0 +1,31 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set and non-empty}"
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${ARCHES:?ARCHES must be set and non-empty}"
+source "$FRAMEWORK_DIR/lib/adapter/github.sh"
+source "$FRAMEWORK_DIR/lib/adapter/package.sh"
+
+VERSION=$(jq -er '.version' "$ADAPTER_DIR/source.json")
+fetch_github_release ctrliq/diffofdiffs "$WORKSPACE/release.json"
+TAG=$(jq -er '.tag_name' "$WORKSPACE/release.json")
+if [[ "$TAG" != "v$VERSION" ]]; then
+    echo "diffofdiffs: release $TAG needs a reviewed source tree; expected v$VERSION" >&2
+    exit 1
+fi
+record_github_release_date "$WORKSPACE/release.json" "$WORKSPACE/release-date"
+
+URL="https://github.com/ctrliq/diffofdiffs/archive/refs/tags/v$VERSION.tar.gz"
+download_file "$URL" "$WORKSPACE/source.tar.gz"
+python3 "$ADAPTER_DIR/source.py" "$WORKSPACE/source.tar.gz" "$ADAPTER_DIR/source.json" \
+    > "$WORKSPACE/source.sha256"
+
+: > "$WORKSPACE/targets.tsv"
+for ARCHITECTURE in $ARCHES; do
+    case "$ARCHITECTURE" in
+        amd64|arm64) printf '%s\t%s\n' "$VERSION" "$ARCHITECTURE" >> "$WORKSPACE/targets.tsv" ;;
+        *) echo "diffofdiffs: unsupported architecture $ARCHITECTURE" >&2; exit 1 ;;
+    esac
+done

@@ -1,0 +1,8 @@
+Source: diffofdiffs
+Section: devel
+Priority: optional
+Maintainer: Private APT Publisher
+
+Package: diffofdiffs
+Architecture: any
+Description: compare the changes made by two patches or Git commits

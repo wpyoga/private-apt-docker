@@ -1,0 +1,9 @@
+Upstream-Name: diffofdiffs
+Source: https://github.com/ctrliq/diffofdiffs
+Copyright: 2026 Ctrl IQ, Inc. and the authors identified in upstream notices
+
+The application is Apache-2.0. See LICENSE and NOTICE for the complete terms.
+The bundled Userspace RCU headers retain LGPL-2.1-or-later terms, and the
+GitHub Primer colors retain MIT terms. THIRD_PARTY.md, LICENSES/ and
+vendor/urcu/ contain their notices, license texts and scope descriptions.
+The separately packaged libgit2 dependency retains its own licensing.
