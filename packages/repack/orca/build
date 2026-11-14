@@ -1,0 +1,43 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set and non-empty}"
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${MAINTAINER:?MAINTAINER must be set and non-empty}"
+: "${PUBLISHER_STREAM:?PUBLISHER_STREAM must be set and non-empty}"
+: "${BUILD_INPUTS_SHA256:?BUILD_INPUTS_SHA256 must be set and non-empty}"
+source "$FRAMEWORK_DIR/lib/adapter/package.sh"
+
+PACKAGE_VERSION="$1"
+ARCHITECTURE="$2"
+OUTPUT_DIR="$3"
+ASSET=$(jq --compact-output --exit-status --arg ARCH "$ARCHITECTURE" \
+    '.[$ARCH]' "$WORKSPACE/assets.json")
+UPSTREAM_VERSION=$(jq --raw-output --exit-status '.version | strings' <<< "$ASSET")
+URL=$(jq --raw-output --exit-status '.url | strings' <<< "$ASSET")
+SHA256=$(jq --raw-output --exit-status '.sha256 | strings' <<< "$ASSET")
+if [[ "$UPSTREAM_VERSION" != "${PACKAGE_VERSION%-*}" ]]; then
+    echo "[orca] Inconsistent build version: $PACKAGE_VERSION ($ARCHITECTURE)" >&2
+    exit 1
+fi
+
+DOWNLOAD="$WORKSPACE/orca-ide_${UPSTREAM_VERSION}_${ARCHITECTURE}.deb"
+PACKAGE_DIR="$WORKSPACE/pkg-$ARCHITECTURE"
+verify_download "$URL" "$DOWNLOAD" "$SHA256" reuse
+check_deb_field "$DOWNLOAD" Package orca-ide
+check_deb_field "$DOWNLOAD" Version "$UPSTREAM_VERSION"
+check_deb_field "$DOWNLOAD" Architecture "$ARCHITECTURE"
+python3 "$ADAPTER_DIR/validate.py" "$DOWNLOAD" "$ARCHITECTURE"
+
+# Validate before extraction; no upstream program or maintainer script is run.
+rm -rf -- "$PACKAGE_DIR"
+dpkg-deb --raw-extract "$DOWNLOAD" "$PACKAGE_DIR"
+# Upstream Electron files are world writable. Retain executable bits, but make
+# installed code writable only by root, including the sandbox enabled by postinst.
+chmod -R u+rwX,go-w,a-s,a-t "$PACKAGE_DIR"
+install -m 644 "$ADAPTER_DIR/copyright" "$PACKAGE_DIR/usr/share/doc/orca-ide/copyright"
+INSTALLED_SIZE=$(installed_size "$PACKAGE_DIR")
+python3 "$FRAMEWORK_DIR/lib/adapter/rewrite-control.py" \
+    "$PACKAGE_DIR/DEBIAN/control" "$PACKAGE_VERSION" "$INSTALLED_SIZE"
+build_deb "$PACKAGE_DIR" "$OUTPUT_DIR/orca-ide_${PACKAGE_VERSION}_${ARCHITECTURE}.deb"

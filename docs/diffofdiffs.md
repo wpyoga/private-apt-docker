@@ -70,3 +70,29 @@ under `build/diffofdiffs/logs/`. Native installation and execution cover amd64.
 Arm64 compilation, ELF inspection and dependency metadata are checked without
 target execution; arm64 hardware validation remains separate. These checks do
 not deploy or publish to the live repository.
+
+## Verified build and continuation
+
+On 2026-11-14, `bash tests/diffofdiffs/verify.sh` completed successfully with all
+eight planned checks: offline adapter regressions, both architecture build/index
+and reuse checks, native installation smoke tests, upstream's normal regression
+suite, Bash syntax, Python syntax and diff checks. The upstream suite used the
+test-only Bash workaround described above. The private dependency was the rebuilt
+libgit2 `1.9.7+ds-1+local-1`.
+
+The resulting files are:
+
+- `build/diffofdiffs/amd64/output/diffofdiffs_1.1.0-1_amd64.deb`
+- `build/diffofdiffs/arm64/output/diffofdiffs_1.1.0-1_arm64.deb`
+
+The downloaded release tarball's SHA256 was
+`1a249b89da49a0790c3589405cdd4be3d8d10dbbac5ad6fe36e90c70998ee91b`.
+`build/diffofdiffs/logs/verification.log` records the overall successful run;
+the other named logs preserve build, installation and upstream test details.
+These ignored artifacts may need regeneration in another checkout.
+
+Live APT publication was not performed or verified by this work. Deployment uses
+the host rebuild launcher and existing signing configuration; follow the linked
+build-dependency deployment guide. Arm64 installation and runtime checks on real
+hardware remain unverified. Current code and fresh verification take precedence
+over this dated result after later changes.

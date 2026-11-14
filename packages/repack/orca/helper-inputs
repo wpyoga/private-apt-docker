@@ -1,0 +1,3 @@
+adapter/github.sh
+adapter/package.sh
+adapter/rewrite-control.py

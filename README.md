@@ -595,6 +595,17 @@ profile findings: the user-observed Cromite build uses Chromium's
 preserves those defaults; a proposed launcher change to `cromite` directories
 has not been implemented.
 
+## Orca (Stably AI)
+
+`packages/repack/orca/` packages official stable amd64 and arm64 Debian binaries
+from [stablyai/orca](https://github.com/stablyai/orca/releases/latest) as
+`orca-ide`. It corrects upstream world-writable payload permissions while preserving
+its dependencies, desktop integration, CLI shim and maintainer scripts. Install
+with `sudo apt install orca-ide` after rebuilding the repack publisher and
+publishing an update cycle. It coexists with Debian's `orca` screen reader.
+See [Orca packaging and verification](docs/orca.md) for the fixed layout,
+permission rationale and runtime verification limits.
+
 ## Checksums and Debian revisions
 
 Packaging changes rebuild current upstream targets at a new Debian revision.
