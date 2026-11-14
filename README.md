@@ -17,6 +17,17 @@ For development, read [AGENTS.md](AGENTS.md) for coding conventions and
 workflow, and framework internals. This README owns setup, deployment, testing
 commands, and the exact adapter hook contract.
 
+The [documentation index](docs/README.md) connects the package guides and
+conversation handoffs. The [project foundations handoff](docs/project-foundations-handoff.md)
+preserves the original design decisions and rejected alternatives;
+[publisher operations](docs/publisher-operations.md) covers identity changes,
+manual updates, diagnostics and recovery without the original chat.
+
+The [Codex and stream configuration handoff](docs/codex-and-stream-config-handoff.md)
+preserves the original script walkthrough, the reasons for replacing
+`package-name` and `revision-policy`, configured stream identity, multiple-output
+revision tracking, and the historical GPG sandbox verification limit.
+
 The [repository and rebuild handoff](docs/repository-and-rebuild-handoff.md)
 preserves the original requirements, repository grouping and signing decisions,
 source rebuild workflow, deployment evolution, and verification limits so the
@@ -138,7 +149,8 @@ scripts do not invent missing settings or search for alternate config paths.
 | `GPG_KEY_NAME`, `GPG_KEY_TYPE`, `GPG_KEY_VALIDITY` | Explicit signing-key creation settings |
 | `REPO_UID`, `REPO_GID`, `REPACK_GPG_KEY`, `REBUILD_GPG_KEY`, `REDISTRIBUTE_GPG_KEY` | Setup outputs; supply existing values when upgrading |
 
-Changing `MAINTAINER` rebuilds every package at the next packaging revision. Changing
+Changing `MAINTAINER` rebuilds current repack/rebuild targets at the next packaging
+revision; redistribution preserves upstream archives and revalidates provenance. Changing
 `REPO_NAME` updates signed repository metadata without rebuilding package files.
 Maintainer and repository identity values must be single-line strings.
 
@@ -621,6 +633,9 @@ does not. Streams are never automatically paused, retired, deleted, or migrated.
 The [storage and signing operations guide](docs/storage-and-signing.md) records
 why public outputs and private keyrings are separated, the migration incident,
 container and agent lifetimes, diagnostics, and the original verification evidence.
+
+See [publisher operations](docs/publisher-operations.md) for repository and key
+identity changes, backup/restore boundaries and a general troubleshooting table.
 
 All stored package versions and previous by-hash indexes are retained; there is
 no automatic cleanup. Back up complete repository outputs and signing keys

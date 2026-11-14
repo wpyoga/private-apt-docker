@@ -4,6 +4,11 @@ This document explains how the publisher fits together and why it is designed
 this way. [AGENTS.md](AGENTS.md) contains development conventions;
 [README.md](README.md) contains operator instructions and the full hook contract.
 
+The [documentation index](docs/README.md) locates package and incident guides.
+[Project foundations](docs/project-foundations-handoff.md) records the original
+conversation and its later superseding decisions. [Publisher operations](docs/publisher-operations.md)
+provides procedures for identity changes and recovery.
+
 ## Purpose and philosophy
 
 The publisher checks upstream releases, turns selected artifacts into Debian
@@ -120,6 +125,11 @@ They declare `RELEASE_STREAM` and either a common `BINARY_PACKAGES` list or
 both `BINARY_PACKAGES_AMD64` and `BINARY_PACKAGES_ARM64`. The directory listing
 selects adapters, while the configured stream ID supplies persistent identity.
 Renaming a directory therefore does not rename the stream or reset its history.
+
+The [original Codex/configuration handoff](docs/codex-and-stream-config-handoff.md)
+records why identity moved out of directory names, why related package outputs
+share a build, and why no individual binary package owns revision history. It
+also distinguishes the original implementation from the current hook contract.
 
 Each directory follows one stream. A future upstream 3.4 stream can have its own
 directory, dependencies, and installation method alongside a 3.2 stream. Both

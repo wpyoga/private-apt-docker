@@ -7,6 +7,10 @@ owns deployment instructions; [ARCHITECTURE.md](../ARCHITECTURE.md#configuration
 explains the design. This guide adds troubleshooting and historical context so
 neither operation nor maintenance depends on the original chat.
 
+For routine key user-ID changes, public export, and backup/restore boundaries,
+see [publisher operations](publisher-operations.md). Its container-based examples
+supersede the original foundations conversation's host-GPG commands.
+
 ## Public outputs and private signing state
 
 The original example layout put each keyring beside its repository:

@@ -5,6 +5,11 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) for the design and its rationale. Use
 Before editing, inspect the relevant scripts, adapter, and tests; check the working
 tree for changes from the user or another session.
 
+The [documentation index](docs/README.md) locates current guides and dated
+handoffs. The [project foundations handoff](docs/project-foundations-handoff.md)
+preserves the original maintainer decisions, alternatives and verification limits.
+Use current code/contracts when later work supersedes historical examples.
+
 ## Philosophy and style
 
 - Make the code understandable to an average high-school student. Favor explicit

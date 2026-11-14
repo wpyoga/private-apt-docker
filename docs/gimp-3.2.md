@@ -1,5 +1,11 @@
 # GIMP 3.2 packaging and deferred investigation
 
+The [original conversation handoff](gimp-original-chat-handoff.md) preserves the
+initial resource estimates, the decision to repackage extracted AppImage binaries,
+plug-in compatibility discussion, approved test plan and commands actually run
+before work moved into this repository. It distinguishes that chat's execution
+record from later experiments and the maintained adapter.
+
 The [original packaging and test refactor handoff](gimp-packaging-and-test-refactor-handoff.md)
 preserves the implementation conversation, package design questions, manual-script
 review, historical verification, disk/ownership recovery and test organization.
