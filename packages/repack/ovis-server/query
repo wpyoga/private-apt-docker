@@ -1,0 +1,51 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${ARCHES:?ARCHES must be set and non-empty}"
+source "$FRAMEWORK_DIR/lib/adapter/github.sh"
+
+required_asset() {
+    local NAME=$1 ASSET
+    ASSET=$(select_github_asset "$WORKSPACE/release.json" "$NAME")
+    if [[ -z "$ASSET" ]]; then
+        echo "[ovis-server] Missing release asset: $NAME" >&2
+        return 1
+    fi
+    printf '%s\n' "$ASSET"
+}
+
+fetch_github_release devswha/ovis "$WORKSPACE/release.json"
+TAG=$(jq --raw-output --exit-status '.tag_name | strings' "$WORKSPACE/release.json")
+if [[ ! "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+    echo "[ovis-server] Unexpected stable release tag: $TAG" >&2
+    exit 1
+fi
+VERSION="${BASH_REMATCH[1]}"
+record_github_release_date "$WORKSPACE/release.json" "$WORKSPACE/release-date"
+MANIFEST=$(required_asset ovis-server.json)
+DIST=$(required_asset ovis-dist.tar.gz)
+jq --null-input --arg VERSION "$VERSION" --argjson MANIFEST "$MANIFEST" --argjson DIST "$DIST" \
+    '{version: $VERSION, manifest: $MANIFEST, dist: $DIST, architectures: {}}' \
+    > "$WORKSPACE/assets.json"
+: > "$WORKSPACE/targets.tsv"
+
+for ARCHITECTURE in $ARCHES; do
+    case "$ARCHITECTURE" in
+        amd64) UPSTREAM_ARCH=x64 ;;
+        arm64) UPSTREAM_ARCH=arm64 ;;
+        *) echo "[ovis-server] Unsupported architecture: $ARCHITECTURE" >&2; exit 1 ;;
+    esac
+    SERVER=$(select_github_asset "$WORKSPACE/release.json" "ovis-server-linux-$UPSTREAM_ARCH")
+    if [[ -z "$SERVER" ]]; then
+        echo "WARNING: [ovis-server] No upstream server for $TAG ($ARCHITECTURE)" >&2
+        continue
+    fi
+    PTY=$(required_asset "ovis-pty-sidecar-linux-$UPSTREAM_ARCH")
+    jq --arg ARCH "$ARCHITECTURE" --argjson SERVER "$SERVER" --argjson PTY "$PTY" \
+        '.architectures[$ARCH] = {server: $SERVER, pty: $PTY}' \
+        "$WORKSPACE/assets.json" > "$WORKSPACE/assets.tmp"
+    mv -- "$WORKSPACE/assets.tmp" "$WORKSPACE/assets.json"
+    printf '%s\t%s\n' "$VERSION" "$ARCHITECTURE" >> "$WORKSPACE/targets.tsv"
+done

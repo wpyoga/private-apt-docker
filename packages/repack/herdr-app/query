@@ -1,0 +1,51 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${ARCHES:?ARCHES must be set and non-empty}"
+source "$FRAMEWORK_DIR/lib/adapter/package.sh"
+
+download_file https://releases.herdr.dev/app/latest.json "$WORKSPACE/release.json"
+VERSION=$(jq --raw-output --exit-status '.version | strings' "$WORKSPACE/release.json")
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "[herdr-app] Invalid release version: $VERSION" >&2
+    exit 1
+fi
+CORE_MIN=$(jq --raw-output --exit-status '.core_min | strings' "$WORKSPACE/release.json")
+if [[ ! "$CORE_MIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "[herdr-app] Invalid core_min: $CORE_MIN" >&2
+    exit 1
+fi
+if ! jq --exit-status '.targets | type == "object"' "$WORKSPACE/release.json" >/dev/null; then
+    echo "[herdr-app] Invalid targets object" >&2
+    exit 1
+fi
+printf '{}\n' > "$WORKSPACE/assets.json"
+: > "$WORKSPACE/targets.tsv"
+for ARCHITECTURE in $ARCHES; do
+    case "$ARCHITECTURE" in
+        amd64) UPSTREAM_ARCH=x86_64 ;;
+        arm64) UPSTREAM_ARCH=aarch64 ;;
+        *) echo "[herdr-app] Unsupported architecture: $ARCHITECTURE" >&2; exit 1 ;;
+    esac
+    TARGET="linux-$UPSTREAM_ARCH"
+    if ! jq --exit-status --arg TARGET "$TARGET" '.targets | has($TARGET)' \
+        "$WORKSPACE/release.json" >/dev/null; then
+        echo "WARNING: [herdr-app] No upstream archive for $VERSION ($ARCHITECTURE)" >&2
+        continue
+    fi
+    URL="https://releases.herdr.dev/app/$VERSION/herdr-app-$TARGET.tar.gz"
+    ASSET=$(jq --compact-output --exit-status --arg TARGET "$TARGET" --arg URL "$URL" '
+        .targets[$TARGET] | select(.url == $URL)
+        | select(.sha256 | type == "string" and test("^[0-9a-f]{64}$"))
+    ' "$WORKSPACE/release.json") || {
+        echo "[herdr-app] Invalid URL or SHA256: $VERSION ($ARCHITECTURE)" >&2
+        exit 1
+    }
+    jq --arg ARCH "$ARCHITECTURE" --arg VERSION "$VERSION" --argjson ASSET "$ASSET" '
+        .[$ARCH] = ($ASSET + {version: $VERSION})
+    ' "$WORKSPACE/assets.json" > "$WORKSPACE/assets.tmp"
+    mv -- "$WORKSPACE/assets.tmp" "$WORKSPACE/assets.json"
+    printf '%s\t%s\n' "$VERSION" "$ARCHITECTURE" >> "$WORKSPACE/targets.tsv"
+done

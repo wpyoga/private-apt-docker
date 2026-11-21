@@ -50,6 +50,7 @@ available; they are evidence, not required project configuration.
 | libgit2 1.9 | [Current guide](libgit2-1.9.md), [source recipe and build evidence](libgit2-1.9-handoff.md) |
 | diffofdiffs | [Release integrity, private libgit2 dependency, packaging and verification](diffofdiffs.md) |
 | Orca (Stably AI) | [Packaging, permission correction and verification](orca.md) |
+| Herdr and Ovis | [Sources, components, sizes, and checks](herdr-and-ovis.md) |
 | OpenShell | [Current guide](openshell.md), [byte-preserving redistribution handoff](openshell-redistribution-handoff.md) |
 | VirtualBox | [Canceled packaging investigation](virtualbox-investigation-history.md); no adapter is supplied |
 | Vim final newlines | [Editor behavior discussed during development](vim-final-newlines.md) |

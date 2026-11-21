@@ -606,6 +606,20 @@ publishing an update cycle. It coexists with Debian's `orca` screen reader.
 See [Orca packaging and verification](docs/orca.md) for the fixed layout,
 permission rationale and runtime verification limits.
 
+## Herdr and Ovis
+
+The repack repository provides `herdr` (terminal application), `herdr-core`
+(terminal runtime and `hc`), and `herdr-app` (desktop application). The desktop
+application requires the core. Each component has its own release stream.
+The redistribute repository provides the official `ovis-desktop` Debian package
+without changes. It includes its own core and web interface.
+The repack repository also provides `ovis-server` for browser and phone access
+with `herdr-core`. It includes the server, web files, and terminal helper.
+Its user service is started by the operator. All five streams support amd64 and arm64.
+
+See [Herdr and Ovis packages](docs/herdr-and-ovis.md) for sources, installation,
+disk use, update behavior, and verification limits.
+
 ## Checksums and Debian revisions
 
 Packaging changes rebuild current upstream targets at a new Debian revision.

@@ -1,0 +1,9 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${HOME:?HOME must be set and non-empty}"
+export OVIS_RUNTIME=herdr-core
+export OVIS_HC_BIN="${OVIS_HC_BIN:-/usr/bin/herdr-core}"
+export OVIS_ASSETS=/usr/share/ovis-server
+export OVIS_STATE_DIR="${OVIS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/ovis-server}"
+exec /usr/lib/ovis-server/ovis-server "$@"

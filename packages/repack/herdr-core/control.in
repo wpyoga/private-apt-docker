@@ -1,0 +1,13 @@
+Package: herdr-core
+Version: @PACKAGE_VERSION@
+Architecture: @ARCHITECTURE@
+Maintainer: @MAINTAINER@
+Installed-Size: @INSTALLED_SIZE@
+Section: devel
+Priority: optional
+Recommends: openssh-client, ca-certificates
+Homepage: https://herdr.dev
+Description: Terminal runtime for coding agents
+ Keep terminals running between client connections.
+X-Build-Inputs-SHA256: @BUILD_INPUTS_SHA256@
+X-Publisher-Stream: @PUBLISHER_STREAM@

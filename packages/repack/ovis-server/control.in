@@ -1,0 +1,14 @@
+Package: ovis-server
+Version: @PACKAGE_VERSION@
+Architecture: @ARCHITECTURE@
+Maintainer: @MAINTAINER@
+Installed-Size: @INSTALLED_SIZE@
+Section: devel
+Priority: optional
+Depends: herdr-core, libc6 (>= 2.17)
+Recommends: ca-certificates, openssh-client
+Homepage: https://ovis.sh
+Description: Browser and phone interface for Herdr core
+ Run coding agents on this computer and use them from a browser or phone.
+X-Build-Inputs-SHA256: @BUILD_INPUTS_SHA256@
+X-Publisher-Stream: @PUBLISHER_STREAM@

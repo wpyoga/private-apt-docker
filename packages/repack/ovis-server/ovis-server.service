@@ -1,0 +1,16 @@
+[Unit]
+Description=Ovis server for Herdr core
+
+[Service]
+Type=simple
+Environment="PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin"
+Environment=HOST=127.0.0.1
+Environment=PORT=7317
+EnvironmentFile=-%h/.config/ovis-server/env
+WorkingDirectory=%h
+ExecStart=/usr/bin/ovis-server serve
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

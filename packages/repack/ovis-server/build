@@ -1,0 +1,43 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set and non-empty}"
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${MAINTAINER:?MAINTAINER must be set and non-empty}"
+: "${PUBLISHER_STREAM:?PUBLISHER_STREAM must be set and non-empty}"
+: "${BUILD_INPUTS_SHA256:?BUILD_INPUTS_SHA256 must be set and non-empty}"
+source "$FRAMEWORK_DIR/lib/adapter/package.sh"
+
+PACKAGE_VERSION="$1"
+ARCHITECTURE="$2"
+OUTPUT_DIR="$3"
+UPSTREAM_VERSION=$(jq --raw-output --exit-status '.version | strings' "$WORKSPACE/assets.json")
+if [[ "$UPSTREAM_VERSION" != "${PACKAGE_VERSION%-*}" ]]; then
+    echo "[ovis-server] Inconsistent build version: $PACKAGE_VERSION ($ARCHITECTURE)" >&2
+    exit 1
+fi
+
+ASSETS=$(jq --compact-output --exit-status --arg ARCH "$ARCHITECTURE" '
+    . as $ALL | .architectures[$ARCH] | select(type == "object")
+    | [$ALL.manifest, $ALL.dist, .server, .pty][]
+' "$WORKSPACE/assets.json")
+while IFS= read -r ASSET; do
+    NAME=$(jq --raw-output --exit-status '.name | strings' <<< "$ASSET")
+    URL=$(jq --raw-output --exit-status '.browser_download_url | strings' <<< "$ASSET")
+    SHA256=$(jq --raw-output --exit-status '.digest | ltrimstr("sha256:")' <<< "$ASSET")
+    verify_download "$URL" "$WORKSPACE/$NAME" "$SHA256" reuse
+done <<< "$ASSETS"
+
+PACKAGE_DIR="$WORKSPACE/pkg-$ARCHITECTURE"
+rm -rf -- "$PACKAGE_DIR"
+mkdir -p "$PACKAGE_DIR"
+python3 "$ADAPTER_DIR/stage.py" "$WORKSPACE" "$UPSTREAM_VERSION" "$ARCHITECTURE" "$PACKAGE_DIR"
+install -Dm 755 "$ADAPTER_DIR/ovis-server" "$PACKAGE_DIR/usr/bin/ovis-server"
+install -Dm 644 "$ADAPTER_DIR/ovis-server.service" \
+    "$PACKAGE_DIR/usr/lib/systemd/user/ovis-server.service"
+install -Dm 644 "$ADAPTER_DIR/copyright" "$PACKAGE_DIR/usr/share/doc/ovis-server/copyright"
+install -m 644 "$ADAPTER_DIR/THIRD-PARTY-NOTICES" "$ADAPTER_DIR/bun-copyright" \
+    "$PACKAGE_DIR/usr/share/doc/ovis-server/"
+render_control "$ADAPTER_DIR/control.in" "$PACKAGE_DIR" ARCHITECTURE "$ARCHITECTURE"
+build_deb "$PACKAGE_DIR" "$OUTPUT_DIR/ovis-server_${PACKAGE_VERSION}_${ARCHITECTURE}.deb"

@@ -1,0 +1,16 @@
+Package: herdr-app
+Version: @PACKAGE_VERSION@
+Architecture: @ARCHITECTURE@
+Maintainer: @MAINTAINER@
+Installed-Size: @INSTALLED_SIZE@
+Section: devel
+Priority: optional
+Depends: herdr-core (>= @CORE_MIN@), libc6 (>= 2.35), libgcc-s1, libxcb1,
+ libxkbcommon0, libfontconfig1, libvulkan1, libwayland-client0, libegl1,
+ libwayland-egl1, libxkbcommon-x11-0
+Recommends: openssh-client, ca-certificates, xdg-desktop-portal, fonts-dejavu-core
+Homepage: https://herdr.dev
+Description: Desktop application for terminals and coding agents
+ Use herdr-core terminals from a desktop window.
+X-Build-Inputs-SHA256: @BUILD_INPUTS_SHA256@
+X-Publisher-Stream: @PUBLISHER_STREAM@

@@ -1,0 +1,41 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${ARCHES:?ARCHES must be set and non-empty}"
+source "$FRAMEWORK_DIR/lib/adapter/github.sh"
+
+fetch_github_release devswha/ovis "$WORKSPACE/release.json"
+TAG=$(jq --raw-output --exit-status '.tag_name | strings' "$WORKSPACE/release.json")
+if [[ ! "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+    echo "[ovis] Unexpected stable release tag: $TAG" >&2
+    exit 1
+fi
+UPSTREAM_VERSION="${BASH_REMATCH[1]}"
+record_github_release_date "$WORKSPACE/release.json" "$WORKSPACE/release-date"
+printf '[]\n' > "$WORKSPACE/imports.json"
+: > "$WORKSPACE/targets.tsv"
+
+for ARCHITECTURE in $ARCHES; do
+    case "$ARCHITECTURE" in
+        amd64) UPSTREAM_ARCH=x64 ;;
+        arm64) UPSTREAM_ARCH=arm64 ;;
+        *) echo "[ovis] Unsupported architecture: $ARCHITECTURE" >&2; exit 1 ;;
+    esac
+
+    NAME="Ovis-linux-$UPSTREAM_ARCH.deb"
+    ASSET=$(select_github_asset "$WORKSPACE/release.json" "$NAME")
+    if [[ -z "$ASSET" ]]; then
+        echo "WARNING: [ovis] No upstream Debian package for $TAG ($ARCHITECTURE)" >&2
+        continue
+    fi
+    VERSION="$UPSTREAM_VERSION"
+    jq --arg ARCH "$ARCHITECTURE" --arg VERSION "$VERSION" --argjson ASSET "$ASSET" '
+        . + [{package: "ovis-desktop", version: $VERSION, architecture: $ARCH,
+              url: $ASSET.browser_download_url,
+              sha256: ($ASSET.digest | ltrimstr("sha256:") | ascii_downcase)}]
+    ' "$WORKSPACE/imports.json" > "$WORKSPACE/imports.tmp"
+    mv -- "$WORKSPACE/imports.tmp" "$WORKSPACE/imports.json"
+    printf '%s\t%s\n' "$VERSION" "$ARCHITECTURE" >> "$WORKSPACE/targets.tsv"
+done

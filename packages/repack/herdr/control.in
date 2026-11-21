@@ -1,0 +1,13 @@
+Package: herdr
+Version: @PACKAGE_VERSION@
+Architecture: @ARCHITECTURE@
+Maintainer: @MAINTAINER@
+Installed-Size: @INSTALLED_SIZE@
+Section: devel
+Priority: optional
+Recommends: openssh-client, ca-certificates
+Homepage: https://herdr.dev
+Description: Terminal workspace manager for coding agents
+ Keep terminals and coding agents in workspaces.
+X-Build-Inputs-SHA256: @BUILD_INPUTS_SHA256@
+X-Publisher-Stream: @PUBLISHER_STREAM@

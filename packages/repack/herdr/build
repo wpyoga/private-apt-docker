@@ -1,0 +1,33 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+: "${FRAMEWORK_DIR:?FRAMEWORK_DIR must be set and non-empty}"
+: "${ADAPTER_DIR:?ADAPTER_DIR must be set and non-empty}"
+: "${WORKSPACE:?WORKSPACE must be set and non-empty}"
+: "${MAINTAINER:?MAINTAINER must be set and non-empty}"
+: "${PUBLISHER_STREAM:?PUBLISHER_STREAM must be set and non-empty}"
+: "${BUILD_INPUTS_SHA256:?BUILD_INPUTS_SHA256 must be set and non-empty}"
+source "$FRAMEWORK_DIR/lib/adapter/package.sh"
+
+PACKAGE_VERSION="$1"
+ARCHITECTURE="$2"
+OUTPUT_DIR="$3"
+ASSET=$(jq --compact-output --exit-status --arg ARCH "$ARCHITECTURE" \
+    '.[$ARCH]' "$WORKSPACE/assets.json")
+UPSTREAM_VERSION=$(jq --raw-output --exit-status '.version | strings' <<< "$ASSET")
+if [[ "$UPSTREAM_VERSION" != "${PACKAGE_VERSION%-*}" ]]; then
+    echo "[herdr] Inconsistent build version: $PACKAGE_VERSION ($ARCHITECTURE)" >&2
+    exit 1
+fi
+URL=$(jq --raw-output --exit-status '.url | strings' <<< "$ASSET")
+SHA256=$(jq --raw-output --exit-status '.sha256 | strings' <<< "$ASSET")
+DOWNLOAD="$WORKSPACE/herdr-$UPSTREAM_VERSION-$ARCHITECTURE"
+verify_download "$URL" "$DOWNLOAD" "$SHA256" reuse
+python3 "$ADAPTER_DIR/validate.py" "$DOWNLOAD" "$ARCHITECTURE"
+
+PACKAGE_DIR="$WORKSPACE/pkg-$ARCHITECTURE"
+rm -rf -- "$PACKAGE_DIR"
+install -Dm 755 "$DOWNLOAD" "$PACKAGE_DIR/usr/bin/herdr"
+install -Dm 644 "$ADAPTER_DIR/copyright" "$PACKAGE_DIR/usr/share/doc/herdr/copyright"
+render_control "$ADAPTER_DIR/control.in" "$PACKAGE_DIR" ARCHITECTURE "$ARCHITECTURE"
+build_deb "$PACKAGE_DIR" "$OUTPUT_DIR/herdr_${PACKAGE_VERSION}_${ARCHITECTURE}.deb"
